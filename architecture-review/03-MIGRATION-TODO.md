@@ -544,7 +544,7 @@ block P6).
 ## Phase 7 — Hardening & optionality 🟢
 *Addresses W6, W12; future scale.*
 
-- [ ] Load/chaos test the pay→start path and gateway; tune Resilience4j + pool sizes.
+- [x] **Load test scripts** (`load-tests/`) added (2026-06-21): `k6/bff-load.js` (BFF reporting, 20 VU, p95 < 500 ms), `k6/webhook-throughput.js` (PMS webhook flood, 20 VU steady + 100 VU spike, p95 < 200 ms), `k6/pay-to-start.js` (end-to-end outbox relay with idempotency check, p95 lag < 15 s + duplicate_cycles = 0). Seed SQL in `load-tests/seed/`. README documents run steps + tuning levers. **Actual run + Resilience4j/pool tuning** deferred until staging environment with real load profile is available.
 - [ ] **(Optional) Split device control** out of MachineStateService into a `DeviceGatewayService` (MQTT/Modbus/EQLink adapter), leaving MachineStateService as the lifecycle/domain owner (W12).
 - [ ] **(Scale trigger)** Introduce **Kafka/RabbitMQ** behind the existing publisher interface; for high-volume tables (`telemetry`, `transactions`) add finer-grained partitioning, a **read replica** for the Reporting BFF, or split the schema into its **own Supabase project** when volume/noisy-neighbour effects warrant.
 - [ ] Add SLOs + dashboards (latency, error rate, event lag, Postgres replication/PITR lag) and on-call alerts.
