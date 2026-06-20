@@ -1,0 +1,68 @@
+# ===========================================
+# PRODUCTION ENVIRONMENT CONFIGURATION
+# ===========================================
+# Live production environment
+# Uses real APIs and production credentials
+
+environment: production
+
+# Database (Cloud MongoDB Atlas or production server)
+database:
+  uri: "${MONGO_URI}"
+
+# MQTT Broker (Production broker with authentication)
+mqtt:
+  broker_url: "${MQTT_BROKER_URL}"
+  username: "${MQTT_USERNAME}"
+  password: "${MQTT_PASSWORD}"
+
+# Redis (Session Storage - REQUIRED for production)
+# Heroku: Provision Heroku Redis addon
+# Other platforms: Use managed Redis (AWS ElastiCache, DigitalOcean, etc.)
+redis:
+  url: "${REDIS_URL}"  # e.g., redis://h:password@host:port
+
+# Payment Provider
+payment:
+  provider: "${PAYMENT_PROVIDER}"  # "campay" or "mtn"
+
+  # Campay Production
+  campay:
+    api_url: "https://www.campay.net"
+    # CAMPAY_APP_KEY, CAMPAY_APP_SECRET loaded from secrets
+
+  # MTN Production
+  mtn:
+    api_url: "https://proxy.momoapi.mtn.com"
+    env: "production"
+    # MTN_SUBSCRIPTION_KEY, MTN_API_USER_ID, MTN_API_KEY loaded from secrets
+
+# WhatsApp (Meta) Production
+whatsapp:
+  api_version: "v18.0"
+  # Production WhatsApp Business number
+  # WHATSAPP_TOKEN, WHATSAPP_PHONE_ID, WHATSAPP_APP_SECRET loaded from secrets
+
+# Pricing (Production rates in XAF)
+pricing:
+  short_cycle: 1000   # XAF - 30 minute cycle
+  long_cycle: 2000    # XAF - 60 minute cycle
+
+# Staff Alerts
+alerts:
+  staff_phone: "${STAFF_ALERT_PHONE}"
+
+# Logging (Less verbose in production)
+logging:
+  level: "info"
+  include_request_body: false
+
+# Security
+security:
+  rate_limit:
+    window_ms: 900000  # 15 minutes
+    max_requests: 100
+  cors:
+    allowed_origins:
+      - "https://yourdomain.com"
+      - "https://admin.yourdomain.com"

@@ -1,0 +1,20 @@
+{
+  "name": "Modbus write (0x10) — register write acknowledgement",
+  "priority": 5,
+  "request": {
+    "method": "POST",
+    "urlPath": "/modbus/rtu",
+    "bodyPatterns": [
+      { "matchesJsonPath": "$[?(@.function == 16)]" }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "frameHex": "01 10 04 79 00 01 D1 20",
+      "success": true,
+      "message": "write ack (mock)"
+    }
+  }
+}

@@ -1,0 +1,155 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: payment-management-service
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5434/paymentdb}
+    driver-class-name: org.postgresql.Driver
+    username: ${SPRING_DATASOURCE_USERNAME:payment_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:payment_pass}
+
+  flyway:
+    enabled: true
+    schemas: payment
+    default-schema: payment
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        default_schema: payment
+
+  # ── Security: Auth0 Resource Server + M2M client ───────────────────────────
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${AUTH0_ISSUER_URI:https://dev-iuo6si32jobgnmod.eu.auth0.com/}
+          audience: ${AUTH0_AUDIENCE:https://smartlaundry.api}
+      client:
+        provider:
+          auth0:
+            token-uri: https://dev-iuo6si32jobgnmod.eu.auth0.com/oauth/token
+        registration:
+          # M2M client used to call MachineStateService's /api/machines/start-cycle.
+          # Reuses the same Auth0 M2M application as spring-bot-manager-only's
+          # smartlaundry-m2m registration (already granted sls-machine-start).
+          smartlaundry-m2m:
+            provider: auth0
+            client-id: ${AUTH0_CLIENT_ID:6UGj1BFYTVTUdSC2AklgNsGoXqbCWlGZ}
+            client-secret: ${AUTH0_CLIENT_SECRET:}
+            authorization-grant-type: client_credentials
+            scope: sls-machine-start
+
+payment:
+  currency: XAF
+  timeout-minutes: 5
+
+  pricing:
+    short-cycle: 1000
+    long-cycle: 2000
+
+  campay:
+    base-url: ${CAMPAY_BASE_URL:https://demo.campay.net/api}     # https://www.campay.net/api
+    app-key: ${CAMPAY_APP_KEY:} # campay app username
+    app-secret: ${CAMPAY_APP_SECRET:} # campay app password
+    webhook-secret: ${CAMPAY_WEBHOOK_SECRET:}
+
+  mtn:
+    api-url: https://sandbox.momodeveloper.mtn.com
+    subscription-key: ${MTN_SUBSCRIPTION_KEY:}
+    api-user-id: ${MTN_API_USER_ID:}
+    api-key: ${MTN_API_KEY:}
+    environment: sandbox
+
+  orange:
+    api-url: https://api.orange.com
+    client-id: ${ORANGE_CLIENT_ID:}
+    client-secret: ${ORANGE_CLIENT_SECRET:}
+    merchant-key: ${ORANGE_MERCHANT_KEY:}
+
+machine-state-service:
+  base-url: ${MACHINE_STATE_SERVICE_URL:http://localhost:8082}
+
+# ── Post-payment machine trigger ──────────────────────────────────────────────
+# EQLink is NOT a payment system — it is a machine CONTROL platform.
+# This flag controls whether PaymentManagementService automatically calls
+# MachineStateService to start the machine after any CamPay/MTN/Orange payment.
+# MachineStateService then uses EQLink IoT (if configured) or MQTT.
+eqlink:
+  auto-start-machine-after-payment: ${EQLINK_AUTO_START:false}
+
+# Logging — levels are configurable via env vars; JSON structured output +
+# trace/span/correlation IDs are configured in logback-spring.xml.
+logging:
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.smartlaundromat.payment: ${LOG_LEVEL_PAYMENT:INFO}
+    com.smartlaundromat.payment.service: ${LOG_LEVEL_SERVICE:INFO}
+    com.smartlaundromat.payment.controller: ${LOG_LEVEL_CONTROLLER:INFO}
+    com.smartlaundromat.payment.service.provider: ${LOG_LEVEL_PROVIDER:INFO}
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%logger{36}] [traceId=%X{traceId:-}, correlationId=%X{correlationId:-}] - %msg%n"
+
+# ── Distributed tracing (P1 — OpenTelemetry via Micrometer Tracing) ──────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+
+auth0:
+  audience: ${AUTH0_AUDIENCE:https://smartlaundry.api}
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
+# ── Resilience4j (P1 — inter-service hops) ───────────────────────────────────
+# payment -> machine: POST /api/machines/start-cycle (MachineStartService).
+# Not idempotent (starts a wash cycle), so no retry — circuit breaker +
+# bulkhead only. Connect/read timeouts are set on the machineStateRestTemplate
+# itself (MicroserviceClientConfig).
+resilience4j:
+  circuitbreaker:
+    instances:
+      machineStateService:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+  bulkhead:
+    instances:
+      machineStateService:
+        max-concurrent-calls: 10
+        max-wait-duration: 0
+
+# ── Springdoc / Swagger UI ────────────────────────────────────────────────────
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    oauth:
+      client-id: ${SWAGGER_CLIENT_ID:}
+      client-secret: ${SWAGGER_CLIENT_SECRET:}
+  show-actuator: false

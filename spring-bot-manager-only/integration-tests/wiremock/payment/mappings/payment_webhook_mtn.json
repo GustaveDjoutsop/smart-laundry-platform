@@ -1,0 +1,12 @@
+{
+  "name": "PaymentManagementService - Webhook MTN",
+  "request": {
+    "method": "POST",
+    "url": "/api/webhook/mtn"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "status": "received" }
+  }
+}

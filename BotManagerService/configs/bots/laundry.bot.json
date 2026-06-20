@@ -1,0 +1,209 @@
+{
+  "botId": "laundry",
+  "botName": "Smart Laundry",
+  "phoneNumberId": "REPLACE_ME",
+  "verifyToken": "REDACTED",
+  "welcomeMessage": "Bienvenue a Smart Laundry!",
+  "mqtt": {
+    "topicPrefix": "laundry"
+  },
+  "machines": [
+    { "id": "W1", "type": "WASHER", "name": "Washer 1" },
+    { "id": "W2", "type": "WASHER", "name": "Washer 2" },
+    { "id": "W3", "type": "WASHER", "name": "Washer 3" },
+    { "id": "W4", "type": "WASHER", "name": "Washer 4" },
+    { "id": "W5", "type": "WASHER", "name": "Washer 5" },
+    { "id": "W6", "type": "WASHER", "name": "Washer 6" },
+    { "id": "D1", "type": "DRYER", "name": "Dryer 1" },
+    { "id": "D2", "type": "DRYER", "name": "Dryer 2" },
+    { "id": "D3", "type": "DRYER", "name": "Dryer 3" },
+    { "id": "D4", "type": "DRYER", "name": "Dryer 4" }
+  ],
+  "programs": {
+    "WASHER": [
+      { "id": "quick", "label": "Quick wash (30 min)", "amount": 500, "currency": "XAF", "durationSeconds": 1800 },
+      { "id": "standard", "label": "Standard wash (45 min)", "amount": 700, "currency": "XAF", "durationSeconds": 2700 }
+    ],
+    "DRYER": [
+      { "id": "standard", "label": "Standard dry (40 min)", "amount": 400, "currency": "XAF", "durationSeconds": 2400 }
+    ]
+  },
+  "defaultFlowId": "main_menu",
+  "flows": {
+    "main_menu": {
+      "triggers": ["hi", "hello", "salut", "bonjour", "menu", "back", "cancel", "reset"],
+      "states": [
+        {
+          "id": "ensure_language",
+          "type": "action",
+          "action": "i18n.ensureLanguage"
+        },
+        {
+          "id": "language_prompt",
+          "type": "buttons",
+          "template": "🌍 *Language / Langue*\n\nChoose your language:",
+          "buttons": [
+            { "id": "lang_en", "title": "English" },
+            { "id": "lang_fr", "title": "Français" }
+          ],
+          "saveAs": "languageChoice",
+          "next": "language_set"
+        },
+        {
+          "id": "language_set",
+          "type": "action",
+          "action": "i18n.setLanguage"
+        },
+        {
+          "id": "main_menu",
+          "type": "list",
+          "template": "{{menuText}}\n\n{{navHint}}",
+          "buttonText": "Open menu",
+          "sectionsFromContext": "menuSections",
+          "saveAs": "menuAction",
+          "next": "menu_route"
+        },
+        {
+          "id": "menu_route",
+          "type": "action",
+          "action": "menu.routeV2"
+        },
+        {
+          "id": "hours_action",
+          "type": "action",
+          "action": "hours.check",
+          "next": "hours_message"
+        },
+        {
+          "id": "hours_message",
+          "type": "message",
+          "template": "{{hoursText}}\n\n{{navHint}}",
+          "next": "main_menu"
+        },
+        {
+          "id": "help_message",
+          "type": "message",
+          "template": "{{helpText}}\n\n{{navHint}}",
+          "next": "main_menu"
+        },
+        {
+          "id": "status_machine_list_action",
+          "type": "action",
+          "action": "machines.listForStatus"
+        },
+        {
+          "id": "status_machine_list",
+          "type": "list",
+          "template": "{{statusPickMachineText}}\n\n{{navHint}}",
+          "buttonText": "Machines",
+          "sectionsFromContext": "statusMachineSections",
+          "saveAs": "statusMachineId",
+          "next": "status_action"
+        },
+        {
+          "id": "status_action",
+          "type": "action",
+          "action": "machines.status",
+          "next": "status_message"
+        },
+        {
+          "id": "status_message",
+          "type": "message",
+          "template": "{{machineStatusText}}\n\n{{navHint}}",
+          "next": "main_menu"
+        },
+        {
+          "id": "machines_list_action",
+          "type": "action",
+          "action": "machines.listAvailableV2"
+        },
+        {
+          "id": "machine_pick",
+          "type": "list",
+          "template": "{{pickMachineText}}\n\n{{navHint}}",
+          "buttonText": "Machines",
+          "sectionsFromContext": "machineSections",
+          "saveAs": "machineIdInput",
+          "next": "machines_validate_action"
+        },
+        {
+          "id": "machines_validate_action",
+          "type": "action",
+          "action": "machines.validateSelection"
+        },
+        {
+          "id": "programs_list_action",
+          "type": "action",
+          "action": "programs.listV2"
+        },
+        {
+          "id": "program_pick",
+          "type": "list",
+          "template": "{{pickProgramText}}\n\n{{navHint}}",
+          "buttonText": "Programs",
+          "sectionsFromContext": "programSections",
+          "saveAs": "programChoiceInput",
+          "next": "programs_validate_action"
+        },
+        {
+          "id": "programs_validate_action",
+          "type": "action",
+          "action": "programs.validateV2"
+        },
+        {
+          "id": "hours_before_payment",
+          "type": "action",
+          "action": "hours.requireOpen",
+          "next": "payment_initiate_action"
+        },
+        {
+          "id": "payment_initiate_action",
+          "type": "action",
+          "action": "payments.initiate"
+        },
+        {
+          "id": "payment_pending",
+          "type": "message",
+          "template": "{{paymentPendingText}}\n\n{{navHint}}",
+          "next": "feedback_prompt"
+        },
+        {
+          "id": "feedback_prompt",
+          "type": "buttons",
+          "template": "{{feedbackAskText}}",
+          "buttons": [
+            { "id": "rate_5", "title": "⭐️⭐️⭐️⭐️⭐️" },
+            { "id": "rate_4", "title": "⭐️⭐️⭐️⭐️" },
+            { "id": "rate_3", "title": "⭐️⭐️⭐️" }
+          ],
+          "saveAs": "ratingChoice",
+          "next": "feedback_route"
+        },
+        {
+          "id": "feedback_route",
+          "type": "action",
+          "action": "feedback.route"
+        },
+        {
+          "id": "feedback_comment_prompt",
+          "type": "input",
+          "prompt": "{{feedbackCommentPromptText}}",
+          "saveAs": "ratingComment",
+          "next": "feedback_save"
+        },
+        {
+          "id": "feedback_save",
+          "type": "action",
+          "action": "feedback.save",
+          "next": "feedback_thanks"
+        },
+        {
+          "id": "feedback_thanks",
+          "type": "message",
+          "template": "{{feedbackThanksText}}\n\n{{navHint}}",
+          "next": "main_menu"
+        }
+      ]
+    }
+  }
+}

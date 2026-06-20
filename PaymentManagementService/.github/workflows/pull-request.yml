@@ -1,0 +1,229 @@
+name: Pull Request Quality Gate
+
+on:
+  pull_request:
+    branches: [main, master]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  build-and-test:
+    name: Build & Test (Maven Verify)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run Maven verify (unit tests + JaCoCo)
+        run: mvn clean verify -B
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: '**/target/surefire-reports/*.xml'
+          retention-days: 7
+
+      - name: Upload JaCoCo coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: '**/target/site/jacoco/'
+          retention-days: 7
+
+      - name: Upload built JAR for integration tests
+        uses: actions/upload-artifact@v4
+        with:
+          name: payment-service-jar
+          path: target/*.jar
+          retention-days: 1
+
+  sonar:
+    name: SonarCloud Analysis
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Cache SonarCloud packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: Build, test and analyze with SonarCloud
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          mvn clean verify sonar:sonar -B \
+            -Dsonar.projectKey=GustaveDjoutsop_PaymentManagementService \
+            -Dsonar.organization=gustavedjoutsop \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+            -Dsonar.pullrequest.key=${{ github.event.pull_request.number }} \
+            -Dsonar.pullrequest.branch=${{ github.head_ref }} \
+            -Dsonar.pullrequest.base=${{ github.base_ref }}
+
+  integration-test:
+    name: Integration Tests (Robot Framework + WireMock)
+    runs-on: ubuntu-latest
+    needs: sonar
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: paymentdb
+          POSTGRES_USER: payment_user
+          POSTGRES_PASSWORD: payment_pass
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Robot Framework and libraries
+        run: pip install -r integration-tests/requirements.txt
+
+      - name: Build application JAR
+        run: mvn clean package -DskipTests -B
+
+      - name: Start WireMock (mocks CamPay, MTN, Orange APIs)
+        run: |
+          docker run -d \
+            --name wiremock \
+            -p 9090:8080 \
+            -v ${{ github.workspace }}/integration-tests/wiremock:/home/wiremock \
+            wiremock/wiremock:3.10.0 \
+            --verbose
+          echo "Waiting for WireMock to be ready..."
+          ready=false
+          for i in $(seq 1 20); do
+            if curl -sf http://localhost:9090/__admin/health; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != "true" ]; then
+            echo "WireMock did not become ready in time" >&2
+            docker logs wiremock
+            exit 1
+          fi
+          echo "WireMock ready"
+
+      - name: Start PaymentManagementService
+        env:
+          # Auth0 dev tenant — service validates incoming Bearer tokens
+          AUTH0_ISSUER_URI: https://dev-iuo6si32jobgnmod.eu.auth0.com/
+          AUTH0_AUDIENCE: https://smartlaundry.api
+        run: |
+          java -jar target/payment-management-service-*.jar \
+            --server.port=8081 \
+            --spring.security.oauth2.resourceserver.jwt.issuer-uri=${AUTH0_ISSUER_URI} \
+            --auth0.audience=${AUTH0_AUDIENCE} \
+            --payment.campay.base-url=http://localhost:9090/api \
+            --payment.campay.app-key=test-key \
+            --payment.campay.app-secret=test-secret \
+            --payment.campay.webhook-secret=test-webhook-secret \
+            --payment.mtn.api-url=http://localhost:9090 \
+            --payment.mtn.subscription-key=test-sub-key \
+            --payment.mtn.api-user-id=test-user \
+            --payment.mtn.api-key=test-api-key \
+            --payment.orange.api-url=http://localhost:9090 \
+            --payment.orange.client-id=test-client \
+            --payment.orange.client-secret=test-secret \
+            --payment.orange.merchant-key=test-merchant \
+            &
+          echo "Waiting for PaymentManagementService to be ready..."
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8081/v3/api-docs > /dev/null 2>&1 && break
+            sleep 3
+          done
+          echo "PaymentManagementService ready"
+
+      - name: Run Robot Framework integration tests
+        env:
+          # Auth0 M2M credentials — robot tests request tokens before calling protected endpoints.
+          # Configured as repo secrets (AUTH0_DEV_CLIENT_ID / AUTH0_DEV_CLIENT_SECRET), synced
+          # from the secret manager. No inline fallback — see SECRETS.md.
+          AUTH0_CLIENT_ID: ${{ secrets.AUTH0_DEV_CLIENT_ID }}
+          AUTH0_CLIENT_SECRET: ${{ secrets.AUTH0_DEV_CLIENT_SECRET }}
+        run: |
+          robot \
+            --outputdir integration-tests/results \
+            --log log.html \
+            --report report.html \
+            --xunit xunit.xml \
+            --variable AUTH0_CLIENT_ID:"${AUTH0_CLIENT_ID}" \
+            --variable AUTH0_CLIENT_SECRET:"${AUTH0_CLIENT_SECRET}" \
+            --variable AUTH0_TOKEN_URL:"https://dev-iuo6si32jobgnmod.eu.auth0.com/oauth/token" \
+            --variable AUTH0_AUDIENCE:"https://smartlaundry.api" \
+            integration-tests/tests/suites/
+        continue-on-error: false
+
+      - name: Upload Robot Framework results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: robot-results-payment
+          path: integration-tests/results/
+          retention-days: 14
+
+      - name: Publish integration test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Integration Tests — PaymentManagementService
+          path: integration-tests/results/xunit.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Stop services
+        if: always()
+        run: |
+          pkill -f "payment-management-service" || true
+          docker stop wiremock || true
+          docker rm wiremock || true

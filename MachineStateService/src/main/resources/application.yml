@@ -1,0 +1,175 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: machine-state-service
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5435/machinedb}
+    driver-class-name: org.postgresql.Driver
+    username: ${SPRING_DATASOURCE_USERNAME:machine_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:machine_pass}
+
+  flyway:
+    enabled: true
+    schemas: machine
+    default-schema: machine
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        default_schema: machine
+
+  # ── Security: Auth0 Resource Server ──────────────────────────────────────────
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${AUTH0_ISSUER_URI:https://dev-iuo6si32jobgnmod.eu.auth0.com/}
+          audience: ${AUTH0_AUDIENCE:https://smartlaundry.api}
+
+mqtt:
+  broker-url: ${MQTT_BROKER_URL:tcp://localhost:1883}
+  client-id: machine-state-service
+  username: ${MQTT_USERNAME:}
+  password: ${MQTT_PASSWORD:}
+  topic-prefix: laundry/cameroon
+  qos: 1
+  reconnect-interval: 5
+
+machine:
+  available-ids:
+    # EQLink / MQTT machines
+    - washer_01
+    - washer_02
+    - washer_03
+    - washer_04
+    - washer_05
+    - washer_06
+    - dryer_01
+    - dryer_02
+    - dryer_03
+    - dryer_04
+    # Modbus RTU machines (controlled only via Modbus when enabled)
+    - washer_07
+    - washer_08
+    - washer_09
+    - dryer_05
+    - dryer_06
+    - dryer_07
+  heartbeat-timeout-seconds: 120
+  cycle-check-interval-ms: 60000
+
+# ── Modbus RTU integration (feature-flagged) ─────────────────────────────────
+# Some machines speak Modbus RTU over RS485 instead of EQLink. The backend reaches
+# them through a serial<->HTTP gateway bridge (WireMock in dev). When disabled, these
+# machines fall back to MQTT only. Register map: SX174003A communication protocol.
+#
+#   sign-free: Modbus has no signature; CRC16 protects each frame.
+#   start sequence: select-program (4X1150) -> input-coins (4X1149) -> start (4X1146)
+modbus:
+  enabled: ${MODBUS_ENABLED:true}
+  gateway-url: ${MODBUS_GATEWAY_URL:http://localhost:9090}
+  request-path: ${MODBUS_REQUEST_PATH:/modbus/rtu}
+  default-coins: ${MODBUS_DEFAULT_COINS:1}
+  # Maps internal machine IDs to Modbus slave addresses (1-247).
+  # Populated in ci/dev.yaml; empty here so machines stay MQTT until configured.
+  unit-id-mapping: {}
+
+# ── Feature flags ─────────────────────────────────────────────────────────────
+# Both default DISABLED. The wash-flow flag is enforced in the bot (spring-bot-manager);
+# the reservation flag is enforced here in MachineStateService.
+features:
+  reservation-enabled: ${FEATURE_RESERVATION_ENABLED:true}
+
+# ── Reservation mechanism ─────────────────────────────────────────────────────
+# Slot length is fixed at exactly 1 hour (not configurable). The reservation fee must
+# equal the price of the highest washing cycle (kept in sync with the bot's long cycle).
+# The reservation fee is charged IN ADDITION to the normal wash price.
+reservation:
+  fee-amount: ${RESERVATION_FEE_AMOUNT:2000}
+  currency: ${RESERVATION_CURRENCY:XAF}
+  code-prefix: "RES-"
+  code-length: 6
+  expiry-check-ms: 60000
+
+payment-service:
+  base-url: ${PAYMENT_SERVICE_URL:http://localhost:8081}
+
+# ── EQLink Open API v2 integration ───────────────────────────────────────────
+# EQLink is a machine CONTROL platform (not a payment system).
+# Set enabled: true to activate. When disabled, all commands go through MQTT only.
+#
+# Auth uses MD5 signature (NOT a Bearer token):
+#   sign = MD5(sorted_params + "&secret_key=SECRET_KEY").toUpperCase()
+#
+# All API calls are POST to: {base-url}/api/open/v2/Device/<endpoint>
+eqlink:
+  enabled: ${EQLINK_ENABLED:false}
+  base-url: ${EQLINK_BASE_URL:https://tokyo.anlun.vip}
+  vendor-id: ${EQLINK_VENDOR_ID:}
+  app-id: ${EQLINK_APP_ID:}
+  secret-key: ${EQLINK_SECRET_KEY:}
+  wifi-ssid: ${EQLINK_WIFI_SSID:}
+  poll-interval-ms: ${EQLINK_POLL_INTERVAL_MS:30000}
+  # Default vend_price per pulse. Override via status check or per-machine config.
+  # total_amt = pulse_count × default-vend-price
+  default-vend-price: ${EQLINK_DEFAULT_VEND_PRICE:10}
+  # Maps internal machine IDs to EQLink devicename (module serial numbers).
+  # Configure via EQLINK_DEVICE_* env vars or in ci/dev.yaml.
+  device-name-mapping: {}
+
+# Logging — levels are configurable via env vars; JSON structured output +
+# trace/span/correlation IDs are configured in logback-spring.xml.
+logging:
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.smartlaundromat.machine: ${LOG_LEVEL_MACHINE:INFO}
+    com.smartlaundromat.machine.service: ${LOG_LEVEL_SERVICE:INFO}
+    com.smartlaundromat.machine.controller: ${LOG_LEVEL_CONTROLLER:INFO}
+    com.smartlaundromat.machine.mqtt: ${LOG_LEVEL_MQTT:INFO}
+    com.smartlaundromat.machine.modbus: ${LOG_LEVEL_MODBUS:INFO}
+    com.smartlaundromat.machine.eqlink: ${LOG_LEVEL_EQLINK:INFO}
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%logger{36}] [traceId=%X{traceId:-}, correlationId=%X{correlationId:-}] - %msg%n"
+
+# ── Distributed tracing (P1 — OpenTelemetry via Micrometer Tracing) ──────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+
+auth0:
+  audience: ${AUTH0_AUDIENCE:https://smartlaundry.api}
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
+# ── Springdoc / Swagger UI ────────────────────────────────────────────────────
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    oauth:
+      client-id: ${SWAGGER_CLIENT_ID:}
+      client-secret: ${SWAGGER_CLIENT_SECRET:}
+  show-actuator: false

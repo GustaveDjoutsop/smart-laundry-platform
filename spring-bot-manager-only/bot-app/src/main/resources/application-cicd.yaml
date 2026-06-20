@@ -1,0 +1,25 @@
+# CI/CD Environment Configuration
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/smartbot}
+  data:
+    redis:
+      url: ${REDIS_URL:redis://localhost:6379}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+whatsapp:
+  verify-signature: true
+
+# Reduced timeouts for CI
+payment:
+  poll-interval-ms: 5000
+  timeout-ms: 300000
+
+# Logging for CI
+logging:
+  level:
+    com.botmanager: DEBUG

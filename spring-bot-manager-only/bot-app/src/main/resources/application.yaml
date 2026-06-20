@@ -1,0 +1,236 @@
+# Server Configuration
+server:
+  port: ${PORT:8090}
+
+spring:
+  application:
+    name: spring-bot-manager
+
+  # Redis Configuration (optional - falls back to in-memory if not available)
+  # IMPORTANT: avoid empty-string URLs (Spring will fail fast with "Invalid Redis URL ''")
+  data:
+    redis:
+      url: ${REDIS_URL:${REDISCLOUD_URL:redis://localhost:6379}}
+      timeout: 5000ms
+
+  # PostgreSQL Configuration
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:15432/smartbot}
+    username: ${SPRING_DATASOURCE_USERNAME:smartbot}
+    password: ${SPRING_DATASOURCE_PASSWORD:smartbot}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        default_schema: bot
+
+  flyway:
+    enabled: true
+    schemas: bot
+    default-schema: bot
+
+  # ── Security: Auth0 Resource Server + M2M client ───────────────────────────
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${AUTH0_ISSUER_URI:https://dev-iuo6si32jobgnmod.eu.auth0.com/}
+          audience: ${AUTH0_AUDIENCE:https://smartlaundry.api}
+      client:
+        provider:
+          auth0:
+            token-uri: https://dev-iuo6si32jobgnmod.eu.auth0.com/oauth/token
+
+            #token-uri: ${AUTH0_ISSUER_URI:https://dev-iuo6si32jobgnmod.eu.auth0.com}/oauth/token
+        registration:
+          smartlaundry-m2m:
+            provider: auth0
+            client-id: ${AUTH0_CLIENT_ID:6UGj1BFYTVTUdSC2AklgNsGoXqbCWlGZ}
+            client-secret: ${AUTH0_CLIENT_SECRET:}
+            authorization-grant-type: client_credentials
+            scope: sls-machine-read, sls-machine-write, sls-payment-write, sls-rfid-read, sls-rfid-manage, sls-rfid-debit, sls-payment-read, sls-payment-initiate, sls-topup-manage, sls-machine-start, sls-machine-command, sls-telemetry-write, sls-bot-admin
+            #scope: sls-machine-read,sls-machine-write,sls-payment-write,sls-payment-read,sls-payment-initiate,sls-machine-start,sls-machine-command,sls-telemetry-write,sls-bot-admin
+
+management:
+  server:
+    port: ${MANAGEMENT_PORT:8081}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+  # ── Distributed tracing (P1 — OpenTelemetry via Micrometer Tracing) ────────
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+
+# WhatsApp Configuration
+whatsapp:
+  api:
+    version: ${WHATSAPP_API_VERSION:v20.0}
+    base-url: ${WHATSAPP_API_BASE:https://graph.facebook.com}
+  verify-signature: ${WHATSAPP_VERIFY_SIGNATURE:true}
+  app-secret: ${WHATSAPP_APP_SECRET:3d9xxxx}
+  access-token:
+    laundry: ${WHATSAPP_ACCESS_TOKEN_LAUNDRY:}
+    
+
+# Payment Configuration
+payment:
+  ttl-seconds: ${PAYMENT_TTL_SECONDS:86400}
+  poll-interval-ms: ${PAYMENT_POLL_INTERVAL_MS:10000}
+  timeout-ms: ${PAYMENT_TIMEOUT_MS:600000}
+
+# CamPay Configuration (kept for webhook secret resolution)
+campay:
+  token: ${CAMPAY_TOKEN:}
+  base-url: ${CAMPAY_BASE_URL:https://www.campay.net/api}
+  auth-scheme: ${CAMPAY_AUTH_SCHEME:Token}
+  collect-path: ${CAMPAY_COLLECT_PATH:/collect/}
+  status-path: ${CAMPAY_STATUS_PATH:/transaction/}
+  webhook-secret: ${CAMPAY_WEBHOOK_SECRET:}
+  webhook-signature-header: ${CAMPAY_WEBHOOK_SIGNATURE_HEADER:x-campay-signature}
+
+# Microservice URLs
+microservice:
+  payment-service-url: ${PAYMENT_SERVICE_URL:http://localhost:8081}
+  machine-state-service-url: ${MACHINE_STATE_SERVICE_URL:http://localhost:8082}
+  oauth2-registration-id: ${MICROSERVICE_OAUTH2_REGISTRATION_ID:smartlaundry-m2m}
+  http:
+    user-agent: ${HTTP_USER_AGENT:SpringBot/1.0}
+
+# MQTT Configuration (now handled by MachineStateService, kept for fallback)
+mqtt:
+  url: ${MQTT_URL:}
+  username: ${MQTT_USERNAME:}
+  password: ${MQTT_PASSWORD:}
+  topic-prefix: ${MQTT_TOPIC_PREFIX:}
+
+# ── Resilience4j (P1 — inter-service hops) ───────────────────────────────────
+# bot -> payment (DefaultPaymentGateway) and bot -> machine (MachineService),
+# both via microserviceWebClient. Connect/response timeouts are set on that
+# WebClient itself (MicroserviceClientConfig). Retry is only enabled for the
+# read instances (idempotent GETs: check payment status, fetch machine state).
+resilience4j:
+  circuitbreaker:
+    instances:
+      paymentService:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+      machineService:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+  bulkhead:
+    instances:
+      paymentService:
+        max-concurrent-calls: 20
+        max-wait-duration: 0
+      machineService:
+        max-concurrent-calls: 20
+        max-wait-duration: 0
+  retry:
+    instances:
+      paymentServiceRead:
+        max-attempts: 3
+        wait-duration: 500ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - java.io.IOException
+          - org.springframework.web.reactive.function.client.WebClientRequestException
+      machineServiceRead:
+        max-attempts: 3
+        wait-duration: 500ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - java.io.IOException
+          - org.springframework.web.reactive.function.client.WebClientRequestException
+
+# Rate Limiting
+rate-limit:
+  whatsapp:
+    window-ms: ${RATE_LIMIT_WHATSAPP_WINDOW_MS:60000}
+    max-requests: ${RATE_LIMIT_WHATSAPP_MAX:120}
+  payments:
+    window-ms: ${RATE_LIMIT_PAYMENTS_WEBHOOK_WINDOW_MS:60000}
+    max-requests: ${RATE_LIMIT_PAYMENTS_WEBHOOK_MAX:120}
+
+# Bot Configuration
+bot:
+  config-directory: ${BOT_CONFIG_DIRECTORY:configs/bots}
+
+# Per-bot feature flag overrides — take precedence over DB / JSON values.
+# Leave blank (empty string default) to use whatever is stored in the DB.
+# Set env var LAUNDRY_WASH_FLOW_ENABLED=true/false to override at runtime.
+smartbot:
+  bots:
+    laundry:
+      features:
+        wash-flow-enabled: ${LAUNDRY_WASH_FLOW_ENABLED:true}
+        reservation-enabled: ${LAUNDRY_RESERVATION_ENABLED:true}
+
+# CORS Configuration
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
+auth0:
+  audience: ${AUTH0_AUDIENCE:https://smartlaundry.api}
+
+# ── Springdoc / Swagger UI ──────────────────────────────────────────────────
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    oauth:
+      client-id: ${SWAGGER_CLIENT_ID:}
+      client-secret: ${SWAGGER_CLIENT_SECRET:}
+  show-actuator: false
+
+# Admin API
+admin:
+  username: ${ADMIN_USERNAME:admin}
+  password: ${ADMIN_PASSWORD:change-me-in-production}
+
+# JWT Authentication
+#jwt:
+#  secret: ${JWT_SECRET:change-me-in-production-must-be-at-least-32-chars}
+#  expiration-ms: ${JWT_EXPIRATION_MS:3600000}
+
+# Encryption
+encryption:
+  master-key: ${ENCRYPTION_MASTER_KEY:}
+
+# Logging — levels are configurable via env vars (e.g., LOG_LEVEL_BOT=DEBUG)
+logging:
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.botmanager: ${LOG_LEVEL_BOT:INFO}
+    com.botmanager.core.flow: ${LOG_LEVEL_FLOW:INFO}
+    com.botmanager.core.payment: ${LOG_LEVEL_PAYMENT:INFO}
+    com.botmanager.core.machine: ${LOG_LEVEL_MACHINE:INFO}
+    com.botmanager.bots.laundry: ${LOG_LEVEL_LAUNDRY:INFO}
+    com.botmanager.core.whatsapp: ${LOG_LEVEL_WHATSAPP:INFO}
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%logger{36}] [traceId=%X{traceId:-}, correlationId=%X{correlationId:-}] - %msg%n"

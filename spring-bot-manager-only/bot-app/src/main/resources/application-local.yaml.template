@@ -1,0 +1,56 @@
+# Local development overrides
+# Copy to application-local.yaml and fill in real values.
+
+server:
+	port: 3000
+
+management:
+	server:
+		port: 8081
+
+spring:
+	datasource:
+		url: jdbc:postgresql://localhost:15432/smartbot
+		username: smartbot
+		password: smartbot
+	jpa:
+		hibernate:
+			ddl-auto: validate
+	flyway:
+		enabled: true
+	data:
+		redis:
+			url: redis://localhost:6379
+
+whatsapp:
+	verify-signature: false
+	api:
+		version: v20.0
+		base-url: https://graph.facebook.com
+	app-secret: your-app-secret
+	access-token:
+		laundry: your-laundry-access-token
+		thomasnetwork: your-thomasnetwork-access-token
+
+campay:
+	token: your-campay-token
+	base-url: https://demo.campay.net
+	auth-scheme: Token
+	collect-path: /collect/
+	status-path: /transaction/
+	webhook-secret: your-campay-webhook-secret
+
+admin:
+	username: admin
+	password: change-me-in-production
+
+encryption:
+	master-key: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+bot:
+	config-directory: configs/bots
+
+mqtt:
+	url: ""
+	username: ""
+	password: ""

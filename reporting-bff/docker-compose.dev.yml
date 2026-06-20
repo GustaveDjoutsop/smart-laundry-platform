@@ -1,0 +1,21 @@
+services:
+  postgres-bff-dev:
+    image: postgres:17-alpine
+    container_name: bff-dev-postgres
+    ports:
+      - '5436:5432'
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - ./dev-seed:/docker-entrypoint-initdb.d
+      - bff_dev_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  bff_dev_pgdata:

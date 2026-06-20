@@ -1,0 +1,112 @@
+# ===========================================
+# TEST ENVIRONMENT CONFIGURATION
+# ===========================================
+# Used for CI/CD automated testing on Heroku
+# Uses sandbox APIs and mock services
+
+environment: test
+
+# ===========================================
+# SECURITY
+# ===========================================
+# JWT Secret for authentication (test only - DO NOT use in production)
+security:
+  jwt_secret: "test-jwt-secret-for-testing-do-not-use-in-production-32chars"
+
+# ===========================================
+# SERVER CONFIGURATION
+# ===========================================
+server:
+  port: 3000
+
+# ===========================================
+# DATABASE (MongoDB Atlas)
+# ===========================================
+AUTO_SEED_USERS: true
+database:
+  # MongoDB Atlas connection (password from secrets: MONGO_PASSWORD)
+  username: "laundry_db_test"
+  cluster: "smartlaundromatcontrols.h84aisc.mongodb.net"
+  database_name: "test"
+  app_name: "SmartLaundromatControlSystem"
+  # URI constructed at deploy time: mongodb+srv://{username}:{password}@{cluster}/{database_name}?appName={app_name}
+
+# ===========================================
+# MQTT BROKER
+# ===========================================
+mqtt:
+  broker_url: "mqtt://localhost:1883"
+  # For cloud MQTT (e.g., HiveMQ, CloudMQTT):
+  # Credentials from env vars: MQTT_USERNAME, MQTT_PASSWORD
+
+# ===========================================
+# REDIS (Session Storage)
+# ===========================================
+redis:
+  url: ""  # Leave empty to use in-memory storage for tests
+  # Use local Redis for integration tests if needed
+  # url: "redis://localhost:6379"
+
+# ===========================================
+# MACHINE SIMULATOR
+# ===========================================
+# Embedded simulator for TEST environment (no real machines)
+# Generates mock telemetry data for testing without physical hardware
+simulator:
+  enabled: true
+  telemetry_interval: 5000  # ms between telemetry updates
+  # Simulates: 6 washers (washer_01 to washer_06) and 4 dryers (dryer_01 to dryer_04)
+
+# ===========================================
+# PAYMENT PROVIDERS
+# ===========================================
+payment:
+  provider: "campay"
+
+  # Campay Sandbox
+  campay:
+    api_url: "https://demo.campay.net"
+    # Credentials from env vars: CAMPAY_APP_KEY, CAMPAY_APP_SECRET, CAMPAY_WEBHOOK_SECRET
+
+  # MTN Sandbox
+  mtn:
+    api_url: "https://sandbox.momodeveloper.mtn.com"
+    env: "sandbox"
+    # Credentials from env vars: MTN_SUBSCRIPTION_KEY, MTN_API_USER_ID, MTN_API_KEY
+
+# ===========================================
+# WHATSAPP (Meta)
+# ===========================================
+whatsapp:
+  api_version: "v18.0"
+  phone_id: "954151401109786"
+  app_secret: "test_meta_app_secret"  # For webhook signature validation
+  # Credentials from env vars: WHATSAPP_TOKEN, WHATSAPP_VERIFY_TOKEN, WHATSAPP_APP_SECRET
+
+# ===========================================
+# BUSINESS CONFIGURATION
+# ===========================================
+# Pricing (Low values for sandbox testing - Campay demo has 10 XAF limit)
+pricing:
+  short_cycle: 2   # XAF
+  long_cycle: 3    # XAF
+
+# Staff Alerts (disabled in test)
+alerts:
+  staff_phone: "919886927825"
+
+# ===========================================
+# DEPLOYMENT CONFIGURATION
+# ===========================================
+deployment:
+  platform: "heroku"
+  branch: "develop"
+  # Full app URL for health checks (Heroku assigns unique subdomain)
+  app_url: "https://smartlaundry-2ac76a884b66.herokuapp.com"
+
+# ===========================================
+# LOGGING
+# ===========================================
+logging:
+  level: "debug"
+  include_request_body: true

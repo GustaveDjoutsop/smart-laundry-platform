@@ -1,0 +1,48 @@
+services:
+
+  # postgres decommissioned 2026-06-16 (P3 cutover) — MachineStateService
+  # now connects to Supabase smartlaundry-dev (schema: machine, role: machine_svc)
+  # via Doppler-injected SPRING_DATASOURCE_URL/USERNAME/PASSWORD.
+  # Doppler: project machine-state-service, env dev.
+  # To run locally: doppler run -- mvn spring-boot:run
+  # MachineService.initializeMachines() auto-seeds the machine fleet on first boot.
+
+  # ── Mosquitto MQTT Broker ────────────────────────────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: machine-state-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_logs:/mosquitto/log
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_pub -h localhost -t health -m ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Machine State Service ────────────────────────────────────────────────────
+  # app:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: machine-state-service
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8082:8082"
+  #   environment:
+  #     MQTT_BROKER_URL: tcp://mosquitto:1883
+  #     PAYMENT_SERVICE_URL: ${PAYMENT_SERVICE_URL:-http://localhost:8081}
+  #     # Inject all secrets via Doppler:
+  #     # doppler run -- docker compose up app
+  #   depends_on:
+  #     mosquitto:
+  #       condition: service_healthy
+
+volumes:
+  mosquitto_data:
+  mosquitto_logs:

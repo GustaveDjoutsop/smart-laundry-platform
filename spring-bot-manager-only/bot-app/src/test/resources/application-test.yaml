@@ -1,0 +1,32 @@
+# Use H2 in-memory database for tests
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  flyway:
+    enabled: false
+  data:
+    redis:
+      url: redis://localhost:6379
+
+# Test auth
+admin:
+  username: testadmin
+  password: testpass
+
+# JWT (test key - at least 32 chars required)
+jwt:
+  secret: test-secret-key-for-unit-tests-only-do-not-use
+  expiration-ms: 3600000
+
+# Other
+whatsapp:
+  verify-signature: false
+
+encryption:
+  master-key: 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20

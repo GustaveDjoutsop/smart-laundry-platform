@@ -1,0 +1,76 @@
+# Default values for spring-bot-manager
+
+app: spring-bot-manager
+group: bot-services
+release: "0.1.0"
+
+replicaCount: 1
+
+image:
+  repository: spring-bot-manager
+  tag: latest
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+service:
+  type: ClusterIP
+  port: 3000
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+healthcheck:
+  port: 8081
+  path: /actuator/health
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+springProfiles: ""
+
+envs:
+  PORT: "3000"
+  MANAGEMENT_PORT: "8081"
+  QUEUE_MAX_SIZE: "500"
+
+secrets:
+  WHATSAPP_APP_SECRET: ""
+  CAMPAY_TOKEN: ""
+  CAMPAY_WEBHOOK_SECRET: ""
+  MQTT_PASSWORD: ""
+
+redis:
+  enabled: false
+  auth:
+    enabled: false
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  tls: []
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

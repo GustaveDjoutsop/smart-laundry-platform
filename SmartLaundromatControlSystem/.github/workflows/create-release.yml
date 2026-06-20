@@ -1,0 +1,62 @@
+# .github/workflows/create-release.yml
+
+name: Create GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Triggers on tags like v1.0, v1.2.3, etc.
+
+jobs:
+  build-and-release:
+    name: Build, Test, and Create Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install all dependencies
+        # We need devDependencies for testing
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+        env:
+          # Set dummy env vars required by tests if they aren't in your repo
+          WHATSAPP_VERIFY_TOKEN: 'ci-test-token'
+          CI: true
+
+      - name: Package application for release
+        # This creates a zip file with your source code, excluding dev files.
+        # The 'package.json' is included so the deployment server can run `npm ci --production`.
+        run: |
+          mkdir release
+          zip -r release/laundry-backend-${{ github.ref_name }}.zip . -x ".git/*" ".github/*" "node_modules/*" "src/tests/*" ".gitignore"
+
+      - name: Create GitHub Release
+        # This action creates the release and uploads the zip file as an asset.
+        uses: softprops/action-gh-release@v2
+        with:
+          # The release body will contain a link to the tag's commit history.
+          generate_release_notes: true
+          files: release/laundry-backend-${{ github.ref_name }}.zip
+
+
+### How This Fits Your Overall Strategy
+
+#1.  **You**: Push a new tag to your repository (e.g., `git tag v1.1.0 && git push origin v1.1.0`).
+#2.  **`create-release.yml` (This new workflow)**: Automatically runs, tests your code, and creates a formal, versioned GitHub Release with your packaged code (`laundry-backend-v1.1.0.zip`).
+#3.  **`release-prod.yml` (Your existing workflow)**: Automatically triggers because a new release was "published". It then checks out the code from the release tag and runs your deployment script to push the new version to the PROD environment.
+
+#This creates a clean, automated, and safe "Tag -> Test -> Package -> Release -> Deploy" pipeline.
+
+#<!--
+#[PROMPT_SUGGESTION]How do I configure the Environments and Secrets in my GitHub repository for these workflows?[/PROMPT_SUGGESTION]
+#[PROMPT_SUGGESTION]Show me an example of a real deployment script for the `release-prod.yml` workflow using SSH and PM2.[/PROMPT_SUGGESTION]

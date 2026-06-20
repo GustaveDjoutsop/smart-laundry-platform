@@ -1,0 +1,24 @@
+{
+  "name": "[dryer_03] iot_start_device — IDLE → RUNNING",
+  "priority": 44,
+  "scenarioName": "machine-dryer_03",
+  "requiredScenarioState": "Started",
+  "newScenarioState": "Running",
+  "request": {
+    "method": "POST",
+    "url": "/api/open/v2/Device/iot_start_device",
+    "bodyPatterns": [
+      { "matchesJsonPath": "$.devicename[?(@ == 'MOCK-D03')]" }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "status": 200,
+      "message": "Start device call successful!",
+      "server_time": "{{now format='yyyy-MM-dd HH:mm:ss'}}"
+    },
+    "transformers": ["response-template"]
+  }
+}

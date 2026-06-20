@@ -1,0 +1,174 @@
+# .github/workflows/create-admin.yml
+#
+# SECURE ADMIN CREATION WORKFLOW v3
+# Uses Heroku API directly to avoid command parsing issues
+# ==================================================
+
+name: Create Admin User
+
+on:
+  workflow_dispatch:
+    inputs:
+      admin_email:
+        description: 'Admin email address'
+        required: true
+        type: string
+      admin_name:
+        description: 'Admin full name'
+        required: true
+        type: string
+      target_environment:
+        description: 'Target environment'
+        required: true
+        default: 'test'
+        type: choice
+        options:
+          - test
+          - prod
+      force_create:
+        description: 'Force create even if admin exists?'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+concurrency:
+  group: admin-creation-${{ github.event.inputs.target_environment }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate Inputs
+    runs-on: ubuntu-latest
+    outputs:
+      is_valid: ${{ steps.validate.outputs.valid }}
+    steps:
+      - name: Validate email format
+        id: validate
+        env:
+          ADMIN_EMAIL: ${{ github.event.inputs.admin_email }}
+        run: |
+          if [[ ! "$ADMIN_EMAIL" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+            echo "❌ Invalid email format: $ADMIN_EMAIL"
+            exit 1
+          fi
+          echo "✅ Email format valid"
+          echo "valid=true" >> $GITHUB_OUTPUT
+
+  create-admin:
+    name: Create Admin User
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.target_environment == 'prod' && 'PROD' || 'TEST' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate secure password
+        id: password
+        run: |
+          PASSWORD=$(openssl rand -base64 24 | tr -d '/+=' | head -c 24)
+          PASSWORD="${PASSWORD}Aa1!"
+          echo "password=$PASSWORD" >> $GITHUB_OUTPUT
+          # NOTE: NOT using ::add-mask:: so the password can be displayed once
+          # The password is only visible in this workflow run's logs
+
+      - name: Read config from YAML
+        id: config
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+          ENV="${{ github.event.inputs.target_environment }}"
+          CONFIG_FILE="config/environments/${ENV}.yml"
+
+          if [ -f "$CONFIG_FILE" ]; then
+            echo "mongo_username=$(yq '.database.username' $CONFIG_FILE)" >> $GITHUB_OUTPUT
+            echo "mongo_cluster=$(yq '.database.cluster' $CONFIG_FILE)" >> $GITHUB_OUTPUT
+            echo "mongo_app_name=$(yq '.database.app_name' $CONFIG_FILE)" >> $GITHUB_OUTPUT
+            echo "mongo_dbname=$(yq '.database.database_name // "smartlaundry"' $CONFIG_FILE)" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Config file not found: $CONFIG_FILE"
+            exit 1
+          fi
+
+      - name: Create Admin User (Direct)
+        env:
+          NODE_ENV: ${{ github.event.inputs.target_environment }}
+          NON_INTERACTIVE: 'true'
+          ALLOW_ADMIN_CREATION: 'true'
+          ADMIN_EMAIL: ${{ github.event.inputs.admin_email }}
+          ADMIN_NAME: ${{ github.event.inputs.admin_name }}
+          ADMIN_PASSWORD: ${{ steps.password.outputs.password }}
+          FORCE_CREATE: ${{ github.event.inputs.force_create }}
+          MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
+          MONGO_USERNAME: ${{ steps.config.outputs.mongo_username }}
+          MONGO_CLUSTER: ${{ steps.config.outputs.mongo_cluster }}
+          MONGO_APP_NAME: ${{ steps.config.outputs.mongo_app_name }}
+          MONGO_DBNAME: ${{ steps.config.outputs.mongo_dbname }}
+        run: |
+          echo "🔧 Creating admin user..."
+          echo "   Environment: $NODE_ENV"
+          echo "   Email: $ADMIN_EMAIL"
+          echo "   Name: $ADMIN_NAME"
+          echo ""
+
+          # Build MongoDB URI
+          # URL-encode the password for special characters
+          ENCODED_PASSWORD=$(node -e "console.log(encodeURIComponent(process.env.MONGO_PASSWORD))")
+          export MONGO_URI="mongodb+srv://${MONGO_USERNAME}:${ENCODED_PASSWORD}@${MONGO_CLUSTER}/${MONGO_DBNAME}?retryWrites=true&w=majority&appName=${MONGO_APP_NAME}"
+
+          # Run the script directly in GitHub Actions runner
+          # This connects to the same MongoDB as Heroku
+          node scripts/createAdmin.js
+
+      - name: Output credentials
+        if: success()
+        env:
+          ADMIN_EMAIL: ${{ github.event.inputs.admin_email }}
+          ADMIN_PASSWORD: ${{ steps.password.outputs.password }}
+          TARGET_ENV: ${{ github.event.inputs.target_environment }}
+        run: |
+          echo ""
+          echo "========================================"
+          echo "   ✅ ADMIN CREATED SUCCESSFULLY!"
+          echo "========================================"
+          echo ""
+          echo "   Email:    $ADMIN_EMAIL"
+          echo "   Password: $ADMIN_PASSWORD"
+          echo ""
+          echo "   ⚠️  COPY THIS PASSWORD NOW!"
+          echo "   It will NOT be shown again."
+          echo ""
+          echo "========================================"
+
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## ✅ Admin Created Successfully
+
+          | Field | Value |
+          |-------|-------|
+          | Environment | $TARGET_ENV |
+          | Email | $ADMIN_EMAIL |
+
+          🔐 **Password:** Check the workflow logs above (Output credentials step)
+
+          ⚠️ The admin must change this password on first login.
+          EOF
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "## ❌ Admin Creation Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check the logs above for error details." >> $GITHUB_STEP_SUMMARY

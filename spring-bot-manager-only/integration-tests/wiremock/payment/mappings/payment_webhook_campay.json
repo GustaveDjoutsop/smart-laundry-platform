@@ -1,0 +1,12 @@
+{
+  "name": "PaymentManagementService - Webhook CamPay",
+  "request": {
+    "method": "POST",
+    "url": "/api/webhook/campay"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "status": "received" }
+  }
+}

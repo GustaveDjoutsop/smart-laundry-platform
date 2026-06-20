@@ -1,0 +1,106 @@
+# .github/workflows/deploy-heroku-stage.yml
+
+name: Deploy to Heroku STAGE
+
+on:
+  workflow_dispatch:  # Manual trigger only for stage
+    inputs:
+      confirm:
+        description: 'Type "deploy" to confirm STAGE deployment'
+        required: true
+        default: ''
+
+jobs:
+  validate:
+    name: Validate Deployment Confirmation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation
+        if: github.event.inputs.confirm != 'deploy'
+        run: |
+          echo "Deployment cancelled. You must type 'deploy' to confirm."
+          exit 1
+
+  deploy:
+    name: Deploy to Heroku STAGE Environment
+    needs: validate
+    runs-on: ubuntu-latest
+    environment:
+      name: STAGE
+      url: https://smartlaundry-stage.herokuapp.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: 'develop'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install dependencies and run tests
+        run: |
+          npm ci
+          npm test
+        env:
+          NODE_ENV: test
+
+      - name: Deploy to Heroku with Docker
+        uses: akhileshns/heroku-deploy@v3.13.15
+        with:
+          heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
+          heroku_app_name: ${{ secrets.HEROKU_STAGE_APP_NAME }}
+          heroku_email: ${{ secrets.HEROKU_EMAIL }}
+          usedocker: true
+          docker_heroku_process_type: web
+          docker_build_args: |
+            NODE_ENV=stage
+
+      - name: Set Heroku environment variables
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+        run: |
+          # NODE_ENV=stage loads config/environments/stage.yml
+          # Only secrets are set here - non-secret config comes from YAML files
+          heroku config:set \
+            NODE_ENV=stage \
+            MONGO_URI="${{ secrets.STAGE_MONGO_URI }}" \
+            MQTT_BROKER_URL="${{ secrets.STAGE_MQTT_BROKER_URL }}" \
+            MQTT_USERNAME="${{ secrets.STAGE_MQTT_USERNAME }}" \
+            MQTT_PASSWORD="${{ secrets.STAGE_MQTT_PASSWORD }}" \
+            CAMPAY_APP_KEY="${{ secrets.STAGE_CAMPAY_KEY }}" \
+            CAMPAY_APP_SECRET="${{ secrets.STAGE_CAMPAY_SECRET }}" \
+            CAMPAY_WEBHOOK_SECRET="${{ secrets.STAGE_CAMPAY_WEBHOOK_SECRET }}" \
+            MTN_SUBSCRIPTION_KEY="${{ secrets.STAGE_MTN_SUBSCRIPTION_KEY }}" \
+            MTN_API_USER_ID="${{ secrets.STAGE_MTN_API_USER_ID }}" \
+            MTN_API_KEY="${{ secrets.STAGE_MTN_API_KEY }}" \
+            WHATSAPP_TOKEN="${{ secrets.STAGE_WHATSAPP_TOKEN }}" \
+            WHATSAPP_PHONE_ID="${{ secrets.STAGE_WHATSAPP_PHONE_ID }}" \
+            WHATSAPP_VERIFY_TOKEN="${{ secrets.STAGE_WHATSAPP_VERIFY_TOKEN }}" \
+            WHATSAPP_APP_SECRET="${{ secrets.STAGE_WHATSAPP_APP_SECRET }}" \
+            JWT_SECRET="${{ secrets.STAGE_JWT_SECRET }}" \
+            JWT_REFRESH_SECRET="${{ secrets.STAGE_JWT_REFRESH_SECRET }}" \
+            STAFF_ALERT_PHONE="${{ secrets.STAGE_STAFF_ALERT_PHONE }}" \
+            --app ${{ secrets.HEROKU_STAGE_APP_NAME }}
+
+      - name: Verify deployment
+        run: |
+          sleep 15
+          curl -f https://${{ secrets.HEROKU_STAGE_APP_NAME }}.herokuapp.com/health || exit 1
+          echo "STAGE deployment successful!"
+
+      - name: Create deployment summary
+        run: |
+          echo "## STAGE Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: STAGE" >> $GITHUB_STEP_SUMMARY
+          echo "- **Config**: config/environments/stage.yml" >> $GITHUB_STEP_SUMMARY
+          echo "- **App**: ${{ secrets.HEROKU_STAGE_APP_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL**: https://${{ secrets.HEROKU_STAGE_APP_NAME }}.herokuapp.com" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: develop" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Deployment successful!" >> $GITHUB_STEP_SUMMARY

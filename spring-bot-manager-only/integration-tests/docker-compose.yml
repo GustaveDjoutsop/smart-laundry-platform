@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+      - "8081:8081"
+    environment:
+      - SPRING_PROFILES_ACTIVE=cicd
+      - REDIS_URL=redis://redis:6379
+      - WHATSAPP_VERIFY_SIGNATURE=false
+      - QUEUE_MAX_SIZE=100
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - APP_HOST=app
+      - APP_PORT=3000
+      - HEALTH_PORT=8081
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - ./results:/results

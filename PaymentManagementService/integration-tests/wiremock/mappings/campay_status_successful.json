@@ -1,0 +1,17 @@
+{
+  "name": "CamPay - Check payment status (SUCCESSFUL)",
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/api/transaction/CAMP-DONE-.*/"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "reference": "CAMP-DONE-001",
+      "status": "SUCCESSFUL",
+      "amount": "1500",
+      "operator": "MTN"
+    }
+  }
+}

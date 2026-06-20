@@ -1,0 +1,220 @@
+# .github/workflows/deploy-stage.yml
+
+name: Deploy to STAGE (DigitalOcean)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to deploy (e.g., v1.0.0). Leave empty to use latest release.'
+        required: false
+        default: ''
+
+jobs:
+  deploy:
+    name: Deploy to DigitalOcean Droplet
+    runs-on: ubuntu-latest
+    environment: STAGE
+
+    steps:
+      - name: Get release tag
+        id: release
+        run: |
+          if [ -n "${{ github.event.inputs.release_tag }}" ]; then
+            echo "tag=${{ github.event.inputs.release_tag }}" >> $GITHUB_OUTPUT
+            echo "Using specified release tag: ${{ github.event.inputs.release_tag }}"
+          else
+            # Get latest release tag from GitHub API
+            LATEST_TAG=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest | jq -r '.tag_name')
+            if [ "$LATEST_TAG" == "null" ] || [ -z "$LATEST_TAG" ]; then
+              echo "No releases found. Please create a release first or specify a tag."
+              exit 1
+            fi
+            echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+            echo "Using latest release tag: $LATEST_TAG"
+          fi
+
+      - name: Checkout code at release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+
+      - name: Read config from stage.yml
+        id: config
+        run: |
+          # Install yq for YAML parsing
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+          # Read values from config/environments/stage.yml
+          echo "port=$(yq '.server.port' config/environments/stage.yml)" >> $GITHUB_OUTPUT
+          echo "mongo_host=$(yq '.database.host' config/environments/stage.yml)" >> $GITHUB_OUTPUT
+          echo "mongo_port=$(yq '.database.port' config/environments/stage.yml)" >> $GITHUB_OUTPUT
+          echo "mongo_db=$(yq '.database.name' config/environments/stage.yml)" >> $GITHUB_OUTPUT
+          echo "mongo_auth=$(yq '.database.auth_source' config/environments/stage.yml)" >> $GITHUB_OUTPUT
+          echo "mqtt_url=$(yq '.mqtt.broker_url' config/environments/stage.yml)" >> $GITHUB_OUTPUT
+          echo "whatsapp_phone_id=$(yq '.whatsapp.phone_id' config/environments/stage.yml)" >> $GITHUB_OUTPUT
+          echo "staff_phone=$(yq '.alerts.staff_phone' config/environments/stage.yml)" >> $GITHUB_OUTPUT
+          echo "deploy_path=$(yq '.deployment.path' config/environments/stage.yml)" >> $GITHUB_OUTPUT
+
+      - name: Deploy to DigitalOcean Stage Server
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          # ===========================================
+          # SECRETS ONLY (passwords, keys, tokens)
+          # ===========================================
+          # Database
+          MONGO_USERNAME: ${{ secrets.MONGO_USERNAME }}
+          MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
+
+          # MQTT
+          MQTT_USERNAME: ${{ secrets.MQTT_USERNAME }}
+          MQTT_PASSWORD: ${{ secrets.MQTT_PASSWORD }}
+
+          # CamPay
+          CAMPAY_APP_KEY: ${{ secrets.CAMPAY_APP_KEY }}
+          CAMPAY_APP_SECRET: ${{ secrets.CAMPAY_APP_SECRET }}
+          CAMPAY_WEBHOOK_SECRET: ${{ secrets.CAMPAY_WEBHOOK_SECRET }}
+
+          # MTN MoMo
+          MTN_SUBSCRIPTION_KEY: ${{ secrets.MTN_SUBSCRIPTION_KEY }}
+          MTN_API_USER_ID: ${{ secrets.MTN_API_USER_ID }}
+          MTN_API_KEY: ${{ secrets.MTN_API_KEY }}
+
+          # WhatsApp
+          WHATSAPP_TOKEN: ${{ secrets.WHATSAPP_TOKEN }}
+          WHATSAPP_VERIFY_TOKEN: ${{ secrets.WHATSAPP_VERIFY_TOKEN }}
+          WHATSAPP_APP_SECRET: ${{ secrets.WHATSAPP_APP_SECRET }}
+
+          # JWT
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+
+          # ===========================================
+          # NON-SECRETS (from stage.yml config)
+          # ===========================================
+          SERVER_PORT: ${{ steps.config.outputs.port }}
+          MONGO_HOST: ${{ steps.config.outputs.mongo_host }}
+          MONGO_PORT: ${{ steps.config.outputs.mongo_port }}
+          MONGO_DB: ${{ steps.config.outputs.mongo_db }}
+          MONGO_AUTH: ${{ steps.config.outputs.mongo_auth }}
+          MQTT_BROKER_URL: ${{ steps.config.outputs.mqtt_url }}
+          WHATSAPP_PHONE_ID: ${{ steps.config.outputs.whatsapp_phone_id }}
+          STAFF_ALERT_PHONE: ${{ steps.config.outputs.staff_phone }}
+          DEPLOY_PATH: ${{ steps.config.outputs.deploy_path }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        with:
+          host: ${{ secrets.DO_SERVER_HOST }}
+          username: ${{ secrets.DO_SERVER_USER }}
+          key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+          envs: MONGO_USERNAME,MONGO_PASSWORD,MQTT_USERNAME,MQTT_PASSWORD,CAMPAY_APP_KEY,CAMPAY_APP_SECRET,CAMPAY_WEBHOOK_SECRET,MTN_SUBSCRIPTION_KEY,MTN_API_USER_ID,MTN_API_KEY,WHATSAPP_TOKEN,WHATSAPP_VERIFY_TOKEN,JWT_SECRET,JWT_REFRESH_SECRET,SERVER_PORT,MONGO_HOST,MONGO_PORT,MONGO_DB,MONGO_AUTH,MQTT_BROKER_URL,WHATSAPP_PHONE_ID,STAFF_ALERT_PHONE,DEPLOY_PATH,RELEASE_TAG
+          script: |
+            echo "=========================================="
+            echo "Deploying to STAGE (DigitalOcean)"
+            echo "Release Tag: ${RELEASE_TAG}"
+            echo "=========================================="
+
+            echo "Navigating to project directory..."
+            cd ${DEPLOY_PATH}
+
+            echo "Fetching latest tags..."
+            git fetch --all --tags
+
+            echo "Checking out release tag: ${RELEASE_TAG}..."
+            git checkout ${RELEASE_TAG}
+
+            echo "Creating .env file..."
+            cat > .env << EOF
+            # ===========================================
+            # STAGE ENVIRONMENT - DigitalOcean
+            # Auto-generated by GitHub Actions
+            # Release: ${RELEASE_TAG}
+            # ===========================================
+            # Non-secret config loaded from config/environments/stage.yml
+
+            # Environment
+            NODE_ENV=stage
+            PORT=${SERVER_PORT}
+
+            # Database (MongoDB)
+            MONGO_URI=mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@${MONGO_HOST}:${MONGO_PORT}/${MONGO_DB}?authSource=${MONGO_AUTH}
+
+            # MQTT Broker
+            MQTT_BROKER_URL=${MQTT_BROKER_URL}
+            MQTT_USERNAME=${MQTT_USERNAME}
+            MQTT_PASSWORD=${MQTT_PASSWORD}
+
+            # CamPay (Sandbox for staging)
+            CAMPAY_APP_KEY=${CAMPAY_APP_KEY}
+            CAMPAY_APP_SECRET=${CAMPAY_APP_SECRET}
+            CAMPAY_WEBHOOK_SECRET=${CAMPAY_WEBHOOK_SECRET}
+
+            # MTN MoMo (Sandbox for staging)
+            MTN_SUBSCRIPTION_KEY=${MTN_SUBSCRIPTION_KEY}
+            MTN_API_USER_ID=${MTN_API_USER_ID}
+            MTN_API_KEY=${MTN_API_KEY}
+
+            # WhatsApp (Meta)
+            WHATSAPP_TOKEN=${WHATSAPP_TOKEN}
+            WHATSAPP_PHONE_ID=${WHATSAPP_PHONE_ID}
+            WHATSAPP_VERIFY_TOKEN=${WHATSAPP_VERIFY_TOKEN}
+
+            # JWT Authentication
+            JWT_SECRET=${JWT_SECRET}
+            JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+
+            # Staff Alerts
+            STAFF_ALERT_PHONE=${STAFF_ALERT_PHONE}
+            EOF
+
+            echo "Installing dependencies..."
+            npm ci --production
+
+            echo "Restarting application with PM2..."
+            pm2 restart SmartLaundromatControlSystem || pm2 start npm --name "SmartLaundromatControlSystem" -- start
+
+            echo "Application status:"
+            pm2 status
+
+            echo "=========================================="
+            echo "Deployment completed successfully!"
+            echo "Release ${RELEASE_TAG} deployed to STAGE"
+            echo "=========================================="
+
+      - name: Health Check
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          SERVER_PORT: ${{ steps.config.outputs.port }}
+          DEPLOY_PATH: ${{ steps.config.outputs.deploy_path }}
+        with:
+          host: ${{ secrets.DO_SERVER_HOST }}
+          username: ${{ secrets.DO_SERVER_USER }}
+          key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+          envs: SERVER_PORT,DEPLOY_PATH
+          script: |
+            echo "Running health check..."
+            sleep 5
+
+            if curl -sf http://localhost:${SERVER_PORT}/health > /dev/null; then
+              echo "Health check PASSED"
+            else
+              echo "Health check FAILED - checking logs..."
+              pm2 logs SmartLaundromatControlSystem --lines 20
+              exit 1
+            fi
+
+      - name: Create deployment summary
+        if: success()
+        run: |
+          echo "## STAGE Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | STAGE |" >> $GITHUB_STEP_SUMMARY
+          echo "| Platform | DigitalOcean |" >> $GITHUB_STEP_SUMMARY
+          echo "| Release Tag | ${{ steps.release.outputs.tag }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Config File | config/environments/stage.yml |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deployed by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Deployment successful!" >> $GITHUB_STEP_SUMMARY

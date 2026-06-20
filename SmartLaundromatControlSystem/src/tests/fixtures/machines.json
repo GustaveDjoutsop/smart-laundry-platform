@@ -1,0 +1,41 @@
+{
+  "washers": [
+    {
+      "machineId": "washer_01",
+      "type": "WASHER",
+      "status": "AVAILABLE",
+      "model": "LG WM-500",
+      "capacity": "8kg"
+    },
+    {
+      "machineId": "washer_02",
+      "type": "WASHER",
+      "status": "IN_USE",
+      "model": "LG WM-500",
+      "capacity": "8kg"
+    },
+    {
+      "machineId": "washer_03",
+      "type": "WASHER",
+      "status": "MAINTENANCE",
+      "model": "LG WM-500",
+      "capacity": "8kg"
+    }
+  ],
+  "dryers": [
+    {
+      "machineId": "dryer_01",
+      "type": "DRYER",
+      "status": "AVAILABLE",
+      "model": "Samsung DV-300",
+      "capacity": "7kg"
+    },
+    {
+      "machineId": "dryer_02",
+      "type": "DRYER",
+      "status": "IN_USE",
+      "model": "Samsung DV-300",
+      "capacity": "7kg"
+    }
+  ]
+}

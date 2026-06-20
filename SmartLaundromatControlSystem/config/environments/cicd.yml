@@ -1,0 +1,91 @@
+# ===========================================
+# CI/CD Environment Configuration
+# Used by GitHub Actions and CI/CD pipelines
+# ===========================================
+
+# Security - JWT Secret for authentication
+# This is a test secret for CI/CD only - DO NOT use in production
+security:
+  jwt_secret: "test-jwt-secret-for-cicd-do-not-use-in-production-32chars"
+
+server:
+  port: 3000
+
+# Database - Uses MongoDB service in GitHub Actions
+database:
+  uri: mongodb://localhost:27017/laundry_test
+
+# MQTT - Test broker for CI/CD
+mqtt:
+  broker_url: mqtt://test.mosquitto.org
+  username: ""
+  password: ""
+
+# Redis - Session storage for CI/CD (in-memory fallback)
+redis:
+  url: ""  # Use in-memory storage for CI/CD tests
+
+# Payment Provider - Use Campay sandbox for CI/CD tests
+payment:
+  provider: campay
+  campay:
+    api_url: https://demo.campay.net
+    app_key: test_key
+    app_secret: test_secret
+    webhook_secret: test_webhook_secret
+
+# WhatsApp/Meta API - Test credentials
+whatsapp:
+  token: test_meta_token
+  app_secret: test_meta_app_secret  # For webhook signature validation
+  phone_id: test_phone_id
+  verify_token: test_verify_token
+  business_phone: "15556089484"
+
+# Pricing (XAF - Central African Francs)
+pricing:
+  short_cycle: 1000
+  long_cycle: 2000
+
+# Cycle Configuration
+cycles:
+  short:
+    duration: "30"
+    pulse_count: 1
+  long:
+    duration: "60"
+    pulse_count: 2
+
+# Machine Configuration
+machines:
+  available:
+    - washer_01
+    - washer_02
+    - dryer_01
+    - dryer_02
+
+# Business Hours
+business_hours:
+  open_time: "07:00"
+  close_time: "22:00"
+  closing_buffer_minutes: 15
+  timezone: "Africa/Douala"
+
+# Monitoring Configuration
+monitoring:
+  cycle_check_interval: 60
+  feedback_check_interval: 60
+  feedback_delay_after_cycle: 30
+
+# Feedback Configuration
+feedback:
+  low_rating_threshold: 3
+
+# Logging Configuration
+logging:
+  level: debug
+  include_request_body: true
+
+# Staff Alert Configuration
+alerts:
+  staff_phone: "237650000000"

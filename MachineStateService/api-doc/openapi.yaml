@@ -1,0 +1,380 @@
+openapi: 3.0.3
+info:
+  title: MachineStateService API
+  version: 1.0.0
+  description: |
+    Machine state microservice for the SmartLaundromat ecosystem.
+
+    Manages washing machine lifecycle, receives ESP32 telemetry, and dispatches
+    machine commands via **EQLink IoT** (primary) and/or **MQTT** (fallback).
+
+    ### EQLink Integration
+    When `eqlink.enabled=true`, this service uses the **EQLink Open API v2** to:
+    - Poll machine states (`get_device_list`, `iot_check_dev_status`)
+    - Start machines remotely (`iot_start_device`)
+    - Generate BT start commands as a fallback (`bt_start_device`)
+
+    **EQLink auth uses MD5 signature** (NOT a Bearer token):
+    ```
+    sign = MD5(sorted_params + "&secret_key=YOUR_KEY").toUpperCase()
+    ```
+
+    **EQLink is NOT a payment system** — payments go through CamPay/MTN/Orange Money.
+
+    ### Command dispatch strategy
+    1. EQLink enabled + machine has `devicename` mapping → `iot_start_device` (primary)
+    2. If EQLink IoT times out (406) → MQTT pulse (fallback)
+    3. EQLink disabled → MQTT only
+
+    ### How to get a token
+    ```bash
+    curl --request POST \
+      --url https://dev-iuo6si32jobgnmod.eu.auth0.com/oauth/token \
+      --header 'content-type: application/json' \
+      --data '{
+        "client_id":     "<CLIENT_ID>",
+        "client_secret": "<CLIENT_SECRET>",
+        "audience":      "https://smartlaundry.api",
+        "grant_type":    "client_credentials",
+        "scope":         "sls-machine-read sls-machine-start"
+      }'
+    ```
+  contact:
+    name: SmartLaundromat Team
+    email: dev@smartlaundromat.cm
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8082
+    description: Local / Dev
+  - url: https://api.smartlaundromat.cm/machine
+    description: Production
+
+security:
+  - auth0: []
+
+components:
+  securitySchemes:
+    auth0:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://dev-iuo6si32jobgnmod.eu.auth0.com/oauth/token
+          scopes:
+            sls-machine-read:    Read machine status, events, and cycle history
+            sls-machine-start:   Start a machine cycle (triggers MQTT pulse to ESP32)
+            sls-machine-command: Send raw commands to machines (stop, reset, status)
+            sls-telemetry-write: Submit ESP32 telemetry data via HTTP
+
+  schemas:
+    MachineStatusResponse:
+      type: object
+      properties:
+        machineId:       { type: string, example: "washer_01" }
+        displayName:     { type: string, example: "Washer 1" }
+        type:            { type: string, enum: [WASHER, DRYER] }
+        status:          { type: string, enum: [IDLE, RUNNING, PAUSED, FINISHED, ERROR, MAINTENANCE, OFFLINE] }
+        online:          { type: boolean }
+        available:       { type: boolean }
+        currentCycleType:
+          type: string
+          enum: [NONE, QUICK, NORMAL, HEAVY, DELICATE, SANITIZE, COTTON_40, COTTON_60, COTTON_90, LOW_HEAT, MEDIUM_HEAT, HIGH_HEAT]
+        cycleStartedAt:  { type: string, format: date-time }
+        cycleEndsAt:     { type: string, format: date-time }
+        cycleProgress:   { type: integer, minimum: 0, maximum: 100 }
+        remainingMinutes: { type: integer, nullable: true }
+        doorLocked:      { type: boolean }
+        temperature:     { type: number, nullable: true }
+        errorCode:       { type: string, nullable: true }
+        errorMessage:    { type: string, nullable: true }
+        lastHeartbeat:   { type: string, format: date-time }
+
+    MachineSummaryResponse:
+      type: object
+      properties:
+        machines:
+          type: array
+          items: { $ref: "#/components/schemas/MachineStatusResponse" }
+        total:       { type: integer }
+        available:   { type: integer }
+        inUse:       { type: integer }
+        offline:     { type: integer }
+        error:       { type: integer }
+        maintenance: { type: integer }
+
+    StartCycleRequest:
+      type: object
+      required: [machineId, cycleType, durationMinutes, pulseCount]
+      properties:
+        machineId:
+          type: string
+          example: washer_01
+        cycleType:
+          type: string
+          enum: [NORMAL, QUICK, HEAVY, DELICATE, COTTON_40, COTTON_60, COTTON_90, LOW_HEAT, MEDIUM_HEAT, HIGH_HEAT]
+          example: COTTON_60
+        durationMinutes:
+          type: integer
+          example: 60
+        pulseCount:
+          type: integer
+          minimum: 1
+          maximum: 10
+          example: 2
+        rfidCardUid:
+          type: string
+          description: RFID card that triggered this cycle
+        transactionReference:
+          type: string
+          description: Payment transaction reference
+
+    MachineCycle:
+      type: object
+      properties:
+        id:                   { type: integer }
+        machineId:            { type: string }
+        cycleType:            { type: string }
+        status:               { type: string, enum: [NOT_STARTED, IN_PROGRESS, COMPLETED] }
+        durationMinutes:      { type: integer }
+        startedAt:            { type: string, format: date-time }
+        endsAt:               { type: string, format: date-time }
+        completedAt:          { type: string, format: date-time, nullable: true }
+        rfidCardUid:          { type: string, nullable: true }
+        transactionReference: { type: string, nullable: true }
+        pulseCount:           { type: integer }
+
+    MachineEvent:
+      type: object
+      properties:
+        id:                   { type: integer }
+        machineId:            { type: string }
+        eventType:            { type: string, example: "CYCLE_STARTED" }
+        previousStatus:       { type: string, nullable: true }
+        newStatus:            { type: string, nullable: true }
+        details:              { type: string, nullable: true }
+        rfidCardUid:          { type: string, nullable: true }
+        transactionReference: { type: string, nullable: true }
+        createdAt:            { type: string, format: date-time }
+
+    TelemetryPayload:
+      type: object
+      required: [machineId, status]
+      properties:
+        machineId:       { type: string }
+        status:          { type: string, enum: [IDLE, RUNNING, PAUSED, FINISHED, ERROR, MAINTENANCE, OFFLINE] }
+        cycleType:       { type: string }
+        cycleDurationMinutes: { type: integer }
+        cycleProgress:   { type: integer }
+        temperature:     { type: number }
+        humidity:        { type: number }
+        waterLevel:      { type: number }
+        spinSpeed:       { type: integer }
+        vibration:       { type: number }
+        doorLocked:      { type: boolean }
+        powerConsumption: { type: number }
+        errorCode:       { type: string }
+        errorMessage:    { type: string }
+
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp: { type: string, format: date-time }
+        error:     { type: string }
+        message:   { type: string }
+
+paths:
+
+  # ── Machines ────────────────────────────────────────────────────────────────
+
+  /api/machines:
+    get:
+      tags: [Machines]
+      summary: Get all machines with summary
+      security:
+        - auth0: [sls-machine-read]
+      responses:
+        "200":
+          description: Machine list and availability summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MachineSummaryResponse" }
+        "401":
+          description: Missing or invalid token
+
+  /api/machines/{machineId}:
+    get:
+      tags: [Machines]
+      summary: Get single machine status
+      security:
+        - auth0: [sls-machine-read]
+      parameters:
+        - name: machineId
+          in: path
+          required: true
+          schema: { type: string, example: "washer_01" }
+      responses:
+        "200":
+          description: Machine status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MachineStatusResponse" }
+        "404":
+          description: Machine not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example:
+                error: MACHINE_NOT_FOUND
+                message: "Machine not found: unknown_99"
+
+  /api/machines/{machineId}/events:
+    get:
+      tags: [Machines]
+      summary: Get last 50 events for a machine
+      security:
+        - auth0: [sls-machine-read]
+      parameters:
+        - name: machineId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Event log
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MachineEvent" }
+
+  /api/machines/{machineId}/cycles:
+    get:
+      tags: [Machines]
+      summary: Get cycle history for a machine
+      security:
+        - auth0: [sls-machine-read]
+      parameters:
+        - name: machineId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Cycle history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MachineCycle" }
+
+  /api/machines/start-cycle:
+    post:
+      tags: [Machines]
+      summary: Start a wash or dry cycle
+      description: |
+        Validates the machine is IDLE, creates a cycle record, sets status to RUNNING,
+        locks the door, and dispatches an MQTT pulse command to the ESP32.
+      security:
+        - auth0: [sls-machine-start]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StartCycleRequest" }
+      responses:
+        "200":
+          description: Cycle started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MachineCycle" }
+        "404":
+          description: Machine not found
+        "409":
+          description: Machine not available (already RUNNING or not IDLE)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example:
+                error: MACHINE_NOT_AVAILABLE
+                message: "Machine washer_01 is not available (status: RUNNING)"
+
+  /api/machines/{machineId}/command/{action}:
+    post:
+      tags: [Machines]
+      summary: Send a raw command to a machine
+      description: Publishes the action to the MQTT command topic for the specified machine.
+      security:
+        - auth0: [sls-machine-command]
+      parameters:
+        - name: machineId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: action
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [stop, reset, status]
+      responses:
+        "200":
+          description: Command sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:    { type: string, example: "sent" }
+                  machineId: { type: string }
+                  action:    { type: string }
+
+  # ── ESP32 ───────────────────────────────────────────────────────────────────
+
+  /api/esp32/telemetry:
+    post:
+      tags: [ESP32]
+      summary: Post machine telemetry (HTTP fallback for MQTT)
+      description: |
+        Used when MQTT is not available. The ESP32 POSTs sensor readings over HTTP.
+        Same data model as the MQTT telemetry payload.
+      security:
+        - auth0: [sls-telemetry-write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TelemetryPayload" }
+            example:
+              machineId: washer_01
+              status: RUNNING
+              cycleType: COTTON_60
+              cycleProgress: 45
+              temperature: 60.0
+              doorLocked: true
+              spinSpeed: 1200
+      responses:
+        "200":
+          description: Telemetry accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "received" }
+
+  /api/esp32/mqtt/status:
+    get:
+      tags: [ESP32]
+      summary: Check MQTT broker connection status
+      security:
+        - auth0: [sls-machine-read]
+      responses:
+        "200":
+          description: MQTT connection status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connected: { type: boolean }

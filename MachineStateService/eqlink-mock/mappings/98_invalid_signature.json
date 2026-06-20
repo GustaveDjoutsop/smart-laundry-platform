@@ -1,0 +1,21 @@
+{
+  "name": "Fallback — invalid or missing vendor credentials",
+  "priority": 200,
+  "request": {
+    "method": "POST",
+    "urlPattern": "/api/open/v2/Device/.*",
+    "bodyPatterns": [
+      { "matchesJsonPath": "$[?(@.vendor_id == '' || @.app_id == '')]" }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "status": 400,
+      "message": "App_id is invalid.",
+      "server_time": "{{now format='yyyy-MM-dd HH:mm:ss'}}"
+    },
+    "transformers": ["response-template"]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "Meta - Send WhatsApp text message",
+  "request": {
+    "method": "POST",
+    "urlPathPattern": "/v.*/[0-9]+/messages"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "messaging_product": "whatsapp",
+      "contacts": [{ "input": "237650000000", "wa_id": "237650000000" }],
+      "messages": [{ "id": "wamid.MOCK001" }]
+    }
+  }
+}

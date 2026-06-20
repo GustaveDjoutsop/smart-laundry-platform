@@ -1,0 +1,3 @@
+setup:
+  project: spring-bot-manager
+  config: dev

@@ -1,0 +1,144 @@
+version: '3.8'
+
+services:
+  backend:
+    container_name: laundry-backend
+    build: .
+    ports:
+      - '3000:3000' # Map port 3000 on host to 3000 in container
+      - '9229:9229' # Optional: For Node.js debugging
+    volumes:
+      - .:/usr/src/app # Mount your local code into the container
+      - /usr/src/app/node_modules # Do not mount local node_modules
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://laundry:laundry123@postgres:5432/laundry_dev
+      REDIS_URL: redis://redis:6379
+      MQTT_BROKER_URL: mqtt://mqtt:1883
+      # Twilio WhatsApp
+      TWILIO_ACCOUNT_SID: AC7d389437f20e70537394ee5f40752244
+      TWILIO_AUTH_TOKEN: 7ff98f6bac9cfd397463ee7e0f65d8dc
+      TWILIO_WHATSAPP_NUMBER: =whatsapp:+14155238886
+      TWILIO_WEBHOOK_URL: https://8b5ceda638cd.ngrok-free.app/api/webhooks/whatsapp
+    depends_on:
+      - postgres
+      - redis
+      - mqtt
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: laundry-postgres
+    restart: unless-stopped
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: laundry
+      POSTGRES_PASSWORD: laundry123
+      POSTGRES_DB: laundry_dev
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U laundry']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: laundry-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: laundry-mqtt
+    restart: unless-stopped
+    ports:
+      - '1883:1883'
+      - '9001:9001'
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    healthcheck:
+      test: ['CMD-SHELL', 'mosquitto_sub -t "$$SYS/#" -C 1 | grep -v Error || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # API Gateway (P1, architecture-review/05-API-GATEWAY-DESIGN.md). Opt-in via
+  # `docker compose --profile gateway up` — not started by default since it's
+  # not part of the legacy laundry-backend stack above. The 3 Spring services
+  # (bot-manager :8090, PaymentManagementService :8081, MachineStateService
+  # :8082) are expected to run on the host (mvn spring-boot:run), reachable
+  # from inside the container via host.docker.internal.
+  gateway:
+    build: ./api-gateway
+    container_name: laundry-api-gateway
+    profiles: ['gateway']
+    restart: unless-stopped
+    ports:
+      - '8080:8080'
+    environment:
+      REDIS_URL: redis://redis:6379
+      BOT_SERVICE_URL: ${BOT_SERVICE_URL:-http://host.docker.internal:8090}
+      PAYMENT_SERVICE_URL: ${PAYMENT_SERVICE_URL:-http://host.docker.internal:8081}
+      MACHINE_SERVICE_URL: ${MACHINE_SERVICE_URL:-http://host.docker.internal:8082}
+      REPORTING_BFF_URL: ${REPORTING_BFF_URL:-http://host.docker.internal:8083}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      AUTH0_ISSUER_URI: ${AUTH0_ISSUER_URI:-https://dev-iuo6si32jobgnmod.eu.auth0.com/}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE:-https://smartlaundry.api}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # Reporting BFF (P5). Aggregates Supabase payment+machine data for the
+  # dashboard. Opt-in via `docker compose --profile gateway up`.
+  reporting-bff:
+    build: ./reporting-bff
+    container_name: laundry-reporting-bff
+    profiles: ['gateway']
+    restart: unless-stopped
+    ports:
+      - '8083:8083'
+    environment:
+      SPRING_DATASOURCE_URL: ${REPORTING_DATASOURCE_URL}
+      SPRING_DATASOURCE_USERNAME: ${REPORTING_DATASOURCE_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${REPORTING_DATASOURCE_PASSWORD}
+      AUTH0_ISSUER_URI: ${AUTH0_ISSUER_URI:-https://dev-iuo6si32jobgnmod.eu.auth0.com/}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE:-https://smartlaundry.api}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
+
+  # OTLP collector + tracing UI (P1, W11 distributed tracing). All 4 services
+  # (gateway + bot-manager + PaymentManagementService + MachineStateService)
+  # export OTLP/HTTP traces to OTEL_EXPORTER_OTLP_ENDPOINT, default
+  # http://localhost:4318. Opt-in via `docker compose --profile tracing up`.
+  # Services running on the host can keep the default localhost:4318; the
+  # `gateway` service above is overridden to reach this container by name.
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    container_name: laundry-jaeger
+    profiles: ['tracing']
+    restart: unless-stopped
+    ports:
+      - '16686:16686' # Jaeger UI
+      - '4317:4317'   # OTLP gRPC receiver
+      - '4318:4318'   # OTLP HTTP receiver
+    environment:
+      COLLECTOR_OTLP_ENABLED: 'true'
+
+volumes:
+  postgres_data:
+  redis_data:

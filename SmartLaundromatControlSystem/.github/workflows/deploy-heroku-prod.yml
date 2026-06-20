@@ -1,0 +1,153 @@
+# .github/workflows/deploy-heroku-prod.yml
+
+name: Deploy to Heroku PRODUCTION
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:  # Allow manual trigger (requires approval)
+    inputs:
+      tag:
+        description: 'Git tag to deploy (e.g., v1.0.0)'
+        required: true
+      confirm:
+        description: 'Type "DEPLOY TO PRODUCTION" to confirm'
+        required: true
+
+jobs:
+  validate:
+    name: Validate Production Deployment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation (manual trigger)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.confirm != 'DEPLOY TO PRODUCTION'
+        run: |
+          echo "Deployment cancelled. You must type 'DEPLOY TO PRODUCTION' to confirm."
+          exit 1
+
+      - name: Validate tag format
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid tag format. Must be vX.Y.Z (e.g., v1.0.0)"
+            exit 1
+          fi
+
+  deploy:
+    name: Deploy to Heroku PRODUCTION
+    needs: validate
+    runs-on: ubuntu-latest
+    environment:
+      name: PROD
+      url: https://smartlaundry.herokuapp.com
+
+    steps:
+      - name: Checkout code (release)
+        if: github.event_name == 'release'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Checkout code (manual)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Run production tests
+        run: |
+          npm ci
+          npm test
+        env:
+          NODE_ENV: test
+
+      - name: Deploy to Heroku with Docker
+        uses: akhileshns/heroku-deploy@v3.13.15
+        with:
+          heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
+          heroku_app_name: ${{ secrets.HEROKU_PROD_APP_NAME }}
+          heroku_email: ${{ secrets.HEROKU_EMAIL }}
+          usedocker: true
+          docker_heroku_process_type: web
+          docker_build_args: |
+            NODE_ENV=production
+
+      - name: Set Heroku production environment variables
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+        run: |
+          # NODE_ENV=production loads config/environments/prod.yml
+          # Only secrets are set here - non-secret config (pricing, machines, etc.) comes from YAML files
+          heroku config:set \
+            NODE_ENV=production \
+            MONGO_URI="${{ secrets.PROD_MONGO_URI }}" \
+            MQTT_BROKER_URL="${{ secrets.PROD_MQTT_BROKER_URL }}" \
+            MQTT_USERNAME="${{ secrets.PROD_MQTT_USERNAME }}" \
+            MQTT_PASSWORD="${{ secrets.PROD_MQTT_PASSWORD }}" \
+            CAMPAY_APP_KEY="${{ secrets.PROD_CAMPAY_KEY }}" \
+            CAMPAY_APP_SECRET="${{ secrets.PROD_CAMPAY_SECRET }}" \
+            CAMPAY_WEBHOOK_SECRET="${{ secrets.PROD_CAMPAY_WEBHOOK_SECRET }}" \
+            MTN_SUBSCRIPTION_KEY="${{ secrets.PROD_MTN_SUBSCRIPTION_KEY }}" \
+            MTN_API_USER_ID="${{ secrets.PROD_MTN_API_USER_ID }}" \
+            MTN_API_KEY="${{ secrets.PROD_MTN_API_KEY }}" \
+            WHATSAPP_TOKEN="${{ secrets.PROD_WHATSAPP_TOKEN }}" \
+            WHATSAPP_PHONE_ID="${{ secrets.PROD_WHATSAPP_PHONE_ID }}" \
+            WHATSAPP_VERIFY_TOKEN="${{ secrets.PROD_WHATSAPP_VERIFY_TOKEN }}" \
+            WHATSAPP_APP_SECRET="${{ secrets.PROD_WHATSAPP_APP_SECRET }}" \
+            JWT_SECRET="${{ secrets.PROD_JWT_SECRET }}" \
+            JWT_REFRESH_SECRET="${{ secrets.PROD_JWT_REFRESH_SECRET }}" \
+            STAFF_ALERT_PHONE="${{ secrets.PROD_STAFF_ALERT_PHONE }}" \
+            --app ${{ secrets.HEROKU_PROD_APP_NAME }}
+
+      - name: Verify production deployment
+        run: |
+          echo "Waiting 30 seconds for deployment to stabilize..."
+          sleep 30
+
+          # Health check
+          HEALTH_URL="https://${{ secrets.HEROKU_PROD_APP_NAME }}.herokuapp.com/health"
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" $HEALTH_URL)
+
+          if [ "$RESPONSE" != "200" ]; then
+            echo "Health check failed with status code: $RESPONSE"
+            heroku logs --tail --app ${{ secrets.HEROKU_PROD_APP_NAME }}
+            exit 1
+          fi
+
+          echo "PRODUCTION deployment successful!"
+
+      - name: Create deployment summary
+        if: success()
+        run: |
+          echo "## PRODUCTION Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: PRODUCTION" >> $GITHUB_STEP_SUMMARY
+          echo "- **Config**: config/environments/prod.yml" >> $GITHUB_STEP_SUMMARY
+          echo "- **App**: ${{ secrets.HEROKU_PROD_APP_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL**: https://${{ secrets.HEROKU_PROD_APP_NAME }}.herokuapp.com" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ github.event_name }}" == "release" ]; then
+            echo "- **Version**: ${{ github.event.release.tag_name }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Version**: ${{ github.event.inputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed by**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Deployment successful!" >> $GITHUB_STEP_SUMMARY
+
+      - name: Rollback on failure
+        if: failure()
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+        run: |
+          echo "Deployment failed! Initiating rollback..."
+          heroku releases:rollback --app ${{ secrets.HEROKU_PROD_APP_NAME }}
+          echo "Rollback initiated. Check Heroku dashboard for status."

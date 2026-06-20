@@ -1,0 +1,20 @@
+services:
+  # payment-db decommissioned 2026-06-16 (P3 cutover).
+  # PaymentManagementService now connects to Supabase smartlaundry-dev
+  # (schema: payment, role: payment_svc) via Doppler-injected env vars.
+  # To run locally: doppler run -- mvn spring-boot:run
+  # (Doppler project: payment-management-service, env: dev)
+
+  # app:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: payment-management-service
+  #   ports:
+  #     - "8081:8081"
+  #   environment:
+  #     AUTH0_ISSUER_URI: ${AUTH0_ISSUER_URI:-https://dev-iuo6si32jobgnmod.eu.auth0.com/}
+  #     AUTH0_AUDIENCE: ${AUTH0_AUDIENCE:-https://smartlaundry.api}
+  #     MACHINE_STATE_SERVICE_URL: ${MACHINE_STATE_SERVICE_URL:-http://localhost:8082}
+  #     CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+  #     # All secrets injected via Doppler: doppler run -- docker compose up app

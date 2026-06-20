@@ -1,0 +1,21 @@
+# Development environment values
+springProfiles: "local"
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 256Mi
+  limits:
+    cpu: 200m
+    memory: 512Mi
+
+envs:
+  PORT: "3000"
+  MANAGEMENT_PORT: "8081"
+  QUEUE_MAX_SIZE: "100"
+  WHATSAPP_VERIFY_SIGNATURE: "false"
+
+redis:
+  enabled: false

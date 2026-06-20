@@ -1,0 +1,17 @@
+{
+  "name": "Orange Money - Get access token",
+  "request": {
+    "method": "POST",
+    "url": "/oauth/v3/token"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "access_token": "test-orange-access-token-456",
+      "token_type": "Bearer",
+      "expires_in": 7776000,
+      "scope": "webpayment"
+    }
+  }
+}

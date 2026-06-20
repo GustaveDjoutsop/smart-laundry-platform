@@ -1,0 +1,22 @@
+{
+  "name": "CamPay - Initiate payment (success)",
+  "request": {
+    "method": "POST",
+    "url": "/api/collect/",
+    "bodyPatterns": [
+      { "matchesJsonPath": "$.amount" },
+      { "matchesJsonPath": "$.from" }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "reference": "CAMP-REF-001",
+      "status": "PENDING",
+      "operator": "MTN",
+      "code": "00",
+      "message": "Payment initiated"
+    }
+  }
+}

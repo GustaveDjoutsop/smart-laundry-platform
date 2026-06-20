@@ -1,0 +1,19 @@
+{
+  "name": "bt_start_device — BT command for any machine",
+  "priority": 99,
+  "request": {
+    "method": "POST",
+    "url": "/api/open/v2/Device/bt_start_device"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "status": 200,
+      "bt_cmd": "{\"cs\":\"MOCK_BT_CMD_CS_290719319a00c1ad010100050000000102\",\"sd\":\"MOCK_BT_CMD_SD_29071931682fda68010100070140000102\"}",
+      "message": "Get successful",
+      "server_time": "{{now format='yyyy-MM-dd HH:mm:ss'}}"
+    },
+    "transformers": ["response-template"]
+  }
+}

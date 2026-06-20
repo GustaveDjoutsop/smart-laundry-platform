@@ -1,0 +1,21 @@
+{
+  "name": "Modbus read (0x03) — alarm & IO status block (5X1205 / 0x04B4), all clear",
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "urlPath": "/modbus/rtu",
+    "bodyPatterns": [
+      { "matchesJsonPath": "$[?(@.function == 3)]" },
+      { "matchesJsonPath": "$[?(@.frameHex =~ /.*04 B4.*/)]" }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "frameHex": "01 03 0E 00 00 00 00 00 00 00 00 00 00 00 00 00 00 EF 15",
+      "success": true,
+      "message": "alarm/io all-clear (mock)"
+    }
+  }
+}

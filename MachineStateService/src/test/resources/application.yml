@@ -1,0 +1,32 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  flyway:
+    enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: https://example.auth0.com/
+
+auth0:
+  audience: https://smartlaundry.api
+
+machine:
+  available-ids:
+    - test_washer_01
+  heartbeat-timeout-seconds: 120
+  cycle-check-interval-ms: 60000
+
+mqtt:
+  broker-url: tcp://localhost:1883
+  enabled: false

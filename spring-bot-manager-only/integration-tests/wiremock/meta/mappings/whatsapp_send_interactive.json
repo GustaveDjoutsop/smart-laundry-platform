@@ -1,0 +1,19 @@
+{
+  "name": "Meta - Send WhatsApp interactive (buttons) message",
+  "request": {
+    "method": "POST",
+    "urlPathPattern": "/v.*/[0-9]+/messages",
+    "bodyPatterns": [
+      { "matchesJsonPath": "$.type[?(@ == 'interactive')]" }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "messaging_product": "whatsapp",
+      "contacts": [{ "input": "237650000000", "wa_id": "237650000000" }],
+      "messages": [{ "id": "wamid.MOCK002" }]
+    }
+  }
+}

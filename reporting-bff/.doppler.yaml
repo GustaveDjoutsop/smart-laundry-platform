@@ -1,0 +1,3 @@
+setup:
+  project: reporting-bff
+  config: dev

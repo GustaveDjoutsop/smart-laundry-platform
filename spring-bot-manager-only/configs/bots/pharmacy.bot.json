@@ -1,0 +1,151 @@
+{
+  "botId": "pharmacy",
+  "botName": "Smart Pharmacy",
+  "botType": "pharmacy",
+  "phoneNumberId": "PLACEHOLDER_PHONE_NUMBER_ID",
+  "pharmacyName": "Smart Pharmacy",
+  "currency": "XAF",
+  "businessHours": {
+    "openTime": "08:00",
+    "closeTime": "20:00",
+    "timezone": "Africa/Douala"
+  },
+  "staffAlertPhone": "237600000000",
+  "defaultFlowId": "pharmacy_flow",
+  "flows": {
+    "pharmacy_flow": {
+      "id": "pharmacy_flow",
+      "triggers": ["hi", "hello", "reset", "cancel", "stop", "start"],
+      "startState": "welcome",
+      "states": {
+        "welcome": {
+          "id": "welcome",
+          "type": "action",
+          "action": "menu.show",
+          "next": "menu_buttons"
+        },
+        "menu_buttons": {
+          "id": "menu_buttons",
+          "type": "buttons",
+          "prompt": "Welcome to {{pharmacyName}}! How can I help you?",
+          "buttons": [
+            { "id": "1", "title": "Search Products" },
+            { "id": "2", "title": "Browse All" },
+            { "id": "3", "title": "My Reservations" }
+          ],
+          "next": "process_menu"
+        },
+        "process_menu": {
+          "id": "process_menu",
+          "type": "action",
+          "action": "menu.process",
+          "next": "search_prompt"
+        },
+        "search_prompt": {
+          "id": "search_prompt",
+          "type": "input",
+          "prompt": "Enter the product name to search:",
+          "saveAs": "searchQuery",
+          "next": "do_search"
+        },
+        "do_search": {
+          "id": "do_search",
+          "type": "action",
+          "action": "products.search",
+          "next": "show_product_list"
+        },
+        "browse_products": {
+          "id": "browse_products",
+          "type": "action",
+          "action": "products.showAll",
+          "next": "show_product_list"
+        },
+        "show_product_list": {
+          "id": "show_product_list",
+          "type": "input",
+          "prompt": "Available products:\n{{productList}}\nEnter the number of the product you want:",
+          "saveAs": "productChoice",
+          "next": "process_product_selection"
+        },
+        "process_product_selection": {
+          "id": "process_product_selection",
+          "type": "action",
+          "action": "products.processSelection",
+          "next": "quantity_prompt"
+        },
+        "no_results": {
+          "id": "no_results",
+          "type": "message",
+          "template": "No products found for '{{searchQuery}}'. Try a different search.",
+          "next": "menu_buttons"
+        },
+        "quantity_prompt": {
+          "id": "quantity_prompt",
+          "type": "input",
+          "prompt": "{{selectedProductName}} - {{selectedProductPrice}} {{currency}} each ({{selectedProductStock}} in stock)\nHow many would you like?",
+          "saveAs": "quantityInput",
+          "next": "process_quantity"
+        },
+        "process_quantity": {
+          "id": "process_quantity",
+          "type": "action",
+          "action": "quantity.process",
+          "next": "confirm_order"
+        },
+        "confirm_order": {
+          "id": "confirm_order",
+          "type": "buttons",
+          "prompt": "Order summary:\n{{selectedProductName}} x{{quantity}}\nTotal: {{totalPrice}} {{currency}}\n\nConfirm reservation?",
+          "buttons": [
+            { "id": "1", "title": "Yes, Reserve" },
+            { "id": "2", "title": "Cancel" }
+          ],
+          "next": "do_confirm"
+        },
+        "do_confirm": {
+          "id": "do_confirm",
+          "type": "action",
+          "action": "reservation.confirm",
+          "next": "reservation_success"
+        },
+        "reservation_success": {
+          "id": "reservation_success",
+          "type": "message",
+          "template": "Reservation confirmed! Your reservation ID: {{reservationId}}\nPlease pick up within 24 hours.",
+          "next": "menu_buttons"
+        },
+        "show_reservations": {
+          "id": "show_reservations",
+          "type": "action",
+          "action": "reservation.showActive",
+          "next": "show_reservations_list"
+        },
+        "show_reservations_list": {
+          "id": "show_reservations_list",
+          "type": "input",
+          "prompt": "Your active reservations:\n{{reservationList}}\nEnter number to cancel, or type 'menu' to go back:",
+          "saveAs": "reservationChoice",
+          "next": "process_reservation_action"
+        },
+        "process_reservation_action": {
+          "id": "process_reservation_action",
+          "type": "action",
+          "action": "reservation.cancel",
+          "next": "menu_buttons"
+        },
+        "no_reservations": {
+          "id": "no_reservations",
+          "type": "message",
+          "template": "You have no active reservations.",
+          "next": "menu_buttons"
+        },
+        "payment_pending": {
+          "id": "payment_pending",
+          "type": "message",
+          "template": "Payment initiated. Reference: {{paymentRef}}\nYou will receive a prompt on your phone.",
+          "next": "menu_buttons"
+        }
+      }
+    }
+  }
+}

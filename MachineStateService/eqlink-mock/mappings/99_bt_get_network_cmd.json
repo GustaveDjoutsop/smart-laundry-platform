@@ -1,0 +1,19 @@
+{
+  "name": "bt_get_network_cmd — configure WiFi for any machine",
+  "priority": 99,
+  "request": {
+    "method": "POST",
+    "url": "/api/open/v2/Device/bt_get_network_cmd"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "status": 200,
+      "bt_cmd": "{\"cn\":\"MOCK_CN_29071931b3bc81cc01010001005800\"}",
+      "message": "Get successful",
+      "server_time": "{{now format='yyyy-MM-dd HH:mm:ss'}}"
+    },
+    "transformers": ["response-template"]
+  }
+}

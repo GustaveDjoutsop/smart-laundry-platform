@@ -1,0 +1,15 @@
+{
+  "name": "MTN MoMo - Request to pay",
+  "request": {
+    "method": "POST",
+    "url": "/collection/v1_0/requesttopay",
+    "bodyPatterns": [
+      { "matchesJsonPath": "$.amount" },
+      { "matchesJsonPath": "$.payer" }
+    ]
+  },
+  "response": {
+    "status": 202,
+    "headers": { "Content-Type": "application/json" }
+  }
+}

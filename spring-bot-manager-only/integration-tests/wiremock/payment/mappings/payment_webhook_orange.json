@@ -1,0 +1,12 @@
+{
+  "name": "PaymentManagementService - Webhook Orange Money",
+  "request": {
+    "method": "POST",
+    "url": "/api/webhook/orange"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "status": "received" }
+  }
+}

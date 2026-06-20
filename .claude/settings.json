@@ -1,0 +1,7 @@
+{
+  "enabledPlugins": {
+    "engineering@knowledge-work-plugins": true,
+    "product-management@knowledge-work-plugins": false,
+    "claude-mermaid@claude-mermaid": true
+  }
+}

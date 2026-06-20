@@ -1,0 +1,40 @@
+{
+  "name": "[dryer_04] check status — IDLE",
+  "priority": 46,
+  "scenarioName": "machine-dryer_04",
+  "requiredScenarioState": "Started",
+  "request": {
+    "method": "POST",
+    "url": "/api/open/v2/Device/iot_check_dev_status",
+    "bodyPatterns": [
+      { "matchesJsonPath": "$.devicename[?(@ == 'MOCK-D04')]" }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "status": 200,
+      "isonline": "YES",
+      "bt_cmd": "\"\"",
+      "device_status": {
+        "cycle_start": 0,
+        "mach_errno": 0,
+        "coin_box_cnt": 0,
+        "wifi_ssid": "EQLink-Mock",
+        "mach_model": "null",
+        "user_id": "null",
+        "available": 1,
+        "vend_price": 10,
+        "cycle_time": 0,
+        "start_type": 0,
+        "coin_lifetime_cnt": 320,
+        "status": 0,
+        "remain_time": 0
+      },
+      "message": "Successful!",
+      "server_time": "{{now format='yyyy-MM-dd HH:mm:ss'}}"
+    },
+    "transformers": ["response-template"]
+  }
+}

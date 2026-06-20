@@ -1,0 +1,57 @@
+{
+  "name": "MachineStateService - Get all machines",
+  "request": {
+    "method": "GET",
+    "url": "/api/machines"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "machines": [
+        {
+          "machineId": "washer_01",
+          "displayName": "Washer 1",
+          "type": "WASHER",
+          "status": "IDLE",
+          "online": true,
+          "available": true,
+          "currentCycleType": "NONE",
+          "remainingMinutes": null,
+          "doorLocked": false,
+          "lastHeartbeat": "2026-01-01T08:00:00"
+        },
+        {
+          "machineId": "washer_02",
+          "displayName": "Washer 2",
+          "type": "WASHER",
+          "status": "RUNNING",
+          "online": true,
+          "available": false,
+          "currentCycleType": "COTTON_60",
+          "remainingMinutes": 45,
+          "doorLocked": true,
+          "lastHeartbeat": "2026-01-01T08:00:00"
+        },
+        {
+          "machineId": "dryer_01",
+          "displayName": "Dryer 1",
+          "type": "DRYER",
+          "status": "IDLE",
+          "online": true,
+          "available": true,
+          "currentCycleType": "NONE",
+          "remainingMinutes": null,
+          "doorLocked": false,
+          "lastHeartbeat": "2026-01-01T08:00:00"
+        }
+      ],
+      "total": 3,
+      "available": 2,
+      "inUse": 1,
+      "offline": 0,
+      "error": 0,
+      "maintenance": 0
+    }
+  }
+}

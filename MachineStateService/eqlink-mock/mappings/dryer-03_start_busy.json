@@ -1,0 +1,23 @@
+{
+  "name": "[dryer_03] iot_start_device — RUNNING (406 busy)",
+  "priority": 45,
+  "scenarioName": "machine-dryer_03",
+  "requiredScenarioState": "Running",
+  "request": {
+    "method": "POST",
+    "url": "/api/open/v2/Device/iot_start_device",
+    "bodyPatterns": [
+      { "matchesJsonPath": "$.devicename[?(@ == 'MOCK-D03')]" }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "status": 406,
+      "message": "Request timeout, pls try bt!",
+      "server_time": "{{now format='yyyy-MM-dd HH:mm:ss'}}"
+    },
+    "transformers": ["response-template"]
+  }
+}

@@ -1,0 +1,21 @@
+services:
+  # postgres decommissioned 2026-06-16 (P3 cutover) — spring-bot-manager-only
+  # now connects to Supabase smartlaundry-dev (schema: bot, role: bot_svc)
+  # via Doppler-injected SPRING_DATASOURCE_URL/USERNAME/PASSWORD.
+  # Doppler: project spring-bot-manager, env dev.
+  # To run locally: doppler run -- mvn spring-boot:run -pl bot-app -am
+  # Note: the 204 local messages rows (dev conversation history) were not
+  # migrated — dev starts with an empty messages table in Supabase.
+
+  redis:
+    image: redis:7-alpine
+    container_name: smartbot-redis-only
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

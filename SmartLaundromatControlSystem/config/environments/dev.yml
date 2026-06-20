@@ -1,0 +1,55 @@
+# ===========================================
+# DEVELOPMENT ENVIRONMENT CONFIGURATION
+# ===========================================
+# Local development environment
+# Uses sandbox APIs and local services
+
+environment: development
+
+# Database (Local MongoDB)
+database:
+  uri: "mongodb://localhost:27017/laundry_db"
+
+# MQTT Broker (Local Docker or public test broker)
+mqtt:
+  broker_url: "mqtt://localhost:1883"
+  username: ""
+  password: ""
+
+# Redis (Session Storage) - Optional for development
+# If not configured, will use in-memory storage
+redis:
+  url: ""  # Leave empty to use in-memory fallback
+  # url: "redis://localhost:6379"  # Uncomment if using local Redis
+
+# Payment Provider
+payment:
+  provider: "campay"
+
+  # Campay Sandbox
+  campay:
+    api_url: "https://demo.campay.net"
+
+  # MTN Sandbox
+  mtn:
+    api_url: "https://sandbox.momodeveloper.mtn.com"
+    env: "sandbox"
+
+# WhatsApp (Meta) - Development/Test mode
+whatsapp:
+  api_version: "v18.0"
+  app_secret: ""  # Will use META_APP_SECRET env var in development
+
+# Pricing (Low values for sandbox testing)
+pricing:
+  short_cycle: 2   # XAF
+  long_cycle: 3    # XAF
+
+# Staff Alerts
+alerts:
+  staff_phone: "${STAFF_ALERT_PHONE}"
+
+# Logging
+logging:
+  level: "debug"
+  include_request_body: true

@@ -1,0 +1,25 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:15432/smartbot
+    driver-class-name: org.postgresql.Driver
+    username: smartbot
+    password: smartbot
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+bot:
+  config-directory: ../configs/bots
+
+admin:
+  username: testadmin
+  password: testpass
+
+jwt:
+  secret: test-secret-key-for-integration-tests-only-do-not-use
+  expiration-ms: 3600000
+
+encryption:
+  master-key: 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20

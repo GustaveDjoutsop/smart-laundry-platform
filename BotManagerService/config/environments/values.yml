@@ -1,0 +1,14 @@
+server:
+  port: 3000
+
+redis:
+  ttl_seconds: 1800
+
+business_hours:
+  timezone: "Africa/Douala"
+  open:
+    hour: 6
+    minute: 0
+  close:
+    hour: 22
+    minute: 0

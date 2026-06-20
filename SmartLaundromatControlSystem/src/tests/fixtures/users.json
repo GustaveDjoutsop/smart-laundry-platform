@@ -1,0 +1,26 @@
+{
+  "admin": {
+    "email": "admin@test.com",
+    "password": "Admin123!Test",
+    "name": "Test Admin",
+    "role": "admin",
+    "isActive": true,
+    "phoneNumber": "237677000001"
+  },
+  "employee": {
+    "email": "employee@test.com",
+    "password": "Employee123!Test",
+    "name": "Test Employee",
+    "role": "employee",
+    "isActive": true,
+    "phoneNumber": "237677000002"
+  },
+  "customer": {
+    "email": "customer@test.com",
+    "password": "Customer123!Test",
+    "name": "Test Customer",
+    "role": "user",
+    "isActive": true,
+    "phoneNumber": "237677000003"
+  }
+}

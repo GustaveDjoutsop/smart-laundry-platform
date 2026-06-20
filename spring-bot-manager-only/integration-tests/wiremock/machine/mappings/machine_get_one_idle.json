@@ -1,0 +1,23 @@
+{
+  "name": "MachineStateService - Get washer_01 (IDLE)",
+  "request": {
+    "method": "GET",
+    "url": "/api/machines/washer_01"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "machineId": "washer_01",
+      "displayName": "Washer 1",
+      "type": "WASHER",
+      "status": "IDLE",
+      "online": true,
+      "available": true,
+      "currentCycleType": "NONE",
+      "remainingMinutes": null,
+      "doorLocked": false,
+      "lastHeartbeat": "2026-01-01T08:00:00"
+    }
+  }
+}

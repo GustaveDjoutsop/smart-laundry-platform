@@ -1,0 +1,14 @@
+{
+  "name": "CamPay - Get access token",
+  "request": {
+    "method": "POST",
+    "url": "/api/token/"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "token": "test-campay-token-abc123"
+    }
+  }
+}

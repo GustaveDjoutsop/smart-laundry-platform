@@ -1,0 +1,19 @@
+{
+  "name": "PaymentManagementService - Get transaction",
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/api/payments/transaction/.*"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "externalReference": "ext-ref-mock-001",
+      "status": "PENDING",
+      "amount": 1000,
+      "currency": "XAF",
+      "machineId": "washer_01",
+      "provider": "CAMPAY"
+    }
+  }
+}

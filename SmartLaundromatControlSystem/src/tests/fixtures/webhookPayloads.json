@@ -1,0 +1,138 @@
+{
+  "campay": {
+    "successful": {
+      "reference": "CAM-123456789",
+      "external_reference": "TEST-UUID-001",
+      "status": "SUCCESSFUL",
+      "amount": 1000,
+      "currency": "XAF",
+      "operator": "CM_MTNMOBILEMONEY",
+      "code": "00",
+      "description": "Successful"
+    },
+    "failed": {
+      "reference": "CAM-123456790",
+      "external_reference": "TEST-UUID-002",
+      "status": "FAILED",
+      "amount": 1000,
+      "currency": "XAF",
+      "operator": "CM_MTNMOBILEMONEY",
+      "code": "01",
+      "description": "Insufficient funds",
+      "reason": "Insufficient funds"
+    },
+    "pending": {
+      "reference": "CAM-123456791",
+      "external_reference": "TEST-UUID-003",
+      "status": "PENDING",
+      "amount": 2000,
+      "currency": "XAF",
+      "operator": "CM_ORANGEMONEY"
+    }
+  },
+  "mtn": {
+    "successful": {
+      "externalId": "TEST-UUID-004",
+      "status": "SUCCESSFUL",
+      "financialTransactionId": "MTN-987654321",
+      "amount": "1000",
+      "currency": "XAF",
+      "payer": {
+        "partyIdType": "MSISDN",
+        "partyId": "237677889900"
+      }
+    },
+    "failed": {
+      "externalId": "TEST-UUID-005",
+      "status": "FAILED",
+      "reason": {
+        "code": "PAYER_NOT_FOUND",
+        "message": "Payer not found"
+      }
+    }
+  },
+  "whatsapp": {
+    "textMessage": {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "WHATSAPP_BUSINESS_ACCOUNT_ID",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "15556089484",
+                  "phone_number_id": "954151401109786"
+                },
+                "contacts": [
+                  {
+                    "profile": {
+                      "name": "Test User"
+                    },
+                    "wa_id": "237677889900"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "237677889900",
+                    "id": "wamid.HBgNMjM3Njc3ODg5OTAwFQIAERgSQUIzRjY5RkY0QTcyNTBBNjhFAA==",
+                    "timestamp": "1609459200",
+                    "text": {
+                      "body": "hello"
+                    },
+                    "type": "text"
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    },
+    "buttonReply": {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "WHATSAPP_BUSINESS_ACCOUNT_ID",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "15556089484",
+                  "phone_number_id": "954151401109786"
+                },
+                "contacts": [
+                  {
+                    "profile": {
+                      "name": "Test User"
+                    },
+                    "wa_id": "237677889900"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "237677889900",
+                    "id": "wamid.HBgNMjM3Njc3ODg5OTAwFQIAERgSQUIzRjY5RkY0QTcyNTBBNjhFAA==",
+                    "timestamp": "1609459200",
+                    "type": "interactive",
+                    "interactive": {
+                      "type": "button_reply",
+                      "button_reply": {
+                        "id": "btn_en",
+                        "title": "English"
+                      }
+                    }
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

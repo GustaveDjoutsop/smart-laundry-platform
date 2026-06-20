@@ -1,0 +1,156 @@
+{
+  "botId": "thomasnetwork",
+  "botName": "Thomas Network Access",
+  "botType": "thomas_network",
+  "phoneNumberId": "1030993210090797",
+  "defaultFlowId": "main_menu",
+  "flows": {
+    "main_menu": {
+      "id": "main_menu",
+      "triggers": ["hi", "hello", "menu", "start"],
+      "startState": "welcome",
+      "states": {
+        "welcome": {
+          "id": "welcome",
+          "type": "buttons",
+          "template": "Bienvenue.\n\n\uD83D\uDCCC *Service*\nChoisis une option :",
+          "saveAs": "menuChoice",
+          "buttons": [
+            {"id": "access_network", "title": "\uD83C\uDF10 Acc\u00E8s r\u00E9seau"},
+            {"id": "pressing", "title": "\uD83E\uDDFA Pressing"},
+            {"id": "help", "title": "\u2753 Aide"}
+          ],
+          "next": "route_menu"
+        },
+        "route_menu": {
+          "id": "route_menu",
+          "type": "action",
+          "action": "menu.route"
+        },
+        "pressing_menu": {
+          "id": "pressing_menu",
+          "type": "buttons",
+          "template": "\uD83E\uDDFA Pressing\n\nChoisis une option :",
+          "saveAs": "pressingChoice",
+          "buttons": [
+            {"id": "pressing_machines", "title": "Machines dispo"},
+            {"id": "pressing_tracking", "title": "Suivi code"},
+            {"id": "menu", "title": "Menu"}
+          ],
+          "next": "pressing_route_action"
+        },
+        "pressing_route_action": {
+          "id": "pressing_route_action",
+          "type": "action",
+          "action": "pressing.route"
+        },
+        "pressing_machines_message": {
+          "id": "pressing_machines_message",
+          "type": "message",
+          "template": "\uD83E\uDDFA Pressing\n\nMachines disponibles: bient\u00F4t.",
+          "next": "pressing_menu"
+        },
+        "pressing_tracking_prompt": {
+          "id": "pressing_tracking_prompt",
+          "type": "message",
+          "template": "\uD83C\uDFF7\uFE0F Suivi Pressing\n\nEnvoie ton code pressing (ex: PRS1234) :",
+          "next": "pressing_tracking_input"
+        },
+        "pressing_tracking_input": {
+          "id": "pressing_tracking_input",
+          "type": "input",
+          "saveAs": "pressingTrackingCode",
+          "prompt": "Code de suivi",
+          "next": "pressing_tracking_action"
+        },
+        "pressing_tracking_action": {
+          "id": "pressing_tracking_action",
+          "type": "action",
+          "action": "pressing.tracking"
+        },
+        "pressing_tracking_result": {
+          "id": "pressing_tracking_result",
+          "type": "buttons",
+          "template": "{{{pressingTrackingResult}}}",
+          "saveAs": "pressingChoice",
+          "buttonsFromContext": "pressingButtons",
+          "next": "pressing_route_action"
+        },
+        "bandwidth_list_action": {
+          "id": "bandwidth_list_action",
+          "type": "action",
+          "action": "bandwidth.list"
+        },
+        "bandwidth_buttons": {
+          "id": "bandwidth_buttons",
+          "type": "buttons",
+          "template": "{{{bandwidthMessage}}}",
+          "buttonsFromContext": "bandwidthButtons",
+          "saveAs": "bandwidthChoiceInput",
+          "next": "bandwidth_validate_action"
+        },
+        "bandwidth_validate_action": {
+          "id": "bandwidth_validate_action",
+          "type": "action",
+          "action": "bandwidth.validate"
+        },
+        "bandwidth_invalid": {
+          "id": "bandwidth_invalid",
+          "type": "message",
+          "template": "Invalid selection. Please try again.",
+          "next": "bandwidth_list_action"
+        },
+        "devices_prompt": {
+          "id": "devices_prompt",
+          "type": "buttons",
+          "template": "\uD83D\uDCF1 *Nombre d'appareils*\nChoisis le nombre d'appareils \u00E0 connecter :",
+          "saveAs": "deviceCountInput",
+          "buttons": [
+            {"id": "1", "title": "1 appareil (skip)"},
+            {"id": "2", "title": "2 appareils"},
+            {"id": "4", "title": "4 appareils"}
+          ],
+          "next": "devices_calculate_action"
+        },
+        "devices_calculate_action": {
+          "id": "devices_calculate_action",
+          "type": "action",
+          "action": "devices.calculate"
+        },
+        "devices_invalid": {
+          "id": "devices_invalid",
+          "type": "message",
+          "template": "{{devicesError}}",
+          "next": "devices_prompt"
+        },
+        "payment_confirm": {
+          "id": "payment_confirm",
+          "type": "message",
+          "template": "{{{orderSummary}}}",
+          "next": "payment_initiate_action"
+        },
+        "payment_initiate_action": {
+          "id": "payment_initiate_action",
+          "type": "action",
+          "action": "payments.initiate"
+        },
+        "payment_pending": {
+          "id": "payment_pending",
+          "type": "message",
+          "template": "Payment request sent! Please complete the payment.\n\nYour access code will be sent after payment confirmation."
+        },
+        "payment_failed": {
+          "id": "payment_failed",
+          "type": "message",
+          "template": "Payment failed: {{paymentError}}\n\nPlease try again.",
+          "next": "main_menu"
+        },
+        "help_message": {
+          "id": "help_message",
+          "type": "message",
+          "template": "Thomas Network Help:\n\n- Choose your bandwidth tier\n- Select number of devices\n- Complete payment\n- Receive your access code\n\nFor support, contact: support@example.com"
+        }
+      }
+    }
+  }
+}

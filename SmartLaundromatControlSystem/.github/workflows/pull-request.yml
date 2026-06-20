@@ -1,0 +1,231 @@
+# .github/workflows/pull-request.yml
+
+name: PR Quality Check Pipeline
+
+on:
+  pull_request
+
+jobs:
+  # Step 1: Set PR title and run code quality checks
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set PR title from branch (append KEY)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = context.payload.pull_request.head.ref; // e.g. feature/sl-003-campay-webhook
+            const regex = /(?:^|\/)([a-z]+-[0-9]+)-(.+)$/i;
+            const m = branch.match(regex);
+            if (!m) { return }
+            const key = m[1].toUpperCase(); // SL-003
+            const human = m[2].replace(/-/g,' '); // campay webhook
+            const baseTitle = human.charAt(0).toUpperCase() + human.slice(1);
+            const newTitle = `${baseTitle} (${key})`;
+            const current = context.payload.pull_request.title || '';
+            if (current !== newTitle) {
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                title: newTitle
+              });
+            }
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for security vulnerabilities
+        run: npm audit --audit-level=moderate
+
+  # Step 2: Run unit tests with coverage (SonarQube ready)
+  test-coverage:
+    name: Unit Tests & Coverage
+    runs-on: ubuntu-latest
+    needs: code-quality
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests with coverage  
+        run: npx jest src/tests/unit --coverage --detectOpenHandles --forceExit --coverageThreshold '{"global":{"branches":0,"functions":0,"lines":0,"statements":0}}'
+        env:
+          CI: true
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ matrix.node-version }}
+          path: coverage/
+          retention-days: 7
+
+  # Step 3: Docker build and tests
+  docker-test:
+    name: Docker Build & Test
+    runs-on: ubuntu-latest
+    needs: test-coverage
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Load CI config from cicd.yml
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+          echo "NODE_ENV=test" >> $GITHUB_ENV
+          echo "PORT=$(yq '.server.port' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "MONGO_URI=mongodb://mongodb:27017/laundry_test" >> $GITHUB_ENV
+          echo "MQTT_BROKER_URL=mqtt://mqtt:1883" >> $GITHUB_ENV
+          echo "REDIS_URL=redis://redis:6379" >> $GITHUB_ENV
+          echo "CAMPAY_APP_KEY=$(yq '.payment.campay.app_key' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "CAMPAY_APP_SECRET=$(yq '.payment.campay.app_secret' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "WHATSAPP_TOKEN=$(yq '.whatsapp.token' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "WHATSAPP_PHONE_ID=$(yq '.whatsapp.phone_id' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "WHATSAPP_VERIFY_TOKEN=$(yq '.whatsapp.verify_token' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "PRICE_SHORT_CYCLE=$(yq '.pricing.short_cycle' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "PRICE_LONG_CYCLE=$(yq '.pricing.long_cycle' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "MACHINE_IDS=$(yq '.machines.available | join(",")' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "JWT_SECRET=$(yq '.security.jwt_secret' config/environments/cicd.yml)" >> $GITHUB_ENV
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: laundry-backend:test
+          build-args: |
+            NODE_ENV=development
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start services with Docker Compose
+        run: |
+          docker compose up -d
+          echo "Waiting for services to start..."
+          sleep 15
+
+      - name: Check Docker containers status
+        run: |
+          echo "=== Docker containers ==="
+          docker ps -a
+          echo ""
+          echo "=== Backend logs ==="
+          docker compose logs backend
+
+      - name: Check service health
+        run: |
+          echo "Waiting for backend to be healthy..."
+          for i in {1..30}; do
+            if curl -f http://localhost:3000/api/health 2>/dev/null; then
+              echo "✅ Backend is healthy"
+              exit 0
+            fi
+            echo "Attempt $i: Backend not ready yet..."
+            sleep 2
+          done
+          echo "❌ Backend failed to become healthy"
+          docker compose logs backend
+          exit 1
+
+      - name: Run unit tests in Docker
+        run: |
+          docker compose run --rm -e NODE_ENV=test backend npm run test:unit
+
+      - name: View logs on test failure
+        if: failure()
+        run: |
+          echo "=== Backend logs (on test failure) ==="
+          docker compose logs backend
+          echo ""
+          echo "=== Docker containers (on test failure) ==="
+          docker ps -a
+      - name: Stop services
+        if: always()
+        run: docker compose down -v
+
+  # Step 4: Integration tests (final step)
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: docker-test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Load CI config from cicd.yml
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+          echo "NODE_ENV=test" >> $GITHUB_ENV
+          echo "PORT=$(yq '.server.port' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "MONGO_URI=$(yq '.database.uri' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "MQTT_BROKER_URL=$(yq '.mqtt.broker_url' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "CAMPAY_APP_KEY=$(yq '.payment.campay.app_key' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "CAMPAY_APP_SECRET=$(yq '.payment.campay.app_secret' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "WHATSAPP_TOKEN=$(yq '.whatsapp.token' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "WHATSAPP_PHONE_ID=$(yq '.whatsapp.phone_id' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "WHATSAPP_VERIFY_TOKEN=$(yq '.whatsapp.verify_token' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "PRICE_SHORT_CYCLE=$(yq '.pricing.short_cycle' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "PRICE_LONG_CYCLE=$(yq '.pricing.long_cycle' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "MACHINE_IDS=$(yq '.machines.available | join(",")' config/environments/cicd.yml)" >> $GITHUB_ENV
+          echo "JWT_SECRET=$(yq '.security.jwt_secret' config/environments/cicd.yml)" >> $GITHUB_ENV
+
+      - name: Start MongoDB
+        uses: supercharge/mongodb-github-action@1.11.0
+        with:
+          mongodb-version: '7.0'
+
+      - name: Run integration tests
+        run: npm run test:integration
+        env:
+          CI: true
+
+      - name: View logs on failure
+        if: failure()
+        run: |
+          echo "Integration tests failed. Check logs above for details."
+

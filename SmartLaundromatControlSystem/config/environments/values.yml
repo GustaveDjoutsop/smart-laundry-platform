@@ -1,0 +1,54 @@
+# ===========================================
+# BASE CONFIGURATION VALUES
+# ===========================================
+# Shared configuration across all environments
+# Environment-specific files override these values
+
+# Server Configuration
+server:
+  port: 3000
+
+# Business Hours
+business_hours:
+  open_time: "07:00"
+  close_time: "22:00"
+  closing_buffer_minutes: 15
+  timezone: "Africa/Douala"
+
+# Machine Configuration (6 Washers + 4 Dryers)
+machines:
+  available:
+    - washer_01
+    - washer_02
+    - washer_03
+    - washer_04
+    - washer_05
+    - washer_06
+    - dryer_01
+    - dryer_02
+    - dryer_03
+    - dryer_04
+
+# Cycle Configuration
+cycles:
+  short:
+    duration: 30  # minutes
+    pulse_count: 1
+  long:
+    duration: 60  # minutes
+    pulse_count: 2
+
+# MQTT Topics
+mqtt:
+  telemetry_topic: "laundry/cameroon/+/telemetry"
+  command_topic_prefix: "laundry/cameroon"
+
+# Monitoring
+monitoring:
+  cycle_check_interval: 60  # seconds
+  feedback_check_interval: 60  # seconds
+  feedback_delay_after_cycle: 30  # minutes
+
+# Feedback Configuration
+feedback:
+  low_rating_threshold: 3  # ratings <= this trigger staff alert

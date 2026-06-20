@@ -1,0 +1,25 @@
+# CI/CD environment values
+springProfiles: "cicd"
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+envs:
+  PORT: "3000"
+  MANAGEMENT_PORT: "8081"
+  QUEUE_MAX_SIZE: "200"
+  WHATSAPP_VERIFY_SIGNATURE: "false"
+  PAYMENT_POLL_INTERVAL_MS: "5000"
+  PAYMENT_TIMEOUT_MS: "300000"
+
+redis:
+  enabled: true
+  auth:
+    enabled: false

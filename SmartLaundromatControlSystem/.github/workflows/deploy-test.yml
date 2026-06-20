@@ -1,0 +1,149 @@
+# .github/workflows/deploy-test.yml
+
+name: Deploy to TEST
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  deploy:
+    name: Deploy Docker to Heroku TEST
+    runs-on: ubuntu-latest
+    environment: TEST
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Read config from test.yml
+        id: config
+        run: |
+          # Install yq for YAML parsing
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+          # Read non-secret values from config/environments/test.yml
+          echo "port=$(yq '.server.port' config/environments/test.yml)" >> $GITHUB_OUTPUT
+          echo "mongo_username=$(yq '.database.username' config/environments/test.yml)" >> $GITHUB_OUTPUT
+          echo "mongo_cluster=$(yq '.database.cluster' config/environments/test.yml)" >> $GITHUB_OUTPUT
+          echo "mongo_app_name=$(yq '.database.app_name' config/environments/test.yml)" >> $GITHUB_OUTPUT
+          echo "mqtt_url=$(yq '.mqtt.broker_url' config/environments/test.yml)" >> $GITHUB_OUTPUT
+          echo "whatsapp_phone_id=$(yq '.whatsapp.phone_id' config/environments/test.yml)" >> $GITHUB_OUTPUT
+          echo "staff_phone=$(yq '.alerts.staff_phone' config/environments/test.yml)" >> $GITHUB_OUTPUT
+          echo "app_url=$(yq '.deployment.app_url' config/environments/test.yml)" >> $GITHUB_OUTPUT
+
+      - name: Install Heroku CLI
+        run: curl https://cli-assets.heroku.com/install.sh | sh
+
+      - name: Set Heroku stack to container
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+        run: |
+          heroku stack:set container --app ${{ secrets.HEROKU_APP_NAME }} || echo "Stack already set to container"
+
+      - name: Login to Heroku Container Registry
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+        run: |
+          echo $HEROKU_API_KEY | docker login --username=_ --password-stdin registry.heroku.com
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            --build-arg NODE_ENV=test \
+            -t registry.heroku.com/${{ secrets.HEROKU_APP_NAME }}/web \
+            .
+
+      - name: Push Docker image to Heroku
+        run: |
+          docker push registry.heroku.com/${{ secrets.HEROKU_APP_NAME }}/web
+
+      - name: Set Heroku Config Vars
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+        run: |
+          # NODE_ENV=test loads config/environments/test.yml at runtime
+          # Secrets come from GitHub environment secrets (TEST)
+          # Non-secrets come from test.yml config file
+
+          # Construct MongoDB Atlas URI from config + secret password
+          MONGO_URI="mongodb+srv://${{ steps.config.outputs.mongo_username }}:${{ secrets.MONGO_PASSWORD }}@${{ steps.config.outputs.mongo_cluster }}/?appName=${{ steps.config.outputs.mongo_app_name }}"
+
+          heroku config:set \
+            NODE_ENV=test \
+            MONGO_URI="${MONGO_URI}" \
+            MQTT_BROKER_URL="${{ steps.config.outputs.mqtt_url }}" \
+            MQTT_USERNAME="${{ secrets.MQTT_USERNAME }}" \
+            MQTT_PASSWORD="${{ secrets.MQTT_PASSWORD }}" \
+            CAMPAY_APP_KEY="${{ secrets.CAMPAY_APP_KEY }}" \
+            CAMPAY_APP_SECRET="${{ secrets.CAMPAY_APP_SECRET }}" \
+            CAMPAY_WEBHOOK_SECRET="${{ secrets.CAMPAY_WEBHOOK_SECRET }}" \
+            MTN_SUBSCRIPTION_KEY="${{ secrets.MTN_SUBSCRIPTION_KEY }}" \
+            MTN_API_USER_ID="${{ secrets.MTN_API_USER_ID }}" \
+            MTN_API_KEY="${{ secrets.MTN_API_KEY }}" \
+            WHATSAPP_TOKEN="${{ secrets.WHATSAPP_TOKEN }}" \
+            WHATSAPP_PHONE_ID="${{ steps.config.outputs.whatsapp_phone_id }}" \
+            WHATSAPP_VERIFY_TOKEN="${{ secrets.WHATSAPP_VERIFY_TOKEN }}" \
+            WHATSAPP_APP_SECRET="${{ secrets.WHATSAPP_APP_SECRET }}" \
+            JWT_SECRET="${{ secrets.JWT_SECRET }}" \
+            JWT_REFRESH_SECRET="${{ secrets.JWT_REFRESH_SECRET }}" \
+            --app ${{ secrets.HEROKU_APP_NAME }}
+
+      - name: Release Docker image on Heroku
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+        run: |
+          heroku container:release web --app ${{ secrets.HEROKU_APP_NAME }}
+
+      - name: Health Check
+        id: health_check
+        run: |
+          echo "Waiting for deployment to stabilize..."
+          sleep 30
+
+          # Use app_url from test.yml config (full URL including Heroku subdomain)
+          APP_URL="${{ steps.config.outputs.app_url }}"
+          echo "Health check URL: ${APP_URL}/api/health"
+
+          for i in {1..5}; do
+            HTTP_CODE=$(curl -sL -o /dev/null -w "%{http_code}" "${APP_URL}/api/health" || echo "000")
+            echo "Attempt $i: GET /api/health -> HTTP $HTTP_CODE"
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "Health check PASSED"
+              exit 0
+            fi
+            echo "Retrying in 10s..."
+            sleep 10
+          done
+
+          echo "Health check FAILED after 5 attempts"
+          echo "Final check with verbose output:"
+          curl -v "${APP_URL}/api/health" || true
+          exit 1
+
+      - name: Show Heroku logs on failure
+        if: failure()
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+        run: |
+          echo "=== Heroku App Logs (last 100 lines) ==="
+          heroku logs --tail -n 100 --app ${{ secrets.HEROKU_APP_NAME }} || echo "Could not fetch logs"
+
+      - name: Create deployment summary
+        if: success()
+        run: |
+          echo "## TEST Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | TEST |" >> $GITHUB_STEP_SUMMARY
+          echo "| Platform | Heroku (Docker) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Config File | config/environments/test.yml |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | develop |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deployed by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Deployment successful!" >> $GITHUB_STEP_SUMMARY

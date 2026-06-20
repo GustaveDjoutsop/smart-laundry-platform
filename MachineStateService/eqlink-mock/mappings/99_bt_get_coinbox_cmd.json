@@ -1,0 +1,19 @@
+{
+  "name": "bt_get_coinbox_cmd — coin box command for any machine",
+  "priority": 99,
+  "request": {
+    "method": "POST",
+    "url": "/api/open/v2/Device/bt_get_coinbox_cmd"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "status": 200,
+      "bt_cmd": "{\"ca\":\"MOCK_CA_29071931c47b2a48\",\"cr\":\"MOCK_CR_29071931c85ebd73\"}",
+      "message": "Get successful",
+      "server_time": "{{now format='yyyy-MM-dd HH:mm:ss'}}"
+    },
+    "transformers": ["response-template"]
+  }
+}

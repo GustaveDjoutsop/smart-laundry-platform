@@ -1,0 +1,119 @@
+﻿# ─────────────────────────────────────────────────────────────────────────────
+# spring-bot-manager-only — Dev environment configuration
+#
+# Load with:
+#   java -jar bot-app/target/bot-app-*.jar \
+#     --spring.config.additional-location=file:./ci/dev.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+
+server:
+  port: 8090
+
+spring:
+  application:
+    name: spring-bot-manager-dev
+
+  # ── Database: H2 for dev (overrides PostgreSQL in application.yaml) ───
+  datasource:
+    url: jdbc:h2:mem:smartbotdb_dev;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+
+  flyway:
+    enabled: false           # H2 does not need Flyway migrations
+
+  data:
+    redis:
+      url: ${REDIS_URL:redis://localhost:6379}
+
+  # ── Auth0 Resource Server (dev tenant) ──────────────────────────────────────
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: https://dev-iuo6si32jobgnmod.eu.auth0.com/
+
+auth0:
+  audience: https://smartlaundry.api
+
+# ── Auth0 M2M client (dev) ────────────────────────────────────────────────────
+auth0-client:
+  id: qrhBuc3lsJfRqsP8xKWAO334DOsseidM
+  secret: ${AUTH0_CLIENT_SECRET:REDACTED}
+  token-url: https://dev-iuo6si32jobgnmod.eu.auth0.com/oauth/token
+
+# ── JWT for local admin panel (keep for backward compat) ─────────────────────
+jwt:
+  secret: dev-secret-key-at-least-32-chars-long-change-in-prod
+  expiration-ms: 3600000
+
+# ── Microservice URLs: point to local instances ───────────────────────────────
+microservice:
+  payment-service-url: http://localhost:8081
+  machine-state-service-url: http://localhost:8082
+
+# ── WhatsApp ─────────────────────────────────────────────────────────────────
+whatsapp:
+  api:
+    version: v20.0
+    base-url: https://graph.facebook.com
+  verify-signature: false    # Disable HMAC check locally — enable in staging/prod
+  app-secret: ${WHATSAPP_APP_SECRET:}
+
+# ── CamPay webhook secret (dev) ───────────────────────────────────────────────
+campay:
+  webhook-secret: ${CAMPAY_WEBHOOK_SECRET:}
+
+# ── MQTT (optional locally) ───────────────────────────────────────────────────
+mqtt:
+  url: ${MQTT_URL:}
+  username: ${MQTT_USERNAME:}
+  password: ${MQTT_PASSWORD:}
+
+# ── Bot configuration directory ───────────────────────────────────────────────
+bot:
+  config-directory: configs/bots
+
+# ── Admin credentials ─────────────────────────────────────────────────────────
+admin:
+  username: admin
+  password: dev-password
+
+# ── CORS ─────────────────────────────────────────────────────────────────────
+cors:
+  allowed-origins: "http://localhost:3000,http://localhost:4200,http://localhost:8080"
+
+# ── Swagger UI ────────────────────────────────────────────────────────────────
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+    oauth:
+      client-id: qrhBuc3lsJfRqsP8xKWAO334DOsseidM
+
+# ── Rate limits: relaxed for dev ──────────────────────────────────────────────
+rate-limit:
+  whatsapp:
+    window-ms: 60000
+    max-requests: 1000
+  payments:
+    window-ms: 60000
+    max-requests: 1000
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  level:
+    root: INFO
+    com.botmanager: DEBUG
+    org.springframework.security: DEBUG
+    org.springframework.web: INFO

@@ -1,0 +1,20 @@
+{
+  "name": "Modbus read (0x03) — 20-register monitor block (5X1165 / 0x048C), IDLE machine",
+  "priority": 5,
+  "request": {
+    "method": "POST",
+    "urlPath": "/modbus/rtu",
+    "bodyPatterns": [
+      { "matchesJsonPath": "$[?(@.function == 3)]" }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "frameHex": "01 03 28 00 01 00 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 1E 00 14 00 28 00 00 00 00 00 00 00 00 00 01 00 00 00 64 00 32 D2 D8",
+      "success": true,
+      "message": "monitor block: status=1(Idle) door=2(Closed) (mock)"
+    }
+  }
+}

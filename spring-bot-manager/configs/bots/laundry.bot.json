@@ -1,0 +1,189 @@
+{
+  "botId": "laundry",
+  "botName": "Smart Laundry",
+  "botType": "laundry",
+  "phoneNumberId": "1089648187567384",
+  "mqtt": {
+    "topicPrefix": "laundry"
+  },
+  "shortCycle": {
+    "duration": 30,
+    "price": 1000,
+    "pulseCount": 1,
+    "currency": "XAF"
+  },
+  "longCycle": {
+    "duration": 60,
+    "price": 2000,
+    "pulseCount": 2,
+    "currency": "XAF"
+  },
+  "businessHours": {
+    "openTime": "07:00",
+    "closeTime": "22:00",
+    "closingBufferMinutes": 15,
+    "timezone": "Africa/Douala"
+  },
+  "staffAlertPhone": "237600000000",
+  "machines": [
+    { "id": "washer_01", "type": "WASHER", "name": "Washer 1" },
+    { "id": "washer_02", "type": "WASHER", "name": "Washer 2" },
+    { "id": "washer_03", "type": "WASHER", "name": "Washer 3" },
+    { "id": "dryer_01", "type": "DRYER", "name": "Dryer 1" }
+  ],
+  "availableMachineIds": ["washer_01", "washer_02", "washer_03", "dryer_01"],
+  "defaultFlowId": "laundry_flow",
+  "flows": {
+    "laundry_flow": {
+      "id": "laundry_flow",
+      "triggers": ["hi", "hello", "reset", "cancel", "stop", "start"],
+      "startState": "language_selection",
+      "states": {
+        "language_selection": {
+          "id": "language_selection",
+          "type": "action",
+          "action": "language.show",
+          "next": "await_language"
+        },
+        "await_language": {
+          "id": "await_language",
+          "type": "input",
+          "saveAs": "userInput",
+          "next": "process_language"
+        },
+        "process_language": {
+          "id": "process_language",
+          "type": "action",
+          "action": "language.process"
+        },
+        "main_menu": {
+          "id": "main_menu",
+          "type": "action",
+          "action": "menu.show",
+          "next": "await_menu"
+        },
+        "await_menu": {
+          "id": "await_menu",
+          "type": "input",
+          "saveAs": "userInput",
+          "next": "process_menu"
+        },
+        "process_menu": {
+          "id": "process_menu",
+          "type": "action",
+          "action": "menu.process"
+        },
+        "show_services": {
+          "id": "show_services",
+          "type": "action",
+          "action": "services.show"
+        },
+        "machine_method_selection": {
+          "id": "machine_method_selection",
+          "type": "action",
+          "action": "machines.showMethodSelection",
+          "next": "await_machine_method"
+        },
+        "await_machine_method": {
+          "id": "await_machine_method",
+          "type": "input",
+          "saveAs": "userInput",
+          "next": "process_machine_method"
+        },
+        "process_machine_method": {
+          "id": "process_machine_method",
+          "type": "action",
+          "action": "machines.processMethodSelection"
+        },
+        "enter_machine_id": {
+          "id": "enter_machine_id",
+          "type": "action",
+          "action": "machines.showEnterIdPrompt",
+          "next": "await_manual_machine_id"
+        },
+        "await_manual_machine_id": {
+          "id": "await_manual_machine_id",
+          "type": "input",
+          "saveAs": "userInput",
+          "next": "process_manual_machine_id"
+        },
+        "process_manual_machine_id": {
+          "id": "process_manual_machine_id",
+          "type": "action",
+          "action": "machines.processManualId"
+        },
+        "show_machine_list": {
+          "id": "show_machine_list",
+          "type": "action",
+          "action": "machines.showList",
+          "next": "await_machine_selection"
+        },
+        "await_machine_selection": {
+          "id": "await_machine_selection",
+          "type": "input",
+          "saveAs": "userInput",
+          "next": "process_machine_selection"
+        },
+        "process_machine_selection": {
+          "id": "process_machine_selection",
+          "type": "action",
+          "action": "machines.processListSelection"
+        },
+        "cycle_selection": {
+          "id": "cycle_selection",
+          "type": "action",
+          "action": "cycle.show",
+          "next": "await_cycle"
+        },
+        "await_cycle": {
+          "id": "await_cycle",
+          "type": "input",
+          "saveAs": "userInput",
+          "next": "process_cycle"
+        },
+        "process_cycle": {
+          "id": "process_cycle",
+          "type": "action",
+          "action": "cycle.process"
+        },
+        "initiate_payment": {
+          "id": "initiate_payment",
+          "type": "action",
+          "action": "payment.initiate"
+        },
+        "show_user_status": {
+          "id": "show_user_status",
+          "type": "action",
+          "action": "status.showUserCycle"
+        },
+        "show_availability": {
+          "id": "show_availability",
+          "type": "action",
+          "action": "status.showAvailability"
+        },
+        "await_feedback_rating": {
+          "id": "await_feedback_rating",
+          "type": "input",
+          "saveAs": "userInput",
+          "next": "process_feedback_rating"
+        },
+        "process_feedback_rating": {
+          "id": "process_feedback_rating",
+          "type": "action",
+          "action": "feedback.processRating"
+        },
+        "await_feedback_comment": {
+          "id": "await_feedback_comment",
+          "type": "input",
+          "saveAs": "userInput",
+          "next": "process_feedback_comment"
+        },
+        "process_feedback_comment": {
+          "id": "process_feedback_comment",
+          "type": "action",
+          "action": "feedback.processComment"
+        }
+      }
+    }
+  }
+}

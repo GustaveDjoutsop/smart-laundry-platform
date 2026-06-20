@@ -1,0 +1,15 @@
+{
+  "name": "CamPay - Check payment status (PENDING)",
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/api/transaction/CAMP-REF-.*/"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "reference": "CAMP-REF-001",
+      "status": "PENDING"
+    }
+  }
+}

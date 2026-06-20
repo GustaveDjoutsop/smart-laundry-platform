@@ -1,0 +1,21 @@
+{
+  "name": "Orange Money - Initiate web payment",
+  "request": {
+    "method": "POST",
+    "url": "/orange-money-webpay/dev/v1/webpayment"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "status": 201,
+      "message": "Request Acceptée",
+      "data": {
+        "payToken": "MP220808.0943.C51893"
+      },
+      "pay_token": "MP220808.0943.C51893",
+      "notif_token": "ORANGE-NOTIF-001",
+      "payment_url": "https://webpayment.orange.cm"
+    }
+  }
+}

@@ -1,0 +1,175 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MachineStateService — Dev environment configuration
+#
+# Load with:
+#   java -jar target/machine-state-service-*.jar \
+#     --spring.config.additional-location=file:./ci/dev.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+
+server:
+  port: 8082
+
+spring:
+  application:
+    name: machine-state-service-dev
+
+  # ── Database: H2 in-memory for dev ──────────────────────────────────────────
+  datasource:
+    url: jdbc:h2:mem:machinedb_dev;DB_CLOSE_DELAY=-1;MODE=LEGACY
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+      settings:
+        web-allow-others: false
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  # ── Auth0 Resource Server (dev tenant) ──────────────────────────────────────
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: https://dev-iuo6si32jobgnmod.eu.auth0.com/
+
+auth0:
+  audience: https://smartlaundry.api
+
+# ── Auth0 M2M client (dev) ────────────────────────────────────────────────────
+auth0-client:
+  id: qrhBuc3lsJfRqsP8xKWAO334DOsseidM
+  secret: ${AUTH0_CLIENT_SECRET:REDACTED}
+  token-url: https://dev-iuo6si32jobgnmod.eu.auth0.com/oauth/token
+
+# ── EQLink Open API v2 — LOCAL MOCK (dev) ────────────────────────────────────
+#
+# Pointing to the WireMock simulator (eqlink-mock/).
+# Start it first:  docker compose -f eqlink-mock/docker-compose.yml up -d
+#
+# Authentication formula (MD5):
+#   sign = MD5(sorted_params + "&secret_key=SECRET_KEY").toUpperCase()
+#
+# The mock accepts ANY vendor_id/app_id/secret_key — the signature is not
+# verified by the mock. Use the values below so EqLinkSignatureUtil runs
+# through its full path and the log shows a computed sign.
+#
+# Machine states (IDLE / RUNNING) are tracked per machine via WireMock scenarios.
+# Reset all to IDLE:        bash eqlink-mock/scripts/reset-all-machines.sh
+# Reset single machine:     bash eqlink-mock/scripts/reset-machine.sh washer_01
+# Show current states:      bash eqlink-mock/scripts/show-machine-states.sh
+#
+# Switch to real EQLink later by replacing base-url and credentials:
+#   base-url: https://tokyo.anlun.vip
+#   vendor-id: <from EQLink support +86 186 5325 0609>
+#   app-id: <from EQLink support>
+#   secret-key: <from EQLink support>
+#   device-name-mapping: <real serial numbers from get_device_list>
+eqlink:
+  enabled: true
+  base-url: http://localhost:9099        # WireMock EQLink simulator
+  vendor-id: "MOCK-VENDOR-001"
+  app-id: "MOCK-APP-ID-001"
+  secret-key: "MOCK-SECRET-KEY-001"
+  wifi-ssid: "EQLink-Mock"
+  poll-interval-ms: 30000
+  default-vend-price: 10
+  device-name-mapping:
+    washer_01: "MOCK-W01"
+    washer_02: "MOCK-W02"
+    washer_03: "MOCK-W03"
+    washer_04: "MOCK-W04"
+    washer_05: "MOCK-W05"
+    washer_06: "MOCK-W06"
+    dryer_01:  "MOCK-D01"
+    dryer_02:  "MOCK-D02"
+    dryer_03:  "MOCK-D03"
+    dryer_04:  "MOCK-D04"
+
+# ── MQTT: local broker for dev ───────────────────────────────────────────────
+mqtt:
+  broker-url: tcp://localhost:1883
+  client-id: machine-state-service-dev
+  username: ${MQTT_USERNAME:}
+  password: ${MQTT_PASSWORD:}
+  topic-prefix: laundry/cameroon
+  qos: 1
+  reconnect-interval: 5
+
+# ── Machine seeding ───────────────────────────────────────────────────────────
+machine:
+  available-ids:
+    # EQLink machines
+    - washer_01
+    - washer_02
+    - washer_03
+    - washer_04
+    - washer_05
+    - washer_06
+    - dryer_01
+    - dryer_02
+    - dryer_03
+    - dryer_04
+    # Modbus RTU machines
+    - washer_07
+    - washer_08
+    - washer_09
+    - dryer_05
+    - dryer_06
+    - dryer_07
+  heartbeat-timeout-seconds: 120
+  cycle-check-interval-ms: 60000
+
+# ── Modbus RTU — LOCAL MOCK (dev) ────────────────────────────────────────────
+#
+# Pointing to the WireMock Modbus gateway simulator (modbus-mock/).
+# Start it first:  docker compose -f modbus-mock/docker-compose.yml up -d
+#
+# These 6 machines are Modbus-only; the 10 above stay on EQLink. The gateway mock
+# accepts any RTU frame and returns a CRC-valid ack (writes) or a monitor block (reads).
+modbus:
+  enabled: true
+  gateway-url: http://localhost:9090       # WireMock Modbus gateway simulator
+  request-path: /modbus/rtu
+  default-coins: 1
+  unit-id-mapping:
+    washer_07: 1
+    washer_08: 2
+    washer_09: 3
+    dryer_05:  4
+    dryer_06:  5
+    dryer_07:  6
+
+# ── Feature flags (dev: reservation ON so it can be exercised locally) ────────
+features:
+  reservation-enabled: true
+
+# ── CORS ─────────────────────────────────────────────────────────────────────
+cors:
+  allowed-origins: "http://localhost:3000,http://localhost:4200,http://localhost:8080"
+
+# ── Swagger UI ────────────────────────────────────────────────────────────────
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+    oauth:
+      client-id: qrhBuc3lsJfRqsP8xKWAO334DOsseidM
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  level:
+    root: INFO
+    com.smartlaundromat: DEBUG
+    org.springframework.security: DEBUG
+    org.eclipse.paho: INFO

@@ -1,0 +1,93 @@
+# ===========================================
+# STAGING ENVIRONMENT CONFIGURATION
+# ===========================================
+# Used for UAT and pre-production testing
+# Platform: DigitalOcean Droplet
+# Uses sandbox/demo APIs but production-like settings
+
+environment: stage
+
+# ===========================================
+# SERVER CONFIGURATION
+# ===========================================
+server:
+  port: 3000
+
+# ===========================================
+# DATABASE (MongoDB)
+# ===========================================
+# Non-secret parts defined here, credentials from env vars
+database:
+  host: "localhost"
+  port: 27017
+  name: "laundry_db_stage"
+  auth_source: "admin"
+  # Full URI constructed at runtime: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@host:port/name
+
+# ===========================================
+# MQTT BROKER
+# ===========================================
+mqtt:
+  broker_url: "mqtt://localhost:1883"
+  # Credentials loaded from environment variables:
+  # MQTT_USERNAME, MQTT_PASSWORD
+
+# ===========================================
+# REDIS (Session Storage)
+# ===========================================
+redis:
+  # For Heroku: Set REDIS_URL environment variable (Heroku Redis addon)
+  # For DigitalOcean: Set REDIS_URL to point to managed Redis instance
+  url: "${REDIS_URL}"  # e.g., redis://localhost:6379
+
+# ===========================================
+# PAYMENT PROVIDERS
+# ===========================================
+payment:
+  provider: "campay"
+
+  # Campay (Demo/Sandbox for staging)
+  campay:
+    api_url: "https://demo.campay.net"
+    # Credentials from env vars: CAMPAY_APP_KEY, CAMPAY_APP_SECRET, CAMPAY_WEBHOOK_SECRET
+
+  # MTN MoMo (Sandbox for staging)
+  mtn:
+    api_url: "https://sandbox.momodeveloper.mtn.com"
+    env: "sandbox"
+    # Credentials from env vars: MTN_SUBSCRIPTION_KEY, MTN_API_USER_ID, MTN_API_KEY
+
+# ===========================================
+# WHATSAPP (Meta)
+# ===========================================
+whatsapp:
+  api_version: "v18.0"
+  phone_id: "954151401109786"
+  # Token from env var: WHATSAPP_TOKEN, WHATSAPP_VERIFY_TOKEN, WHATSAPP_APP_SECRET
+
+# ===========================================
+# BUSINESS CONFIGURATION
+# ===========================================
+# Pricing (Realistic but controlled amounts for UAT)
+pricing:
+  short_cycle: 100   # XAF
+  long_cycle: 200    # XAF
+
+# Staff Alerts
+alerts:
+  staff_phone: "+237681875178"
+
+# ===========================================
+# DEPLOYMENT CONFIGURATION
+# ===========================================
+deployment:
+  platform: "digitalocean"
+  path: "/var/www/SmartLaundromatControlSystem"
+  # Staging deploys from release tags (not branches)
+
+# ===========================================
+# LOGGING
+# ===========================================
+logging:
+  level: "debug"
+  include_request_body: true

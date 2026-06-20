@@ -1,0 +1,112 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# PaymentManagementService — Dev environment configuration
+#
+# Load with:
+#   java -jar target/payment-management-service-*.jar \
+#     --spring.config.additional-location=file:./ci/dev.yaml
+#
+# Or set env var:
+#   SPRING_CONFIG_ADDITIONAL_LOCATION=file:./ci/dev.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+
+server:
+  port: 8081
+
+spring:
+  application:
+    name: payment-management-service-dev
+
+  # ── Database: H2 in-memory for dev ──────────────────────────────────────────
+  datasource:
+    url: jdbc:h2:mem:paymentdb_dev;DB_CLOSE_DELAY=-1;MODE=LEGACY
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  h2:
+    console:
+      enabled: true          # accessible at http://localhost:8081/h2-console
+      path: /h2-console
+      settings:
+        web-allow-others: false
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  # ── Auth0 Resource Server (dev tenant) ──────────────────────────────────────
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Dev tenant — override via AUTH0_ISSUER_URI env var on staging/prod
+          issuer-uri: https://dev-iuo6si32jobgnmod.eu.auth0.com/
+
+auth0:
+  audience: https://smartlaundry.api
+
+# ── Auth0 M2M client (dev) ────────────────────────────────────────────────────
+# Used by Swagger UI "Authorize" button and integration-test token acquisition.
+# Override AUTH0_CLIENT_SECRET via env var on staging/prod — never commit prod secrets.
+auth0-client:
+  id: qrhBuc3lsJfRqsP8xKWAO334DOsseidM
+  secret: ${AUTH0_CLIENT_SECRET:REDACTED}
+  token-url: https://dev-iuo6si32jobgnmod.eu.auth0.com/oauth/token
+
+# ── Post-payment machine trigger (dev) ───────────────────────────────────────
+# EQLink is a machine CONTROL platform, NOT a payment system.
+# Set EQLINK_AUTO_START=true to have PaymentManagementService automatically
+# call MachineStateService /api/machines/start-cycle after any successful payment.
+# MachineStateService then uses EQLink IoT or MQTT to start the machine.
+eqlink:
+  auto-start-machine-after-payment: ${EQLINK_AUTO_START:false}
+
+# ── Payment providers: sandbox URLs ──────────────────────────────────────────
+payment:
+  currency: XAF
+  timeout-minutes: 5
+  pricing:
+    short-cycle: 1000
+    long-cycle: 2000
+  campay:
+    base-url: https://demo.campay.net
+    app-key: ${CAMPAY_APP_KEY:}
+    app-secret: ${CAMPAY_APP_SECRET:}
+    webhook-secret: ${CAMPAY_WEBHOOK_SECRET:}
+  mtn:
+    api-url: https://sandbox.momodeveloper.mtn.com
+    subscription-key: ${MTN_SUBSCRIPTION_KEY:}
+    api-user-id: ${MTN_API_USER_ID:}
+    api-key: ${MTN_API_KEY:}
+    environment: sandbox
+  orange:
+    api-url: https://api.orange.com
+    client-id: ${ORANGE_CLIENT_ID:}
+    client-secret: ${ORANGE_CLIENT_SECRET:}
+    merchant-key: ${ORANGE_MERCHANT_KEY:}
+
+# ── CORS: permissive for local development ───────────────────────────────────
+cors:
+  allowed-origins: "http://localhost:3000,http://localhost:4200,http://localhost:8080"
+
+# ── Swagger UI ────────────────────────────────────────────────────────────────
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+    oauth:
+      # Dev M2M client — pre-filled so "Authorize" in Swagger UI works out of the box
+      client-id: qrhBuc3lsJfRqsP8xKWAO334DOsseidM
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  level:
+    root: INFO
+    com.smartlaundromat: DEBUG
+    org.springframework.security: DEBUG
+    org.springframework.web: DEBUG

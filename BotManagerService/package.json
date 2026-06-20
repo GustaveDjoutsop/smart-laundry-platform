@@ -1,0 +1,23 @@
+{
+  "name": "botmanagerservice",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BotManagerService - Node.js/Express modular monolith for multi-tenant WhatsApp bots with payments + MQTT.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test",
+    "lint": "node -e \"console.log('lint not configured yet')\""
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "js-yaml": "^4.1.0",
+    "morgan": "^1.10.0",
+    "redis": "^4.7.0",
+    "mustache": "^4.2.0",
+    "mqtt": "^5.10.0"
+  }
+}

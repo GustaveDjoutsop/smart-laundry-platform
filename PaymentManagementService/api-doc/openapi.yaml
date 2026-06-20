@@ -1,0 +1,516 @@
+openapi: 3.0.3
+info:
+  title: PaymentManagementService API
+  version: 1.0.0
+  description: |
+    Payment microservice for the SmartLaundromat ecosystem.
+
+    Handles RFID card accounts, mobile money payments (CamPay, MTN MoMo, Orange Money),
+    top-ups, and provider webhook ingestion.
+
+    ### How to get a token
+    ```bash
+    curl --request POST \
+      --url https://dev-iuo6si32jobgnmod.eu.auth0.com/oauth/token \
+      --header 'content-type: application/json' \
+      --data '{
+        "client_id":     "<CLIENT_ID>",
+        "client_secret": "<CLIENT_SECRET>",
+        "audience":      "https://smartlaundry.api",
+        "grant_type":    "client_credentials",
+        "scope":         "sls-rfid-read sls-rfid-debit sls-payment-initiate"
+      }'
+    ```
+  contact:
+    name: SmartLaundromat Team
+    email: dev@smartlaundromat.cm
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8081
+    description: Local / Dev
+  - url: https://api.smartlaundromat.cm/payment
+    description: Production
+
+security:
+  - auth0: []
+
+components:
+  securitySchemes:
+    auth0:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://dev-iuo6si32jobgnmod.eu.auth0.com/oauth/token
+          scopes:
+            sls-rfid-read:        Read RFID card info and balance
+            sls-rfid-manage:      Register, activate, deactivate RFID cards
+            sls-rfid-debit:       Debit an RFID card balance (ESP32 calls this)
+            sls-payment-read:     Read transaction history and payment status
+            sls-payment-initiate: Initiate a mobile money payment request
+            sls-topup-manage:     Create top-ups and read top-up history
+
+  schemas:
+    RfidCard:
+      type: object
+      properties:
+        id:          { type: integer }
+        cardUid:     { type: string, example: "UID-4F2A-AB01" }
+        ownerName:   { type: string, example: "Jean Dupont" }
+        phoneNumber: { type: string, example: "237650000001" }
+        balance:     { type: number, example: 5000 }
+        currency:    { type: string, example: "XAF" }
+        isActive:    { type: boolean, example: true }
+        createdAt:   { type: string, format: date-time }
+        updatedAt:   { type: string, format: date-time }
+
+    RfidBalanceResponse:
+      type: object
+      properties:
+        cardUid:    { type: string }
+        ownerName:  { type: string }
+        balance:    { type: number }
+        currency:   { type: string }
+        sufficient: { type: boolean }
+        message:    { type: string, example: "Solde = 5000 XAF — OK" }
+
+    RfidDebitRequest:
+      type: object
+      required: [cardUid, amount, machineId, pulseCount, cycleDuration]
+      properties:
+        cardUid:       { type: string }
+        amount:        { type: number, example: 1500 }
+        machineId:     { type: string, example: "washer_01" }
+        pulseCount:    { type: integer, example: 1 }
+        cycleDuration: { type: integer, example: 30 }
+        description:   { type: string }
+
+    TransactionDebitResponse:
+      type: object
+      properties:
+        success:           { type: boolean }
+        transactionReference: { type: string }
+        cardUid:           { type: string }
+        machineId:         { type: string }
+        amountDebited:     { type: number }
+        remainingBalance:  { type: number }
+        pulseCount:        { type: integer }
+        cycleDuration:     { type: integer }
+        message:           { type: string }
+
+    PaymentInitiationRequest:
+      type: object
+      required: [phoneNumber, amount, machineId, pulseCount, cycleDuration, provider]
+      properties:
+        phoneNumber:   { type: string, example: "237650000001" }
+        amount:        { type: number, example: 1500 }
+        machineId:     { type: string, example: "washer_01" }
+        pulseCount:    { type: integer, example: 1 }
+        cycleDuration: { type: integer, example: 30 }
+        provider:
+          type: string
+          enum: [CAMPAY, MTN, ORANGE_MONEY]
+        description:   { type: string }
+
+    PaymentResponse:
+      type: object
+      properties:
+        success:           { type: boolean }
+        externalReference: { type: string }
+        providerReference: { type: string }
+        provider:
+          type: string
+          enum: [CAMPAY, MTN, ORANGE_MONEY]
+        status:
+          type: string
+          enum: [PENDING, SUCCESSFUL, FAILED, TIMEOUT]
+        amount:   { type: number }
+        message:  { type: string }
+
+    TopUpRequest:
+      type: object
+      required: [cardUid, amount, channel]
+      properties:
+        cardUid:     { type: string }
+        amount:      { type: number, example: 3000 }
+        channel:
+          type: string
+          enum: [CAMPAY, MTN, ORANGE_MONEY, CASH]
+        phoneNumber: { type: string }
+
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp: { type: string, format: date-time }
+        error:     { type: string, example: "CARD_NOT_FOUND" }
+        message:   { type: string }
+
+paths:
+
+  # ── RFID Cards ──────────────────────────────────────────────────────────────
+
+  /api/rfid/register:
+    post:
+      tags: [RFID Cards]
+      summary: Register a new RFID card
+      security:
+        - auth0: [sls-rfid-manage]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cardUid]
+              properties:
+                cardUid:     { type: string, example: "UID-4F2A-AB01" }
+                ownerName:   { type: string }
+                phoneNumber: { type: string }
+      responses:
+        "201":
+          description: Card registered
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RfidCard" }
+        "400":
+          description: Duplicate UID or validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Missing or invalid token
+        "403":
+          description: Insufficient scope (requires sls-rfid-manage)
+
+  /api/rfid/balance/{cardUid}:
+    get:
+      tags: [RFID Cards]
+      summary: Check card balance (ESP32 calls this before starting a cycle)
+      security:
+        - auth0: [sls-rfid-read]
+      parameters:
+        - name: cardUid
+          in: path
+          required: true
+          schema: { type: string }
+        - name: requiredAmount
+          in: query
+          required: false
+          schema: { type: number }
+          description: If provided, the response includes a `sufficient` flag
+      responses:
+        "200":
+          description: Balance information
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RfidBalanceResponse" }
+              example:
+                cardUid: "UID-4F2A-AB01"
+                balance: 3500
+                currency: "XAF"
+                sufficient: true
+                message: "Solde = 3500 XAF — OK"
+        "404":
+          description: Card not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example:
+                error: CARD_NOT_FOUND
+                message: "Card not found: UID-4F2A-AB01"
+
+  /api/rfid/debit:
+    post:
+      tags: [RFID Cards]
+      summary: Debit the card for a wash cycle
+      description: |
+        Called by the ESP32 after the customer selects a program.
+        Atomically deducts the cycle price from the card balance and
+        records a SUCCESSFUL transaction.
+      security:
+        - auth0: [sls-rfid-debit]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RfidDebitRequest" }
+      responses:
+        "200":
+          description: Debit successful
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TransactionDebitResponse" }
+        "400":
+          description: Insufficient balance or inactive card
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example:
+                error: INSUFFICIENT_BALANCE
+                message: "Insufficient balance: 500 XAF (required: 1500 XAF)"
+        "404":
+          description: Card not found
+
+  /api/rfid/cards:
+    get:
+      tags: [RFID Cards]
+      summary: List all registered RFID cards
+      security:
+        - auth0: [sls-rfid-read]
+      responses:
+        "200":
+          description: List of all cards
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RfidCard" }
+
+  /api/rfid/cards/{cardUid}:
+    get:
+      tags: [RFID Cards]
+      summary: Get a specific RFID card
+      security:
+        - auth0: [sls-rfid-read]
+      parameters:
+        - name: cardUid
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Card details
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RfidCard" }
+        "404":
+          description: Card not found
+
+  /api/rfid/cards/{cardUid}/activate:
+    patch:
+      tags: [RFID Cards]
+      summary: Activate a deactivated card
+      security:
+        - auth0: [sls-rfid-manage]
+      parameters:
+        - name: cardUid
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Card activated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RfidCard" }
+
+  /api/rfid/cards/{cardUid}/deactivate:
+    patch:
+      tags: [RFID Cards]
+      summary: Deactivate a card (blocks future debits)
+      security:
+        - auth0: [sls-rfid-manage]
+      parameters:
+        - name: cardUid
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Card deactivated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RfidCard" }
+
+  # ── Top-Up ──────────────────────────────────────────────────────────────────
+
+  /api/topup:
+    post:
+      tags: [Top-Up]
+      summary: Initiate a card top-up (mobile money or cash)
+      security:
+        - auth0: [sls-topup-manage]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TopUpRequest" }
+      responses:
+        "200":
+          description: Top-up initiated (CASH is immediately SUCCESSFUL; mobile money is PENDING)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reference:   { type: string }
+                  cardUid:     { type: string }
+                  amount:      { type: number }
+                  status:      { type: string, enum: [PENDING, SUCCESSFUL] }
+                  newBalance:  { type: number }
+                  message:     { type: string }
+
+  /api/topup/history/{cardUid}:
+    get:
+      tags: [Top-Up]
+      summary: Get top-up history for a card
+      security:
+        - auth0: [sls-topup-manage]
+      parameters:
+        - name: cardUid
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of top-up transactions
+
+  # ── Payments ────────────────────────────────────────────────────────────────
+
+  /api/payments/initiate:
+    post:
+      tags: [Payments]
+      summary: Initiate a mobile money payment
+      security:
+        - auth0: [sls-payment-initiate]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaymentInitiationRequest" }
+      responses:
+        "200":
+          description: Payment initiated (status PENDING until provider callback)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentResponse" }
+
+  /api/payments/transaction/{reference}:
+    get:
+      tags: [Payments]
+      summary: Get transaction by external reference
+      security:
+        - auth0: [sls-payment-read]
+      parameters:
+        - name: reference
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Transaction details
+        "404":
+          description: Not found
+
+  /api/payments/machine/{machineId}:
+    get:
+      tags: [Payments]
+      summary: Get all transactions for a machine
+      security:
+        - auth0: [sls-payment-read]
+      parameters:
+        - name: machineId
+          in: path
+          required: true
+          schema: { type: string, example: "washer_01" }
+      responses:
+        "200":
+          description: List of transactions
+
+  /api/payments/card/{cardUid}:
+    get:
+      tags: [Payments]
+      summary: Get all RFID-initiated transactions for a card
+      security:
+        - auth0: [sls-payment-read]
+      parameters:
+        - name: cardUid
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of transactions
+
+  /api/payments/providers/status:
+    get:
+      tags: [Payments]
+      summary: Check which payment providers are configured
+      security:
+        - auth0: [sls-payment-read]
+      responses:
+        "200":
+          description: Provider configuration status
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  campay:       { configured: true }
+                  mtn:          { configured: false }
+                  orange_money: { configured: false }
+
+  # ── Webhooks (public — HMAC verified internally) ────────────────────────────
+
+  /api/webhook/campay:
+    post:
+      tags: [Webhooks]
+      summary: Receive CamPay payment callback
+      description: Public endpoint. Secured by HMAC-SHA256 signature verification inside the controller.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reference:          { type: string }
+                external_reference: { type: string }
+                status:             { type: string, enum: [SUCCESSFUL, FAILED] }
+                amount:             { type: string }
+      responses:
+        "200":
+          description: Webhook accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "received" }
+
+  /api/webhook/mtn:
+    post:
+      tags: [Webhooks]
+      summary: Receive MTN MoMo payment callback
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                externalId:             { type: string }
+                status:                 { type: string }
+                financialTransactionId: { type: string }
+      responses:
+        "200":
+          description: Webhook accepted
+
+  /api/webhook/orange:
+    post:
+      tags: [Webhooks]
+      summary: Receive Orange Money payment callback
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Webhook accepted

@@ -1,0 +1,21 @@
+{
+  "name": "MachineStateService - Start cycle",
+  "request": {
+    "method": "POST",
+    "url": "/api/machines/start-cycle"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "id": 1,
+      "machineId": "washer_01",
+      "cycleType": "NORMAL",
+      "status": "IN_PROGRESS",
+      "durationMinutes": 30,
+      "startedAt": "2026-01-01T08:00:00",
+      "endsAt": "2026-01-01T08:30:00",
+      "pulseCount": 1
+    }
+  }
+}

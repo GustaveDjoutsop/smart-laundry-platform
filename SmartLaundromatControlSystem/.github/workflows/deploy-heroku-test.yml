@@ -1,0 +1,69 @@
+# .github/workflows/deploy-heroku-test.yml
+
+name: Deploy to Heroku TEST
+
+on:
+  push:
+    branches:
+      - developTest
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  deploy:
+    name: Deploy to Heroku TEST Environment
+    runs-on: ubuntu-latest
+    environment:
+      name: TEST
+      url: https://smartlaundry-test.herokuapp.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Heroku with Docker
+        uses: akhileshns/heroku-deploy@v3.13.15
+        with:
+          heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
+          heroku_app_name: ${{ secrets.HEROKU_TEST_APP_NAME }}
+          heroku_email: ${{ secrets.HEROKU_EMAIL }}
+          usedocker: true
+          docker_heroku_process_type: web
+          docker_build_args: |
+            NODE_ENV=test
+
+      - name: Set Heroku environment variables
+        run: |
+          # Install Heroku CLI
+          curl https://cli-assets.heroku.com/install.sh | sh
+
+          # Login to Heroku
+          echo ${{ secrets.HEROKU_API_KEY }} | heroku auth:token
+
+          # Set environment variables
+          heroku config:set \
+            NODE_ENV=test \
+            PORT=3000 \
+            MONGO_URI="${{ secrets.TEST_MONGO_URI }}" \
+            MQTT_BROKER_URL="${{ secrets.TEST_MQTT_BROKER_URL }}" \
+            CAMPAY_APP_KEY="${{ secrets.TEST_CAMPAY_KEY }}" \
+            CAMPAY_APP_SECRET="${{ secrets.TEST_CAMPAY_SECRET }}" \
+            WHATSAPP_TOKEN="${{ secrets.TEST_WHATSAPP_TOKEN }}" \
+            WHATSAPP_PHONE_ID="${{ secrets.TEST_WHATSAPP_PHONE_ID }}" \
+            WHATSAPP_VERIFY_TOKEN="${{ secrets.TEST_WHATSAPP_VERIFY_TOKEN }}" \
+            WHATSAPP_APP_SECRET="${{ secrets.TEST_WHATSAPP_APP_SECRET }}" \
+            PRICE_SHORT_CYCLE=1000 \
+            PRICE_LONG_CYCLE=2000 \
+            MACHINE_IDS="washer_01,washer_02" \
+            --app ${{ secrets.HEROKU_TEST_APP_NAME }}
+
+      - name: Verify deployment
+        run: |
+          sleep 10
+          curl -f https://${{ secrets.HEROKU_TEST_APP_NAME }}.herokuapp.com/api/health || exit 1
+          echo "✅ TEST deployment successful!"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Deployment to TEST failed!"
+          heroku logs --tail --app ${{ secrets.HEROKU_TEST_APP_NAME }}

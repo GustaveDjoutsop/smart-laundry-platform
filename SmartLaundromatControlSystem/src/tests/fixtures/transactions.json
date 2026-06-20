@@ -1,0 +1,39 @@
+{
+  "pendingPayment": {
+    "phoneNumber": "237677889900",
+    "machineId": "washer_01",
+    "amount": 1000,
+    "cycleDuration": 30,
+    "pulseCount": 1,
+    "cycleType": "SHORT",
+    "status": "PENDING",
+    "paymentMethod": "CAMPAY",
+    "externalReference": "TEST-REF-001"
+  },
+  "successfulPayment": {
+    "phoneNumber": "237677889901",
+    "machineId": "washer_02",
+    "amount": 2000,
+    "cycleDuration": 60,
+    "pulseCount": 2,
+    "cycleType": "LONG",
+    "status": "SUCCESSFUL",
+    "paymentMethod": "CAMPAY",
+    "externalReference": "TEST-REF-002",
+    "cycleStatus": "IN_PROGRESS"
+  },
+  "completedCycle": {
+    "phoneNumber": "237677889902",
+    "machineId": "dryer_01",
+    "amount": 1000,
+    "cycleDuration": 30,
+    "pulseCount": 1,
+    "cycleType": "SHORT",
+    "status": "SUCCESSFUL",
+    "paymentMethod": "MTN",
+    "externalReference": "TEST-REF-003",
+    "cycleStatus": "COMPLETED",
+    "rating": 5,
+    "comment": "Excellent service!"
+  }
+}

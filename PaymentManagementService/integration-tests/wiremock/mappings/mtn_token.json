@@ -1,0 +1,16 @@
+{
+  "name": "MTN MoMo - Get access token",
+  "request": {
+    "method": "POST",
+    "url": "/collection/token/"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "access_token": "test-mtn-bearer-token-xyz789",
+      "token_type": "access_token",
+      "expires_in": 3600
+    }
+  }
+}

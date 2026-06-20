@@ -1,0 +1,14 @@
+# heroku.yml
+# Heroku Docker deployment configuration
+
+build:
+  docker:
+    web: Dockerfile
+  config:
+    NODE_ENV: test
+
+run:
+  web: npm start
+
+release:
+  image: web

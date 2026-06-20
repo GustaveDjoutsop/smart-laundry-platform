@@ -1,0 +1,24 @@
+{
+  "name": "[washer_06] iot_start_device — IDLE → RUNNING",
+  "priority": 32,
+  "scenarioName": "machine-washer_06",
+  "requiredScenarioState": "Started",
+  "newScenarioState": "Running",
+  "request": {
+    "method": "POST",
+    "url": "/api/open/v2/Device/iot_start_device",
+    "bodyPatterns": [
+      { "matchesJsonPath": "$.devicename[?(@ == 'MOCK-W06')]" }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "status": 200,
+      "message": "Start device call successful!",
+      "server_time": "{{now format='yyyy-MM-dd HH:mm:ss'}}"
+    },
+    "transformers": ["response-template"]
+  }
+}

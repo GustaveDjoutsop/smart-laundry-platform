@@ -1,0 +1,24 @@
+const request = require('supertest');
+
+// Set environment variables BEFORE requiring server
+process.env.NODE_ENV = 'test';
+process.env.PORT = '3000'; // Backend port (frontend uses 3001)
+
+const server = require('../server');
+const config = require('../config/env');
+
+describe('System Health Check', () => {
+  // Close server after all tests
+  afterAll((done) => {
+    server.close(done);
+  });
+
+  it('should verify WhatsApp webhook token', async () => {
+    // Use the actual configured verify token from env
+    const verifyToken = config.META_VERIFY;
+    const res = await request(server)
+      .get(`/api/webhook/whatsapp?hub.mode=subscribe&hub.verify_token=${verifyToken}&hub.challenge=123`);
+    expect(res.statusCode).toEqual(200);
+    expect(res.text).toEqual('123');
+  });
+});

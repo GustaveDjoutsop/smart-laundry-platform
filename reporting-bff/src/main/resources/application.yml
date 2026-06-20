@@ -1,0 +1,59 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: reporting-bff
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5436/postgres?currentSchema=ops&prepareThreshold=0}
+    username: ${SPRING_DATASOURCE_USERNAME:reporting_svc}
+    password: ${SPRING_DATASOURCE_PASSWORD:devpassword}
+    hikari:
+      minimum-idle: 2
+      maximum-pool-size: 10
+      pool-name: ReportingBffPool
+      connection-timeout: 20000
+
+  flyway:
+    enabled: true
+    schemas: ops
+    default-schema: ops
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    # Session-mode pooler (5432) for migrations — advisory locks don't survive
+    # transaction-mode pooler (6543) boundary resets.
+    url: ${FLYWAY_DATASOURCE_URL:jdbc:postgresql://localhost:5436/postgres?currentSchema=ops&prepareThreshold=0}
+    user: ${FLYWAY_DATASOURCE_USERNAME:reporting_svc}
+    password: ${FLYWAY_DATASOURCE_PASSWORD:devpassword}
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${AUTH0_ISSUER_URI:https://dev-iuo6si32jobgnmod.eu.auth0.com/}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+
+auth0:
+  audience: ${AUTH0_AUDIENCE:https://smartlaundry.api}
+  management:
+    domain: ${AUTH0_DOMAIN:dev-iuo6si32jobgnmod.eu.auth0.com}
+    client-id: ${AUTH0_MGMT_CLIENT_ID:}
+    client-secret: ${AUTH0_MGMT_CLIENT_SECRET:}
+    connection: ${AUTH0_MGMT_CONNECTION:Username-Password-Authentication}
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3001,http://localhost:3000}
+
+logging:
+  level:
+    root: INFO
+    com.smartlaundromat.reporting: DEBUG

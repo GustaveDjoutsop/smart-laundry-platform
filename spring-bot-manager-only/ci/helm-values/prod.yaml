@@ -1,0 +1,29 @@
+# Production environment values
+springProfiles: "prod"
+
+replicaCount: 2
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+envs:
+  PORT: "3000"
+  MANAGEMENT_PORT: "8081"
+  QUEUE_MAX_SIZE: "500"
+  WHATSAPP_VERIFY_SIGNATURE: "true"
+
+redis:
+  enabled: true
+  auth:
+    enabled: true
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70

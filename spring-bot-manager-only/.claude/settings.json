@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(mvn clean *)",
+      "Bash(PGPASSWORD=smartbot \"/c/Program Files/PostgreSQL/16/bin/psql.exe\" -h localhost -p 15432 -U smartbot -d smartbot -c \"UPDATE businesses SET config = config || '{\\\\\"features\\\\\": {\\\\\"washFlowEnabled\\\\\": true, \\\\\"reservationEnabled\\\\\": true}}'::jsonb WHERE bot_id = 'laundry' RETURNING bot_id, config->'features' AS features;\")",
+      "Bash(curl -s -X POST http://localhost:8090/admin/bots/refresh -u admin:change-me-in-production)",
+      "Bash(pkill -f \"bot-app-0.1.0-SNAPSHOT.jar\")",
+      "Bash(java -jar \"c:/Users/sunda/Codierung/spring-bot-manager-only/bot-app/target/bot-app-0.1.0-SNAPSHOT.jar\" --spring.profiles.active=local)",
+      "Bash(netstat -ano)",
+      "Bash(awk '{print $5}')",
+      "Bash(xargs -I{} taskkill //PID {} //F)",
+      "Bash(java -jar \"c:/Users/sunda/Codierung/spring-bot-manager-only/bot-app/target/bot-app-0.1.0-SNAPSHOT.jar\" --spring.profiles.active=local > \"c:/Users/sunda/Codierung/spring-bot-manager-only/bot-app-run.log\" 2>&1 &)",
+      "Bash(PGPASSWORD=smartbot '/c/Program Files/PostgreSQL/16/bin/psql.exe' -h localhost -p 15432 -U smartbot -d smartbot -c ' *)",
+      "Bash(mvn package *)",
+      "Bash(mvn -pl bot-app spring-boot:run -Dspring-boot.run.profiles=local)",
+      "Bash(mvn install *)",
+      "Read(//tmp/**)",
+      "Read(//c/tmp/**)",
+      "Bash(grep -rn \"PaymentException\\\\|\\\\\"error\\\\\"\\\\|getCode\\\\|getMessage\\\\|ExceptionHandler\" \"C:/Users/sunda/Codierung/PaymentManagementService/src/main/java\" 2>/dev/null | grep -i \"exception\\\\|error\" | head -30)",
+      "Read(//c/Users/sunda/Codierung/PaymentManagementService/src/main/java/**)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\sunda\\Codierung\\spring-bot-manager-only",
+      "C:\\Users\\sunda\\Codierung\\PaymentManagementService\\src\\main\\java\\com\\smartlaundromat\\payment\\service\\provider"
+    ]
+  }
+}

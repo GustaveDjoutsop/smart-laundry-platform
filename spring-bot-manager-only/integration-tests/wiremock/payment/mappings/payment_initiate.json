@@ -1,0 +1,20 @@
+{
+  "name": "PaymentManagementService - Initiate payment",
+  "request": {
+    "method": "POST",
+    "url": "/api/payments/initiate"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "success": true,
+      "externalReference": "ext-ref-mock-001",
+      "providerReference": "camp-ref-mock-001",
+      "provider": "CAMPAY",
+      "status": "PENDING",
+      "amount": 1000,
+      "message": "Payment request sent. Please confirm on your phone."
+    }
+  }
+}

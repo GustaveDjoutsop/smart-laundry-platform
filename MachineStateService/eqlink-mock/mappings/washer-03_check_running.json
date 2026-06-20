@@ -1,0 +1,40 @@
+{
+  "name": "[washer_03] check status — RUNNING",
+  "priority": 19,
+  "scenarioName": "machine-washer_03",
+  "requiredScenarioState": "Running",
+  "request": {
+    "method": "POST",
+    "url": "/api/open/v2/Device/iot_check_dev_status",
+    "bodyPatterns": [
+      { "matchesJsonPath": "$.devicename[?(@ == 'MOCK-W03')]" }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "status": 200,
+      "isonline": "YES",
+      "bt_cmd": "\"\"",
+      "device_status": {
+        "cycle_start": 1,
+        "mach_errno": 0,
+        "coin_box_cnt": 1,
+        "wifi_ssid": "EQLink-Mock",
+        "mach_model": "null",
+        "user_id": "null",
+        "available": 0,
+        "vend_price": 10,
+        "cycle_time": 30,
+        "start_type": 1,
+        "coin_lifetime_cnt": 870,
+        "status": 1,
+        "remain_time": 1200
+      },
+      "message": "Successful!",
+      "server_time": "{{now format='yyyy-MM-dd HH:mm:ss'}}"
+    },
+    "transformers": ["response-template"]
+  }
+}

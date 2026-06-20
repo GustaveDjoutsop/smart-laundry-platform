@@ -1,0 +1,343 @@
+﻿openapi: 3.0.3
+info:
+  title: spring-bot-manager-only API
+  version: 0.1.0
+  description: |
+    WhatsApp bot manager for the SmartLaundromat ecosystem.
+
+    Handles inbound WhatsApp messages, payment provider callbacks, and
+    proxies machine/payment queries to the respective microservices.
+
+    ### Authentication
+    - **WhatsApp & payment webhooks** — public (secured by provider HMAC signatures)
+    - **Machine / payment query endpoints** — require an Auth0 Bearer token
+    - **Admin endpoints** — require a local JWT (POST /auth/login)
+
+    #### Obtain Auth0 token
+    ```bash
+    curl --request POST \
+      --url https://dev-iuo6si32jobgnmod.eu.auth0.com/oauth/token \
+      --header ''content-type: application/json'' \
+      --data ''{
+        "client_id":     "<CLIENT_ID>",
+        "client_secret": "<CLIENT_SECRET>",
+        "audience":      "https://smartlaundry.api",
+        "grant_type":    "client_credentials",
+        "scope":         "sls-machine-read sls-payment-read"
+      }''
+    ```
+  contact:
+    name: SmartLaundromat Team
+    email: dev@smartlaundromat.cm
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8090
+    description: Local / Dev
+  - url: https://api.smartlaundromat.cm/bot
+    description: Production
+
+security:
+  - auth0: []
+
+components:
+  securitySchemes:
+    auth0:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://dev-iuo6si32jobgnmod.eu.auth0.com/oauth/token
+          scopes:
+            sls-machine-read:  Query machine availability via the bot proxy
+            sls-payment-read:  Query payment transaction status via the bot
+            sls-bot-admin:     Admin-level bot management operations
+    adminJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Local JWT obtained from POST /auth/login
+
+  schemas:
+    WebhookVerificationResponse:
+      type: string
+      description: The hub.challenge value echoed back to Meta
+
+    WhatsAppWebhookPayload:
+      type: object
+      properties:
+        object: { type: string, example: "whatsapp_business_account" }
+        entry:
+          type: array
+          items:
+            type: object
+
+    PaymentWebhookPayload:
+      type: object
+      properties:
+        reference:          { type: string }
+        external_reference: { type: string }
+        status:             { type: string, enum: [SUCCESSFUL, FAILED] }
+        amount:             { type: string }
+        reason:             { type: string }
+
+    MachineRecord:
+      type: object
+      properties:
+        botId:            { type: string }
+        machineId:        { type: string }
+        type:             { type: string, enum: [WASHER, DRYER] }
+        name:             { type: string }
+        status:           { type: string, enum: [AVAILABLE, IN_USE, COMPLETING, ERROR, MAINTENANCE] }
+        program:          { type: string, nullable: true }
+        remainingSeconds: { type: integer, nullable: true }
+        lastHeartbeatAt:  { type: string, format: date-time, nullable: true }
+
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp: { type: string, format: date-time }
+        error:     { type: string }
+        message:   { type: string }
+
+paths:
+
+  # ── WhatsApp Webhooks ────────────────────────────────────────────────────────
+
+  /api/whatsapp/webhook:
+    get:
+      tags: [WhatsApp]
+      summary: Meta webhook verification challenge
+      description: |
+        Meta calls this endpoint when a new webhook is registered.
+        Returns hub.challenge when hub.verify_token matches the configured token.
+      security: []
+      parameters:
+        - name: hub.mode
+          in: query
+          required: true
+          schema: { type: string, enum: [subscribe] }
+        - name: hub.challenge
+          in: query
+          required: true
+          schema: { type: string }
+        - name: hub.verify_token
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Challenge echoed back to Meta
+          content:
+            text/plain:
+              schema: { type: string }
+        "403":
+          description: Invalid verify token
+
+    post:
+      tags: [WhatsApp]
+      summary: Receive inbound WhatsApp messages
+      description: |
+        Public endpoint. Meta sends message events here (verified by X-Hub-Signature-256).
+        The bot processes each message through the flow engine and may send replies.
+      security: []
+      parameters:
+        - name: X-Hub-Signature-256
+          in: header
+          required: false
+          schema: { type: string }
+          description: HMAC-SHA256 signature provided by Meta
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WhatsAppWebhookPayload" }
+      responses:
+        "200":
+          description: Event accepted
+
+  # ── Payment Webhooks ─────────────────────────────────────────────────────────
+
+  /api/payments/webhooks/campay/{botId}:
+    post:
+      tags: [Payment Webhooks]
+      summary: Receive CamPay callback and forward to PaymentManagementService
+      security: []
+      parameters:
+        - name: botId
+          in: path
+          required: true
+          schema: { type: string, example: "laundry" }
+        - name: x-campay-signature
+          in: header
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PaymentWebhookPayload" }
+      responses:
+        "200":
+          description: Webhook accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "received" }
+        "401":
+          description: Invalid HMAC signature
+
+  /api/payments/webhooks/mtn/{botId}:
+    post:
+      tags: [Payment Webhooks]
+      summary: Receive MTN MoMo callback and forward to PaymentManagementService
+      security: []
+      parameters:
+        - name: botId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                externalId:             { type: string }
+                status:                 { type: string }
+                financialTransactionId: { type: string }
+      responses:
+        "200":
+          description: Webhook accepted
+
+  /api/payments/webhooks/orange/{botId}:
+    post:
+      tags: [Payment Webhooks]
+      summary: Receive Orange Money callback and forward to PaymentManagementService
+      security: []
+      parameters:
+        - name: botId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        "200":
+          description: Webhook accepted
+
+  # ── Machine proxy ─────────────────────────────────────────────────────────────
+
+  /api/machines/{botId}:
+    get:
+      tags: [Machines (proxy)]
+      summary: List all machines for a bot (proxied from MachineStateService)
+      security:
+        - auth0: [sls-machine-read]
+      parameters:
+        - name: botId
+          in: path
+          required: true
+          schema: { type: string, example: "laundry" }
+      responses:
+        "200":
+          description: Machine list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MachineRecord" }
+
+  /api/machines/{botId}/available:
+    get:
+      tags: [Machines (proxy)]
+      summary: List available (IDLE) machines for a bot
+      security:
+        - auth0: [sls-machine-read]
+      parameters:
+        - name: botId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Available machines
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MachineRecord" }
+
+  /api/machines/{botId}/{machineId}:
+    get:
+      tags: [Machines (proxy)]
+      summary: Get a single machine for a bot
+      security:
+        - auth0: [sls-machine-read]
+      parameters:
+        - name: botId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: machineId
+          in: path
+          required: true
+          schema: { type: string, example: "washer_01" }
+      responses:
+        "200":
+          description: Machine details
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MachineRecord" }
+        "404":
+          description: Machine not found
+
+  # ── Payment transaction query ────────────────────────────────────────────────
+
+  /api/payments/{botId}/transactions/{transactionId}:
+    get:
+      tags: [Payments (proxy)]
+      summary: Get a transaction by ID (from local PaymentStore cache)
+      security:
+        - auth0: [sls-payment-read]
+      parameters:
+        - name: botId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: transactionId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Transaction record
+        "404":
+          description: Transaction not found
+
+  /api/payments/{botId}/external/{externalRef}:
+    get:
+      tags: [Payments (proxy)]
+      summary: Get a transaction by external reference
+      security:
+        - auth0: [sls-payment-read]
+      parameters:
+        - name: botId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: externalRef
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Transaction record
+        "404":
+          description: Transaction not found

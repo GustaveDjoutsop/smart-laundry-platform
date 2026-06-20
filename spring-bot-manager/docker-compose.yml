@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: smartbot-postgres
+    environment:
+      POSTGRES_DB: smartbot
+      POSTGRES_USER: smartbot
+      POSTGRES_PASSWORD: smartbot
+    ports:
+      - "15432:5434"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: smartbot-redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:
