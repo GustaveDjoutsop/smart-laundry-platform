@@ -10,8 +10,7 @@ import {
   CreditCard,
 } from 'lucide-react';
 import { useAuth, UserRole } from '@/lib/auth';
-import { authApi } from '@/lib/auth';
-import { settingsApi } from '@/lib/api';
+import { settingsApi, profileApi } from '@/lib/api';
 import type { CyclePricingItem } from '@/lib/api';
 import { tabsConfig, paymentProviders, mockTeamMembers, notificationSettings, programPricing as defaultPricing } from './config';
 import { styles } from './styles';
@@ -129,7 +128,7 @@ export default function SettingsPage() {
     setIsChangingPassword(true);
 
     try {
-      await authApi.changePassword(currentPassword, newPassword);
+      await profileApi.changePassword(currentPassword, newPassword);
       setPasswordSuccess('Password changed successfully. You will be logged out...');
       setCurrentPassword('');
       setNewPassword('');

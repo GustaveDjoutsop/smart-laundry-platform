@@ -151,6 +151,49 @@ public class Auth0ManagementService {
     }
 
     /**
+     * Updates a user's password in Auth0.
+     * Requires update:users scope on the M2M client.
+     */
+    public void updatePassword(String auth0UserId, String newPassword) {
+        if (!isConfigured()) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                "Auth0 Management API is not configured on this server.");
+        }
+        String token     = getToken();
+        String encodedId = auth0UserId.replace("|", "%7C");
+        String url       = "https://" + domain + "/api/v2/users/" + encodedId;
+
+        try {
+            restClient.patch()
+                .uri(url)
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("password", newPassword, "connection", connection))
+                .retrieve()
+                .toBodilessEntity();
+            log.info("Password updated for Auth0 user: {}", auth0UserId);
+        } catch (HttpClientErrorException e) {
+            String responseBody = e.getResponseBodyAsString();
+            log.error("Auth0 update password failed for {}: {} — {}", auth0UserId, e.getStatusCode(), responseBody);
+            try {
+                Map<String, Object> err = objectMapper.readValue(responseBody, new TypeReference<>() {});
+                String msg = (String) err.getOrDefault("message", e.getMessage());
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, msg);
+            } catch (ResponseStatusException rse) {
+                throw rse;
+            } catch (Exception ignored) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+            }
+        } catch (ResponseStatusException rse) {
+            throw rse;
+        } catch (Exception e) {
+            log.error("Unexpected error updating Auth0 password: {}", e.getMessage());
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                "Failed to update password: " + e.getMessage());
+        }
+    }
+
+    /**
      * Deletes a user from Auth0. No-ops if auth0UserId is null/blank.
      */
     public void deleteUser(String auth0UserId) {

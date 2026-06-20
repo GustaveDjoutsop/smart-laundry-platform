@@ -10,7 +10,6 @@ import {
   reportsApi,
   expensesApi,
   reconciliationApi,
-  healthApi,
 } from '@/lib/api';
 import type {
   DashboardSummary,
@@ -69,11 +68,6 @@ function useApiCall<T>(
 }
 
 // ============================================
-// Health Check Hook
-// ============================================
-export function useHealthCheck() {
-  return useApiCall(() => healthApi.check(), []);
-}
 
 // ============================================
 // Dashboard Hooks

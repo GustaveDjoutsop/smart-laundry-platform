@@ -41,10 +41,8 @@ import type {
 // Axios instances
 // bffApi      — all /admin/* analytics/reporting → API gateway → Reporting BFF
 // paymentsApi — cycle pricing → API gateway → PaymentManagementService
-// api         — legacy Express backend: remaining stubs (report/export, paymentApi)
 // ============================================
 const BFF_BASE_URL      = process.env.NEXT_PUBLIC_BFF_URL      || 'http://localhost:8080/reports/api';
-const API_BASE_URL      = process.env.NEXT_PUBLIC_API_URL      || 'http://localhost:3000/api';
 const PAYMENTS_BASE_URL = process.env.NEXT_PUBLIC_PAYMENTS_URL || 'http://localhost:8080/payments';
 
 // Fetch the Auth0 access token client-side via the /auth/access-token route
@@ -89,7 +87,6 @@ function makeAxios(baseURL: string, timeout = 10_000) {
 }
 
 const bffApi      = makeAxios(BFF_BASE_URL);
-const api         = makeAxios(API_BASE_URL, 5_000);
 const paymentsApi = makeAxios(PAYMENTS_BASE_URL);
 
 // ============================================
@@ -518,11 +515,11 @@ function adaptMonthlyReport(raw: AnyMap): MonthlyReport {
 }
 
 // ============================================
-// Health Check API
+// Profile API — self-service operations for the authenticated user
 // ============================================
-export const healthApi = {
-  check: async () => {
-    const response = await api.get<{ status: string }>('/health');
+export const profileApi = {
+  changePassword: async (_currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> => {
+    const response = await bffApi.post<{ success: boolean; message: string }>('/admin/auth/change-password', { newPassword });
     return response.data;
   },
 };
@@ -688,21 +685,6 @@ export const transactionsApi = {
 };
 
 // ============================================
-// Payment API → legacy (PaymentManagementService via Express proxy)
-// ============================================
-export const paymentApi = {
-  initiate: async (data: {
-    phone: string;
-    amount: number;
-    machineId: string;
-    pulseCount: number;
-  }): Promise<{ success: boolean; reference: string; ussdCode?: string }> => {
-    const response = await api.post('/pay', data);
-    return response.data;
-  },
-};
-
-// ============================================
 // Revenue API → BFF
 // BFF uses startDate/endDate; adapter converts period string
 // ============================================
@@ -843,16 +825,6 @@ export const reportsApi = {
     return adaptMonthlyReport(response.data);
   },
 
-  // Export not yet in BFF — stays on legacy
-  export: async (data: {
-    type: string;
-    startDate: string;
-    endDate: string;
-    format?: 'json' | 'pdf' | 'excel';
-  }) => {
-    const response = await api.post('/admin/reports/export', data);
-    return response.data;
-  },
 };
 
 // ============================================
@@ -1333,9 +1305,6 @@ export interface AbsenceSummary {
   family_emergency: { totalDays: number; count: number };
   training:         { totalDays: number; count: number };
 }
-
-// Default export — legacy axios instance (used by src/lib/auth/api.ts)
-export { api as default };
 
 export const absencesApi = {
   getAll: async (params?: {

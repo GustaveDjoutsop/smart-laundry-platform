@@ -1,6 +1,5 @@
 // API Hooks
 export {
-  useHealthCheck,
   useDashboardSummary,
   useDashboardStats,
   useMachines,

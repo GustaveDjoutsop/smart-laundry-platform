@@ -30,8 +30,5 @@ export {
   getCreatableRoles,
 } from './utils';
 
-// API
-export { authApi } from './api';
-
 // Context and hooks
 export { AuthProvider, useAuth, withAuth } from './context';
