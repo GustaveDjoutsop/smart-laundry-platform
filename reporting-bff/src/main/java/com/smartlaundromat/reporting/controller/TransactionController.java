@@ -2,6 +2,8 @@ package com.smartlaundromat.reporting.controller;
 
 import com.smartlaundromat.reporting.service.TransactionReportService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -30,5 +32,19 @@ public class TransactionController {
     public ResponseEntity<Map<String, Object>> findById(@PathVariable Long id) {
         Map<String, Object> result = transactionReportService.findById(id);
         return result != null ? ResponseEntity.ok(result) : ResponseEntity.notFound().build();
+    }
+
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> export(
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) String machineId,
+            @RequestParam(required = false) String status) {
+        byte[] csv = transactionReportService.exportCsv(startDate, endDate, machineId, status);
+        String filename = "transactions_" + java.time.LocalDate.now() + ".csv";
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .body(csv);
     }
 }

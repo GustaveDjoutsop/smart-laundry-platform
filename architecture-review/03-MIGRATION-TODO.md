@@ -523,15 +523,13 @@ block P6).
   - `Auth0ManagementService.java` (BFF): M2M `client_credentials` token cached 23hr; `createUser()` sets `app_metadata: { role }`, handles 409; `deleteUser()` URL-encodes `|`. Credentials in Doppler `reporting-bff/dev`: `AUTH0_MGMT_CLIENT_ID` / `AUTH0_MGMT_CLIENT_SECRET`. Scopes: `create:users`, `delete:users`, `update:users`.
   - `UserService.java`: creates Auth0 user first → inserts `ops.staff` with `auth0_id`; rolls back Auth0 user if DB insert fails; gets `auth0_id` before `ops.staff` delete.
   - Smoke-tested: users created from dashboard exist in Auth0 with correct `app_metadata.role`; correct role-based dashboard rendered on login.
-- [ ] **ops.maintenance_records / ops.expenses BFF Flyway** — add V3 + V4 migrations to
-  `reporting-bff` so `maintenanceApi` and `expensesApi` can be routed through BFF. Currently
-  both fall back to the legacy Express backend.
-- [ ] **Revenue previous-period comparison** — `RevenueSummary.previous` and `.growth` are
-  zeroed; BFF doesn't compute prior period. Requires a second BFF query.
+- [x] **ops.maintenance_records / ops.expenses BFF Flyway** — tables were in V1 all along; `MaintenanceController`/`ExpenseController`/services fully implemented; `maintenanceApi` and `expensesApi` on `bffApi`. (Doc was stale — already done during P5/P6.)
+- [x] **Revenue previous-period comparison** — `prev_revenue`/`prev_transactions` computed in BFF CTE (`RevenueService.summary()`); `adaptRevenueSummary` reads them and computes `growthAmount`/`growthPct`. (Doc was stale — already done.)
 - [ ] **Real-time** — socket.io live machine-status updates not yet routed through the gateway.
-- [ ] **SmartLaundromatControlSystem decommission** — legacy still load-bearing for:
-  users, timekeeping, absences, maintenance, expenses, QR code URLs, payment proxy.
-  Cannot decommission until OperationsService covers users/HR (P7 scope).
+- [x] **SmartLaundromatControlSystem decommission prep** (2026-06-20) — removed 2 of the 3 remaining legacy call-sites:
+  - `machinesApi.getQRCodeUrl` → BFF `GET /api/admin/machines/{id}/qrcode-url` (constructs `wa.me/{WHATSAPP_BUSINESS_PHONE}?text=START%20{id}`; env var `WHATSAPP_BUSINESS_PHONE` added to BFF `application.yml`). `getAllQRCodeUrls` removed (unused in any page).
+  - `transactionsApi.export` → BFF `GET /api/admin/transactions/export` (CSV; up to 10k rows; filters: `startDate`/`endDate`/`machineId`/`status`). `TransactionController.export()` + `TransactionReportService.exportCsv()` added.
+  - Remaining legacy calls (all unused in prod pages): `healthApi`, `paymentApi.initiate`, `reportsApi.export`. SmartLaundromatControlSystem is no longer load-bearing for any active dashboard feature — decommission can proceed once Heroku deployment is updated.
 
 ### P6c — Dashboard UX & developer tooling (2026-06-19)
 

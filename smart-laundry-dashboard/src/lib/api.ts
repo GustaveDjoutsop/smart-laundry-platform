@@ -39,9 +39,9 @@ import type {
 
 // ============================================
 // Axios instances
-// bffApi  — all /admin/* analytics/reporting → API gateway → Reporting BFF
-// api     — legacy Express backend: auth, users, timekeeping, absences,
-//           maintenance, expenses, QR-code endpoints (not yet in BFF)
+// bffApi      — all /admin/* analytics/reporting → API gateway → Reporting BFF
+// paymentsApi — cycle pricing → API gateway → PaymentManagementService
+// api         — legacy Express backend: remaining stubs (report/export, paymentApi)
 // ============================================
 const BFF_BASE_URL      = process.env.NEXT_PUBLIC_BFF_URL      || 'http://localhost:8080/reports/api';
 const API_BASE_URL      = process.env.NEXT_PUBLIC_API_URL      || 'http://localhost:3000/api';
@@ -645,16 +645,7 @@ export const machinesApi = {
     whatsappUrl: string;
     phoneNumber: string;
   }> => {
-    const response = await api.get(`/admin/machines/${machineId}/qrcode-url`);
-    return response.data;
-  },
-
-  getAllQRCodeUrls: async (): Promise<{
-    phoneNumber: string;
-    totalMachines: number;
-    machines: Array<{ machineId: string; machineName: string; whatsappUrl: string }>;
-  }> => {
-    const response = await api.get('/admin/machines/qrcode-urls');
+    const response = await bffApi.get(`/admin/machines/${machineId}/qrcode-url`);
     return response.data;
   },
 };
@@ -687,11 +678,10 @@ export const transactionsApi = {
     return adaptTransaction(response.data);
   },
 
-  // Export not yet in BFF — stays on legacy
-  export: async (params?: { startDate?: string; endDate?: string; format?: 'csv' | 'json' }) => {
-    const response = await api.get('/admin/transactions/export', {
-      params,
-      responseType: params?.format === 'csv' ? 'blob' : 'json',
+  export: async (params?: { startDate?: string; endDate?: string; machineId?: string; status?: string; format?: 'csv' | 'json' }) => {
+    const response = await bffApi.get('/admin/transactions/export', {
+      params: { startDate: params?.startDate, endDate: params?.endDate, machineId: params?.machineId, status: params?.status },
+      responseType: 'blob',
     });
     return response.data;
   },
