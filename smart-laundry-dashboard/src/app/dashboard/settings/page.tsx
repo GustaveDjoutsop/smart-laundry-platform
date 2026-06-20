@@ -12,6 +12,7 @@ import {
 import { useAuth, UserRole } from '@/lib/auth';
 import { authApi } from '@/lib/auth';
 import { settingsApi } from '@/lib/api';
+import type { CyclePricingItem } from '@/lib/api';
 import { tabsConfig, paymentProviders, mockTeamMembers, notificationSettings, programPricing as defaultPricing } from './config';
 import { styles } from './styles';
 import type { SettingsTab } from './types';
@@ -34,6 +35,7 @@ export default function SettingsPage() {
   const [pricing, setPricing] = useState(defaultPricing);
   const [warningCycles, setWarningCycles] = useState(300);
   const [criticalCycles, setCriticalCycles] = useState(400);
+  const [cyclePricing, setCyclePricing] = useState<CyclePricingItem[]>([]);
   const [isSavingMachineConfig, setIsSavingMachineConfig] = useState(false);
   const [machineConfigError, setMachineConfigError] = useState('');
   const [machineConfigSuccess, setMachineConfigSuccess] = useState('');
@@ -44,6 +46,7 @@ export default function SettingsPage() {
         if (config.pricing.length > 0) setPricing(config.pricing);
         setWarningCycles(config.warningCycles);
         setCriticalCycles(config.criticalCycles);
+        if (config.cyclePricing && config.cyclePricing.length > 0) setCyclePricing(config.cyclePricing);
         setMachineConfigLoaded(true);
       })
       .catch(() => setMachineConfigLoaded(true)); // use defaults on error
@@ -54,7 +57,7 @@ export default function SettingsPage() {
     setMachineConfigError('');
     setMachineConfigSuccess('');
     try {
-      await settingsApi.saveMachineConfig({ pricing, warningCycles, criticalCycles });
+      await settingsApi.saveMachineConfig({ pricing, warningCycles, criticalCycles, cyclePricing });
       setMachineConfigSuccess('Machine configuration saved.');
       setTimeout(() => setMachineConfigSuccess(''), 3000);
     } catch {
@@ -311,6 +314,35 @@ export default function SettingsPage() {
                       ))}
                     </div>
                   </div>
+
+                  {cyclePricing.length > 0 && (
+                    <div>
+                      <h4 className={styles.sectionTitle}>Cycle Pricing — Bot &amp; RFID (XAF)</h4>
+                      <p className="text-xs text-gray-500 mb-3">
+                        Prices charged when customers pay via WhatsApp bot or RFID card.
+                        Changes take effect within 60 seconds across all services.
+                      </p>
+                      <div className={styles.spaceY3}>
+                        {cyclePricing.map((item, idx) => (
+                          <div key={item.key} className="flex items-center justify-between">
+                            <span className="text-gray-700">{item.label}</span>
+                            <input
+                              type="number"
+                              min={1}
+                              className={`${canEditCurrentTab ? styles.input : styles.inputReadOnly} w-32`}
+                              value={item.amount}
+                              onChange={e => {
+                                const updated = [...cyclePricing];
+                                updated[idx] = { ...item, amount: Number(e.target.value) };
+                                setCyclePricing(updated);
+                              }}
+                              readOnly={!canEditCurrentTab}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {machineConfigError && (
                     <p className="text-sm text-red-600">{machineConfigError}</p>

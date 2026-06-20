@@ -273,8 +273,8 @@ For **each** of MachineStateService, PaymentManagementService, spring-bot-manage
 - [x] **Dashboard api.ts**: `PAYMENTS_BASE_URL` + `paymentsApi` axios instance; `CyclePricingItem` type; `MachineConfig.cyclePricing?: CyclePricingItem[]`; `getMachineConfig()` fetches PMS pricing concurrently with BFF (graceful `allSettled`); `saveMachineConfig()` PUTs each changed cycle pricing key to PMS in parallel with BFF save.
 
 **Deferred from P4B:**
-- Dashboard settings page UX for editing cycle prices (Settings → Machines "Cycle Pricing (Bot & RFID)" section) — API is wired, UI not yet added
-- Auth0 manual step: add `sls-pricing-manage` scope + grant to admin M2M
+- [x] Dashboard settings page UX for editing cycle prices (Settings → Machines "Cycle Pricing (Bot & RFID)" section) — API wired + UI section added (2026-06-20). Loads `cyclePricing` from PMS concurrently on mount; shows label + editable amount input per key; saves all changed keys in parallel via `PUT /api/pricing/{key}` on Save.
+- [ ] Auth0 manual step: add `sls-pricing-manage` scope + grant to admin M2M
 
 ---
 
