@@ -48,7 +48,7 @@ auth0:
 # ── Auth0 M2M client (dev) ────────────────────────────────────────────────────
 auth0-client:
   id: qrhBuc3lsJfRqsP8xKWAO334DOsseidM
-  secret: ${AUTH0_CLIENT_SECRET:REDACTED}
+  secret: ${AUTH0_CLIENT_SECRET:}
   token-url: https://dev-iuo6si32jobgnmod.eu.auth0.com/oauth/token
 
 # ── JWT for local admin panel (keep for backward compat) ─────────────────────

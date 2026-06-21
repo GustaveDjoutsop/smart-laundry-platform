@@ -2,7 +2,7 @@
   "botId": "laundry",
   "botName": "Smart Laundry",
   "phoneNumberId": "REPLACE_ME",
-  "verifyToken": "REDACTED",
+  "verifyToken": "${META_VERIFY_TOKEN_LAUNDRY}",
   "welcomeMessage": "Bienvenue a Smart Laundry!",
   "mqtt": {
     "topicPrefix": "laundry"

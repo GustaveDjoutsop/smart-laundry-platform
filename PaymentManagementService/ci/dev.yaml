@@ -54,7 +54,7 @@ auth0:
 # Override AUTH0_CLIENT_SECRET via env var on staging/prod — never commit prod secrets.
 auth0-client:
   id: qrhBuc3lsJfRqsP8xKWAO334DOsseidM
-  secret: ${AUTH0_CLIENT_SECRET:REDACTED}
+  secret: ${AUTH0_CLIENT_SECRET:}
   token-url: https://dev-iuo6si32jobgnmod.eu.auth0.com/oauth/token
 
 # ── Post-payment machine trigger (dev) ───────────────────────────────────────
