@@ -38,17 +38,21 @@ docker compose --profile monitoring up prometheus grafana
 
 ## Grafana Cloud — one-time setup
 
-### 1. Add your stack URL to Doppler
+### 1. Create a Grafana Service Account token
 
-In the `grafana` Doppler project (dev + prd configs), add:
+In the hosted Grafana UI at https://dashingcape841.grafana.net:
 
-```
-GRAFANA_CLOUD_STACK_URL = https://<yourstack>.grafana.net
-```
+1. **Administration → Service Accounts → Add service account**
+2. Give it **Admin** role (needed to create dashboards and alert rules)
+3. Click the SA → **Add service account token** → generate and copy it
+4. Add it to Doppler `grafana` project as `GRAFANA_CLOUD_SA_TOKEN`
 
-Find your stack URL at grafana.com → My Account → Your stack.
+> **Why not the `glc_` key?** The `GRAFANA_CLOUD_API_KEY` in Doppler is a Grafana.com
+> management token (org/stack management). The hosted Grafana UI and Grafana Cloud
+> Alerting Ruler API require a Service Account token scoped to the Grafana instance.
+> `GRAFANA_CLOUD_API_KEY` is still correct for `remote_write` (Mimir Basic Auth).
 
-### 2. Add admin credentials to Doppler (optional but recommended)
+### 2. Add local Grafana admin credentials to Doppler (recommended)
 
 ```
 GRAFANA_ADMIN_USER     = admin
@@ -65,9 +69,10 @@ doppler run --project grafana --config dev -- \
 ```
 
 The script:
-- Imports `monitoring/grafana/dashboards/smart-laundry.json` via Grafana API
-- Uploads `monitoring/scripts/alert-rules.yaml` to the Mimir Ruler API
-- Prints the direct URLs to verify
+- Imports `monitoring/grafana/dashboards/smart-laundry.json` via Grafana Dashboards API
+- Uploads `monitoring/scripts/alert-rules.yaml` to Grafana Cloud Alerting Ruler API
+  (`/api/ruler/grafana/api/v1/rules/smart-laundry`) — same YAML format as Prometheus
+- Prints direct URLs to verify
 
 ### 4. In Grafana Cloud — select the right datasource
 
@@ -80,10 +85,10 @@ the same dashboard JSON work both locally and in the Cloud.
 
 | Secret | Purpose |
 |---|---|
-| `GRAFANA_CLOUD_PROMETHEUS_URL` | Mimir push endpoint (remote_write target) |
-| `GRAFANA_CLOUD_USERNAME` | Mimir instance ID (numeric, used as Basic Auth username) |
-| `GRAFANA_CLOUD_API_KEY` | Service Account token — used for both Mimir Basic Auth password and Grafana API Bearer token |
-| `GRAFANA_CLOUD_STACK_URL` | Hosted Grafana UI/API URL — **you must add this** (see step 1) |
+| `GRAFANA_CLOUD_PROMETHEUS_URL` | Mimir push endpoint (`remote_write` target) |
+| `GRAFANA_CLOUD_USERNAME` | Mimir instance ID — Basic Auth username for `remote_write` |
+| `GRAFANA_CLOUD_API_KEY` | Grafana.com management token — Basic Auth **password** for `remote_write` |
+| `GRAFANA_CLOUD_SA_TOKEN` | Grafana Service Account token — Bearer token for Grafana API (dashboard + alerting). **Must be created** (see step 1) |
 | `GRAFANA_ADMIN_USER` | Local Grafana admin user |
 | `GRAFANA_ADMIN_PASSWORD` | Local Grafana admin password |
 

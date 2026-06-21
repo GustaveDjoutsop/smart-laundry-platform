@@ -4,9 +4,10 @@
 #
 # Prerequisites:
 #   - doppler CLI installed and authenticated
-#   - curl, python3 available
-#   - GRAFANA_CLOUD_STACK_URL added to Doppler (project: grafana, config: dev)
-#     e.g. https://sundaygustav.grafana.net  (no trailing slash)
+#   - curl available
+#   - GRAFANA_CLOUD_SA_TOKEN in Doppler (project: grafana, config: dev/prd)
+#     → Create at https://dashingcape841.grafana.net/org/serviceaccounts
+#       (Administration → Service Accounts → Admin role → generate token)
 #
 # Usage:
 #   doppler run --project grafana --config dev -- ./monitoring/scripts/provision-grafana-cloud.sh
@@ -17,58 +18,60 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # ── Validate required env vars ────────────────────────────────────────────────
-: "${GRAFANA_CLOUD_STACK_URL:?Set GRAFANA_CLOUD_STACK_URL in Doppler (project: grafana). Example: https://yourstack.grafana.net}"
-: "${GRAFANA_CLOUD_API_KEY:?Set GRAFANA_CLOUD_API_KEY in Doppler (project: grafana)}"
-: "${GRAFANA_CLOUD_USERNAME:?Set GRAFANA_CLOUD_USERNAME in Doppler (project: grafana)}"
-: "${GRAFANA_CLOUD_PROMETHEUS_URL:?Set GRAFANA_CLOUD_PROMETHEUS_URL in Doppler (project: grafana)}"
+: "${GRAFANA_CLOUD_SA_TOKEN:?Set GRAFANA_CLOUD_SA_TOKEN in Doppler (project: grafana). Create at https://dashingcape841.grafana.net/org/serviceaccounts}"
+: "${GRAFANA_CLOUD_PROMETHEUS_URL:?Set GRAFANA_CLOUD_PROMETHEUS_URL in Doppler}"
 
-GRAFANA_URL="${GRAFANA_CLOUD_STACK_URL%/}"   # strip trailing slash
-# Derive Mimir Ruler base from Prometheus push URL
-MIMIR_RULER_BASE="${GRAFANA_CLOUD_PROMETHEUS_URL%/push}"   # → .../api/prom
+# Derive Grafana stack URL from SA token name convention (or hardcode)
+GRAFANA_URL="https://dashingcape841.grafana.net"
+# Grafana exposes a Ruler-compatible API for Cloud Alerting
+GRAFANA_RULER_URL="$GRAFANA_URL/api/ruler/grafana/api/v1/rules"
 
 echo "==> Grafana Cloud stack : $GRAFANA_URL"
-echo "==> Mimir Ruler base    : $MIMIR_RULER_BASE"
+echo "==> Grafana Ruler URL   : $GRAFANA_RULER_URL"
 echo ""
 
 # ── T2: Import dashboard ──────────────────────────────────────────────────────
 echo "--- Importing Smart Laundry SLO dashboard ---"
 DASHBOARD_JSON="$REPO_ROOT/monitoring/grafana/dashboards/smart-laundry.json"
 
-# Wrap the dashboard JSON in the import envelope Grafana API expects
-IMPORT_PAYLOAD=$(python3 - <<EOF
-import json, sys
-with open("$DASHBOARD_JSON") as f:
-    db = json.load(f)
-db["id"] = None   # let Grafana assign a new ID
-print(json.dumps({"dashboard": db, "overwrite": True, "folderId": 0}))
-EOF
-)
+# Use PowerShell for JSON manipulation (avoids Python/jq dependency on Windows)
+IMPORT_PAYLOAD=$(powershell.exe -NoProfile -NonInteractive -Command "
+  \$db = Get-Content -Raw -Encoding UTF8 '$DASHBOARD_JSON' | ConvertFrom-Json
+  \$db.id = \$null
+  \$wrapper = @{ dashboard = \$db; overwrite = \$true; folderId = 0 }
+  \$wrapper | ConvertTo-Json -Depth 20 -Compress
+" 2>/dev/null)
+
+if [ -z "$IMPORT_PAYLOAD" ]; then
+  echo "ERROR: failed to build dashboard import payload (PowerShell not available?)" >&2
+  exit 1
+fi
 
 IMPORT_RESULT=$(curl -sf \
   -X POST "$GRAFANA_URL/api/dashboards/db" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $GRAFANA_CLOUD_API_KEY" \
+  -H "Authorization: Bearer $GRAFANA_CLOUD_SA_TOKEN" \
   -d "$IMPORT_PAYLOAD")
 
 echo "Dashboard import result: $IMPORT_RESULT"
 echo ""
 
-# ── T3: Upload alert rules to Mimir Ruler ────────────────────────────────────
-# Mimir uses Cortex-compatible Ruler API with Basic Auth.
-# Namespace "smart-laundry" groups all SLO rules under one logical bucket.
-echo "--- Uploading alert rules to Mimir Ruler ---"
+# ── T3: Upload alert rules via Grafana Cloud Alerting Ruler API ───────────────
+# Grafana Cloud exposes /api/ruler/grafana/api/v1/rules/{namespace} which
+# accepts the same Prometheus/Mimir YAML format; auth is Bearer SA token.
+echo "--- Uploading alert rules to Grafana Cloud Alerting ---"
 RULES_YAML="$SCRIPT_DIR/alert-rules.yaml"
-MIMIR_RULER_URL="$MIMIR_RULER_BASE/rules/smart-laundry"
+RULER_NS_URL="$GRAFANA_RULER_URL/smart-laundry"
 
 RULES_RESULT=$(curl -sf \
-  -X POST "$MIMIR_RULER_URL" \
+  -X POST "$RULER_NS_URL" \
   -H "Content-Type: application/yaml" \
-  -u "${GRAFANA_CLOUD_USERNAME}:${GRAFANA_CLOUD_API_KEY}" \
+  -H "Authorization: Bearer $GRAFANA_CLOUD_SA_TOKEN" \
   --data-binary @"$RULES_YAML")
 
 echo "Rules upload result: ${RULES_RESULT:-OK (empty 202 response is normal)}"
 echo ""
 
-echo "==> Done. Open $GRAFANA_URL to verify."
-echo "    Dashboard: $GRAFANA_URL/d/smart-laundry-slos"
-echo "    Alert rules: $GRAFANA_URL/alerting/list"
+echo "==> Done. Verify at:"
+echo "    Dashboard : $GRAFANA_URL/d/smart-laundry-slos"
+echo "    Alerting  : $GRAFANA_URL/alerting/list"
