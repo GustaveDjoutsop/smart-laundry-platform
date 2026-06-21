@@ -72,28 +72,26 @@ jobs:
         working-directory: PaymentManagementService
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID_PAYMENT }}
         run: |
-          echo "Uploading to Railway..."
+          echo "Deploying to Railway..."
           railway up --service "$SERVICE_ID"
 
-          echo "Polling Railway for deployment health (max 5 min)..."
-          for i in $(seq 1 20); do
-            RESPONSE=$(curl -s \
-              -X POST https://backboard.railway.app/graphql/v2 \
-              -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "{\"query\":\"{ deployments(input: { serviceId: \\\"${SERVICE_ID}\\\" }) { edges { node { status } } } }\"}")
-            if [ "$i" = "1" ]; then
-              echo "  [debug] raw API response: $RESPONSE"
-            fi
-            STATUS=$(echo "$RESPONSE" | jq -r '.data.deployments.edges[0].node.status // "UNKNOWN"')
-            echo "  [$i/20] status: $STATUS"
-            case "$STATUS" in
-              SUCCESS)  echo "✓ Deployment healthy"; exit 0 ;;
-              FAILED|CRASHED|REMOVED|REMOVING) echo "✗ Deployment failed: $STATUS"; exit 1 ;;
-            esac
-            sleep 15
-          done
-          echo "✗ Timed out waiting for Railway health (5 min)"; exit 1
+          echo "Waiting 90s for container startup..."
+          sleep 90
+
+          echo "Fetching deployment logs..."
+          LOGS=$(railway logs --service "$SERVICE_ID" --tail 100 2>&1 \
+                 || railway logs --tail 100 2>&1 \
+                 || echo "")
+          echo "--- Last 40 log lines ---"
+          echo "$LOGS" | tail -40
+          echo "-------------------------"
+
+          if echo "$LOGS" | grep -qE "Started .+ in [0-9]"; then
+            echo "✓ Spring Boot started successfully"; exit 0
+          fi
+          if echo "$LOGS" | grep -qE "APPLICATION FAILED TO START|Exception encountered during context initialization|BeanCreationException"; then
+            echo "✗ Application startup failed — check logs above"; exit 1
+          fi
+          echo "✗ Could not determine startup status from logs"; exit 1
