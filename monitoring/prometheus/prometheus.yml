@@ -3,6 +3,25 @@ global:
   evaluation_interval: 15s
   external_labels:
     environment: dev
+    project: smart-laundry
+
+# ── Grafana Cloud remote_write ────────────────────────────────────────────────
+# Credentials are injected via Doppler (project: grafana, config: dev/prd).
+# Docker Compose passes them as GRAFANA_CLOUD_* env vars; Prometheus expands
+# them at startup because of the --config.expand-env flag in docker-compose.yml.
+# To disable Cloud forwarding (local-only mode) simply unset the env vars —
+# Prometheus will log a warning for the empty URL and skip the remote_write.
+remote_write:
+  - url: ${GRAFANA_CLOUD_PROMETHEUS_URL}
+    basic_auth:
+      username: ${GRAFANA_CLOUD_USERNAME}
+      password: ${GRAFANA_CLOUD_API_KEY}
+    queue_config:
+      max_samples_per_send: 1000
+      max_shards: 200
+      capacity: 2500
+    metadata_config:
+      send: true
 
 rule_files:
   - alerts.yml

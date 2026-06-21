@@ -1,0 +1,118 @@
+# Smart Laundry — Alert Rules (Mimir Ruler / Prometheus-compat format)
+# Upload to Grafana Cloud via provision-grafana-cloud.sh, or to local
+# Prometheus by keeping them in monitoring/prometheus/alerts.yml.
+groups:
+  - name: smart-laundry.slos
+    interval: 30s
+    rules:
+
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+          project: smart-laundry
+        annotations:
+          summary: "{{ $labels.job }} is down"
+          description: "Scrape target {{ $labels.job }} ({{ $labels.instance }}) has been unreachable for 2 minutes."
+
+      - alert: GatewayLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{job="api-gateway"}[5m]))) > 2
+        for: 5m
+        labels:
+          severity: warning
+          project: smart-laundry
+        annotations:
+          summary: "API Gateway p95 latency > 2s"
+          description: "p95 HTTP latency on the gateway has exceeded 2 s for 5 minutes."
+
+      - alert: BFFLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{job="reporting-bff"}[5m]))) > 1
+        for: 5m
+        labels:
+          severity: warning
+          project: smart-laundry
+        annotations:
+          summary: "Reporting BFF p95 latency > 1s"
+          description: "p95 HTTP latency on the Reporting BFF has exceeded 1 s for 5 minutes."
+
+      - alert: WebhookLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{job="bot-manager"}[5m]))) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          project: smart-laundry
+        annotations:
+          summary: "Bot Manager (webhook) p95 latency > 500ms"
+          description: "p95 HTTP latency on the Bot Manager has exceeded 500 ms for 5 minutes."
+
+      - alert: HighErrorRate
+        expr: |
+          sum by (job) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+          /
+          sum by (job) (rate(http_server_requests_seconds_count[5m]))
+          > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          project: smart-laundry
+        annotations:
+          summary: "{{ $labels.job }} error rate > 5%"
+          description: "HTTP 5xx error rate on {{ $labels.job }} has exceeded 5% for 5 minutes."
+
+      - alert: OutboxDeadLetter
+        expr: increase(outbox_relay_dead_letter_total[10m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          project: smart-laundry
+        annotations:
+          summary: "Outbox dead-letter detected"
+          description: "An outbox event was dead-lettered in the last 10 minutes — a payment may not have triggered a machine start."
+
+      - alert: OutboxPendingHigh
+        expr: outbox_relay_pending > 50
+        for: 5m
+        labels:
+          severity: warning
+          project: smart-laundry
+        annotations:
+          summary: "Outbox has > 50 pending events"
+          description: "{{ $value }} outbox events are pending — the relay may be behind or stalled."
+
+      - alert: OutboxRelayStalled
+        expr: |
+          rate(outbox_relay_processed_total[10m]) == 0
+          and
+          outbox_relay_pending > 0
+        for: 10m
+        labels:
+          severity: critical
+          project: smart-laundry
+        annotations:
+          summary: "Outbox relay is stalled"
+          description: "No outbox events have been processed in 10 minutes while {{ $value }} remain pending."
+
+      - alert: JVMHeapUsageHigh
+        expr: |
+          jvm_memory_used_bytes{area="heap"}
+          /
+          jvm_memory_max_bytes{area="heap"}
+          > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          project: smart-laundry
+        annotations:
+          summary: "{{ $labels.job }} JVM heap > 90%"
+          description: "JVM heap usage on {{ $labels.job }} has been above 90% for 5 minutes. Risk of GC pressure or OOM."
+
+      - alert: HikariPoolExhausted
+        expr: hikaricp_connections_pending > 5
+        for: 2m
+        labels:
+          severity: warning
+          project: smart-laundry
+        annotations:
+          summary: "{{ $labels.job }} HikariCP connection queue > 5"
+          description: "{{ $value }} threads are waiting for a HikariCP connection on {{ $labels.job }}. Consider increasing pool size."

@@ -159,6 +159,14 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=15d'
       - '--web.enable-lifecycle'
+      - '--enable-feature=expand-external-labels'
+      - '--config.expand-env=true'
+    environment:
+      # Grafana Cloud remote_write credentials (Doppler project: grafana).
+      # Run via: doppler run --project grafana --config dev -- docker compose --profile monitoring up
+      GRAFANA_CLOUD_PROMETHEUS_URL: ${GRAFANA_CLOUD_PROMETHEUS_URL:-}
+      GRAFANA_CLOUD_USERNAME: ${GRAFANA_CLOUD_USERNAME:-}
+      GRAFANA_CLOUD_API_KEY: ${GRAFANA_CLOUD_API_KEY:-}
     extra_hosts:
       - 'host.docker.internal:host-gateway'
 
