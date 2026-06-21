@@ -1,0 +1,76 @@
+name: api-gateway — CI/CD
+
+on:
+  push:
+    branches: [master, develop]
+    paths:
+      - 'api-gateway/**'
+      - '.github/workflows/api-gateway.yml'
+  pull_request:
+    branches: [master, develop]
+    paths:
+      - 'api-gateway/**'
+      - '.github/workflows/api-gateway.yml'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: api-gateway
+
+jobs:
+  # ── 1. Build & test ──────────────────────────────────────────────────────────
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: temurin
+          cache: maven
+
+      - name: Build and run unit tests
+        run: mvn -B verify -DskipITs=true
+
+  # ── 2. Deploy to Railway (dev) ───────────────────────────────────────────────
+  deploy-dev:
+    name: Deploy → Railway (dev)
+    needs: test
+    runs-on: ubuntu-latest
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop')
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy to Railway and verify health
+        working-directory: api-gateway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID_GATEWAY }}
+        run: |
+          echo "Uploading to Railway..."
+          railway up --service "$SERVICE_ID"
+
+          echo "Polling Railway for deployment health (max 5 min)..."
+          for i in $(seq 1 20); do
+            RESPONSE=$(curl -sf \
+              -X POST https://backboard.railway.app/graphql/v2 \
+              -H "Authorization: Bearer $RAILWAY_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"query\":\"{ deployments(input: { serviceId: \\\"${SERVICE_ID}\\\" }) { edges { node { status } } } }\"}")
+            STATUS=$(echo "$RESPONSE" | jq -r '.data.deployments.edges[0].node.status // "UNKNOWN"')
+            echo "  [$i/20] status: $STATUS"
+            case "$STATUS" in
+              SUCCESS)  echo "✓ Deployment healthy"; exit 0 ;;
+              FAILED|CRASHED|REMOVED|REMOVING) echo "✗ Deployment failed: $STATUS"; exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "✗ Timed out waiting for Railway health (5 min)"; exit 1
