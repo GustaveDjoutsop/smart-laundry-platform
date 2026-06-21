@@ -56,4 +56,4 @@ jobs:
         # Secrets (AUTH0_*, CAMPAY_*, SPRING_DATASOURCE_*) are synced into Railway
         # by the Doppler→Railway integration — no secret injection needed here.
         # MACHINE_STATE_SERVICE_URL is a Railway service reference set in Railway UI.
-        run: railway up --service ${{ secrets.RAILWAY_SERVICE_ID_PAYMENT }} --detach
+        run: railway up --service ${{ secrets.RAILWAY_SERVICE_ID_PAYMENT }}
