@@ -56,17 +56,18 @@ jobs:
           SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID_BFF }}
         run: |
           curl -Ls https://cli.doppler.com/install.sh | sudo sh
-          doppler secrets download \
+          VARS=()
+          while IFS= read -r pair; do
+            VARS+=("$pair")
+          done < <(doppler secrets download \
             --no-file --format json \
             --project reporting-bff \
             --config dev \
             --token "$DOPPLER_TOKEN" \
-          | jq -r 'to_entries[] | "\(.key)=\(.value.computed)"' \
-          | while IFS= read -r pair; do
-              key="${pair%%=*}"
-              value="${pair#*=}"
-              railway variables set "${key}=${value}" --service "$SERVICE_ID"
-            done
+            | jq -r 'to_entries[] | "\(.key)=\(.value.computed)"')
+          echo "Syncing ${#VARS[@]} variables to Railway service $SERVICE_ID..."
+          railway variables set --service "$SERVICE_ID" "${VARS[@]}"
+          echo "Sync complete."
 
       - name: Deploy to Railway and verify health
         working-directory: reporting-bff
