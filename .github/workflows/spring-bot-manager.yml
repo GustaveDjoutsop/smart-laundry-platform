@@ -64,7 +64,7 @@ jobs:
             --project spring-bot-manager-only \
             --config dev \
             --token "$DOPPLER_TOKEN" \
-            | jq -r 'to_entries[] | "\(.key)=\(.value.computed)"')
+            | jq -r 'to_entries[] | "\(.key)=\(.value)"')
           echo "Syncing ${#VARS[@]} variables to Railway service $SERVICE_ID..."
           railway variables set --service "$SERVICE_ID" "${VARS[@]}"
           echo "Sync complete."
