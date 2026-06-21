@@ -49,6 +49,25 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
+      - name: Sync Doppler secrets → Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+          SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID_BFF }}
+        run: |
+          curl -Ls https://cli.doppler.com/install.sh | sudo sh
+          doppler secrets download \
+            --no-file --format json \
+            --project reporting-bff \
+            --config dev \
+            --token "$DOPPLER_TOKEN" \
+          | jq -r 'to_entries[] | "\(.key)=\(.value.computed)"' \
+          | while IFS= read -r pair; do
+              key="${pair%%=*}"
+              value="${pair#*=}"
+              railway variables set "${key}=${value}" --service "$SERVICE_ID"
+            done
+
       - name: Deploy to Railway and verify health
         working-directory: reporting-bff
         env:
