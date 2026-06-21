@@ -49,11 +49,28 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Deploy to Railway
+      - name: Deploy to Railway and verify health
         working-directory: MachineStateService
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        # Secrets (AUTH0_*, SPRING_DATASOURCE_*, MQTT_*, EQLINK_*) synced via
-        # Doppler→Railway integration. PAYMENT_SERVICE_URL is a Railway service
-        # reference set in Railway UI once PaymentManagementService is deployed.
-        run: railway up --service ${{ secrets.RAILWAY_SERVICE_ID_MACHINE }}
+          SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID_MACHINE }}
+        run: |
+          echo "Uploading to Railway..."
+          railway up --service "$SERVICE_ID"
+
+          echo "Polling Railway for deployment health (max 5 min)..."
+          for i in $(seq 1 20); do
+            RESPONSE=$(curl -sf \
+              -X POST https://backboard.railway.app/graphql/v2 \
+              -H "Authorization: Bearer $RAILWAY_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"query\":\"{ deployments(input: { serviceId: \\\"${SERVICE_ID}\\\" }) { edges { node { status } } } }\"}")
+            STATUS=$(echo "$RESPONSE" | jq -r '.data.deployments.edges[0].node.status // "UNKNOWN"')
+            echo "  [$i/20] status: $STATUS"
+            case "$STATUS" in
+              SUCCESS)  echo "✓ Deployment healthy"; exit 0 ;;
+              FAILED|CRASHED|REMOVED|REMOVING) echo "✗ Deployment failed: $STATUS"; exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "✗ Timed out waiting for Railway health (5 min)"; exit 1
