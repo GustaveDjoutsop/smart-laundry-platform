@@ -5,8 +5,6 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3001",
-    "dev:local": "next dev -p 3001",
-    "dev:test": "dotenv -e .env.test -- next dev -p 3001",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -42,7 +40,6 @@
     "@vitest/browser-playwright": "^4.0.16",
     "@vitest/coverage-v8": "^4.0.16",
     "autoprefixer": "^10.4.19",
-    "dotenv-cli": "^11.0.0",
     "eslint": "^8.57.0",
     "eslint-config-next": "^14.2.0",
     "eslint-plugin-storybook": "^10.1.10",
