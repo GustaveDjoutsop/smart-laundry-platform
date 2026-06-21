@@ -11,6 +11,7 @@ on:
     paths:
       - 'PaymentManagementService/**'
       - '.github/workflows/payment-management-service.yml'
+  workflow_dispatch:
 
 defaults:
   run:
