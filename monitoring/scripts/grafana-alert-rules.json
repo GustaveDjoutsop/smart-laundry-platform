@@ -1,0 +1,232 @@
+[
+  {
+    "title": "ServiceDown",
+    "folderUID": "smart-laundry",
+    "ruleGroup": "smart-laundry.slos",
+    "condition": "A",
+    "noDataState": "OK",
+    "execErrState": "Error",
+    "for": "2m",
+    "labels": { "severity": "critical", "project": "smart-laundry" },
+    "annotations": {
+      "summary": "{{ $labels.job }} is down",
+      "description": "Scrape target {{ $labels.job }} ({{ $labels.instance }}) has been unreachable for 2 minutes."
+    },
+    "data": [
+      {
+        "refId": "A",
+        "datasourceUid": "grafanacloud-prom",
+        "queryType": "",
+        "relativeTimeRange": { "from": 300, "to": 0 },
+        "model": { "refId": "A", "expr": "up == 0", "instant": true, "range": false }
+      }
+    ]
+  },
+  {
+    "title": "GatewayLatencyHigh",
+    "folderUID": "smart-laundry",
+    "ruleGroup": "smart-laundry.slos",
+    "condition": "A",
+    "noDataState": "OK",
+    "execErrState": "Error",
+    "for": "5m",
+    "labels": { "severity": "warning", "project": "smart-laundry" },
+    "annotations": {
+      "summary": "API Gateway p95 latency > 2s",
+      "description": "p95 HTTP latency on the gateway has exceeded 2 s for 5 minutes."
+    },
+    "data": [
+      {
+        "refId": "A",
+        "datasourceUid": "grafanacloud-prom",
+        "queryType": "",
+        "relativeTimeRange": { "from": 600, "to": 0 },
+        "model": { "refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{job=\"api-gateway\"}[5m]))) > 2", "instant": true, "range": false }
+      }
+    ]
+  },
+  {
+    "title": "BFFLatencyHigh",
+    "folderUID": "smart-laundry",
+    "ruleGroup": "smart-laundry.slos",
+    "condition": "A",
+    "noDataState": "OK",
+    "execErrState": "Error",
+    "for": "5m",
+    "labels": { "severity": "warning", "project": "smart-laundry" },
+    "annotations": {
+      "summary": "Reporting BFF p95 latency > 1s",
+      "description": "p95 HTTP latency on the Reporting BFF has exceeded 1 s for 5 minutes."
+    },
+    "data": [
+      {
+        "refId": "A",
+        "datasourceUid": "grafanacloud-prom",
+        "queryType": "",
+        "relativeTimeRange": { "from": 600, "to": 0 },
+        "model": { "refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{job=\"reporting-bff\"}[5m]))) > 1", "instant": true, "range": false }
+      }
+    ]
+  },
+  {
+    "title": "WebhookLatencyHigh",
+    "folderUID": "smart-laundry",
+    "ruleGroup": "smart-laundry.slos",
+    "condition": "A",
+    "noDataState": "OK",
+    "execErrState": "Error",
+    "for": "5m",
+    "labels": { "severity": "warning", "project": "smart-laundry" },
+    "annotations": {
+      "summary": "Bot Manager (webhook) p95 latency > 500ms",
+      "description": "p95 HTTP latency on the Bot Manager has exceeded 500 ms for 5 minutes."
+    },
+    "data": [
+      {
+        "refId": "A",
+        "datasourceUid": "grafanacloud-prom",
+        "queryType": "",
+        "relativeTimeRange": { "from": 600, "to": 0 },
+        "model": { "refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{job=\"bot-manager\"}[5m]))) > 0.5", "instant": true, "range": false }
+      }
+    ]
+  },
+  {
+    "title": "HighErrorRate",
+    "folderUID": "smart-laundry",
+    "ruleGroup": "smart-laundry.slos",
+    "condition": "A",
+    "noDataState": "OK",
+    "execErrState": "Error",
+    "for": "5m",
+    "labels": { "severity": "critical", "project": "smart-laundry" },
+    "annotations": {
+      "summary": "{{ $labels.job }} error rate > 5%",
+      "description": "HTTP 5xx error rate on {{ $labels.job }} has exceeded 5% for 5 minutes."
+    },
+    "data": [
+      {
+        "refId": "A",
+        "datasourceUid": "grafanacloud-prom",
+        "queryType": "",
+        "relativeTimeRange": { "from": 600, "to": 0 },
+        "model": { "refId": "A", "expr": "sum by (job) (rate(http_server_requests_seconds_count{status=~\"5..\"}[5m])) / sum by (job) (rate(http_server_requests_seconds_count[5m])) > 0.05", "instant": true, "range": false }
+      }
+    ]
+  },
+  {
+    "title": "OutboxDeadLetter",
+    "folderUID": "smart-laundry",
+    "ruleGroup": "smart-laundry.slos",
+    "condition": "A",
+    "noDataState": "OK",
+    "execErrState": "Error",
+    "for": "0s",
+    "labels": { "severity": "critical", "project": "smart-laundry" },
+    "annotations": {
+      "summary": "Outbox dead-letter detected",
+      "description": "An outbox event was dead-lettered in the last 10 minutes — a payment may not have triggered a machine start."
+    },
+    "data": [
+      {
+        "refId": "A",
+        "datasourceUid": "grafanacloud-prom",
+        "queryType": "",
+        "relativeTimeRange": { "from": 900, "to": 0 },
+        "model": { "refId": "A", "expr": "increase(outbox_relay_dead_letter_total[10m]) > 0", "instant": true, "range": false }
+      }
+    ]
+  },
+  {
+    "title": "OutboxPendingHigh",
+    "folderUID": "smart-laundry",
+    "ruleGroup": "smart-laundry.slos",
+    "condition": "A",
+    "noDataState": "OK",
+    "execErrState": "Error",
+    "for": "5m",
+    "labels": { "severity": "warning", "project": "smart-laundry" },
+    "annotations": {
+      "summary": "Outbox has > 50 pending events",
+      "description": "{{ $value }} outbox events are pending — the relay may be behind or stalled."
+    },
+    "data": [
+      {
+        "refId": "A",
+        "datasourceUid": "grafanacloud-prom",
+        "queryType": "",
+        "relativeTimeRange": { "from": 300, "to": 0 },
+        "model": { "refId": "A", "expr": "outbox_relay_pending > 50", "instant": true, "range": false }
+      }
+    ]
+  },
+  {
+    "title": "OutboxRelayStalled",
+    "folderUID": "smart-laundry",
+    "ruleGroup": "smart-laundry.slos",
+    "condition": "A",
+    "noDataState": "OK",
+    "execErrState": "Error",
+    "for": "10m",
+    "labels": { "severity": "critical", "project": "smart-laundry" },
+    "annotations": {
+      "summary": "Outbox relay is stalled",
+      "description": "No outbox events have been processed in 10 minutes while {{ $value }} remain pending."
+    },
+    "data": [
+      {
+        "refId": "A",
+        "datasourceUid": "grafanacloud-prom",
+        "queryType": "",
+        "relativeTimeRange": { "from": 900, "to": 0 },
+        "model": { "refId": "A", "expr": "rate(outbox_relay_processed_total[10m]) == 0 and outbox_relay_pending > 0", "instant": true, "range": false }
+      }
+    ]
+  },
+  {
+    "title": "JVMHeapUsageHigh",
+    "folderUID": "smart-laundry",
+    "ruleGroup": "smart-laundry.slos",
+    "condition": "A",
+    "noDataState": "OK",
+    "execErrState": "Error",
+    "for": "5m",
+    "labels": { "severity": "warning", "project": "smart-laundry" },
+    "annotations": {
+      "summary": "{{ $labels.job }} JVM heap > 90%",
+      "description": "JVM heap usage on {{ $labels.job }} has been above 90% for 5 minutes. Risk of GC pressure or OOM."
+    },
+    "data": [
+      {
+        "refId": "A",
+        "datasourceUid": "grafanacloud-prom",
+        "queryType": "",
+        "relativeTimeRange": { "from": 600, "to": 0 },
+        "model": { "refId": "A", "expr": "jvm_memory_used_bytes{area=\"heap\"} / jvm_memory_max_bytes{area=\"heap\"} > 0.9", "instant": true, "range": false }
+      }
+    ]
+  },
+  {
+    "title": "HikariPoolExhausted",
+    "folderUID": "smart-laundry",
+    "ruleGroup": "smart-laundry.slos",
+    "condition": "A",
+    "noDataState": "OK",
+    "execErrState": "Error",
+    "for": "2m",
+    "labels": { "severity": "warning", "project": "smart-laundry" },
+    "annotations": {
+      "summary": "{{ $labels.job }} HikariCP connection queue > 5",
+      "description": "{{ $value }} threads are waiting for a HikariCP connection on {{ $labels.job }}. Consider increasing pool size."
+    },
+    "data": [
+      {
+        "refId": "A",
+        "datasourceUid": "grafanacloud-prom",
+        "queryType": "",
+        "relativeTimeRange": { "from": 300, "to": 0 },
+        "model": { "refId": "A", "expr": "hikaricp_connections_pending > 5", "instant": true, "range": false }
+      }
+    ]
+  }
+]

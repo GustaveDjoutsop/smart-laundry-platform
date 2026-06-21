@@ -34,42 +34,71 @@ echo ""
 echo "--- Importing Smart Laundry SLO dashboard ---"
 DASHBOARD_JSON="$REPO_ROOT/monitoring/grafana/dashboards/smart-laundry.json"
 
-# Use PowerShell for JSON manipulation (avoids Python/jq dependency on Windows)
-IMPORT_PAYLOAD=$(powershell.exe -NoProfile -NonInteractive -Command "
-  \$db = Get-Content -Raw -Encoding UTF8 '$DASHBOARD_JSON' | ConvertFrom-Json
-  \$db.id = \$null
-  \$wrapper = @{ dashboard = \$db; overwrite = \$true; folderId = 0 }
-  \$wrapper | ConvertTo-Json -Depth 20 -Compress
-" 2>/dev/null)
+# Convert Unix path to Windows path for PowerShell's Get-Content
+DASHBOARD_JSON_WIN=$(cygpath -w "$DASHBOARD_JSON")
+IMPORT_PAYLOAD_FILE=$(mktemp /tmp/grafana-dashboard-XXXXXX.json)
+trap "rm -f '$IMPORT_PAYLOAD_FILE'" EXIT
 
-if [ -z "$IMPORT_PAYLOAD" ]; then
+# Use PowerShell to wrap dashboard JSON in the Grafana import envelope and write
+# to a temp file. Writing to a file (not a shell variable) avoids bash expanding
+# the ${datasource} template variables in the panel datasource UIDs.
+powershell.exe -NoProfile -NonInteractive -Command "
+  \$db = Get-Content -Raw -Encoding UTF8 '$DASHBOARD_JSON_WIN' | ConvertFrom-Json
+  \$wrapper = @{ dashboard = \$db; overwrite = \$true; folderId = 0 }
+  \$json = \$wrapper | ConvertTo-Json -Depth 20 -Compress
+  [System.IO.File]::WriteAllText('$(cygpath -w "$IMPORT_PAYLOAD_FILE")', \$json, [System.Text.UTF8Encoding]::new(\$false))
+" 2>/dev/null
+
+if [ ! -s "$IMPORT_PAYLOAD_FILE" ]; then
   echo "ERROR: failed to build dashboard import payload (PowerShell not available?)" >&2
   exit 1
 fi
 
+# Use @file so curl reads the JSON directly — prevents bash expanding ${datasource}
 IMPORT_RESULT=$(curl -sf \
   -X POST "$GRAFANA_URL/api/dashboards/db" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GRAFANA_CLOUD_SA_TOKEN" \
-  -d "$IMPORT_PAYLOAD")
+  -d "@$IMPORT_PAYLOAD_FILE")
 
 echo "Dashboard import result: $IMPORT_RESULT"
 echo ""
 
-# ── T3: Upload alert rules via Grafana Cloud Alerting Ruler API ───────────────
-# Grafana Cloud exposes /api/ruler/grafana/api/v1/rules/{namespace} which
-# accepts the same Prometheus/Mimir YAML format; auth is Bearer SA token.
-echo "--- Uploading alert rules to Grafana Cloud Alerting ---"
-RULES_YAML="$SCRIPT_DIR/alert-rules.yaml"
-RULER_NS_URL="$GRAFANA_RULER_URL/smart-laundry"
+# ── T3: Upload alert rules via Grafana Alerting Provisioning API ──────────────
+# Rules must be POSTed individually to /api/v1/provisioning/alert-rules.
+# Each rule JSON is read from grafana-alert-rules.json (Grafana-managed format,
+# datasourceUid: grafanacloud-prom). Uses PowerShell to iterate the array and
+# write each rule to a BOM-free temp file before curling.
+echo "--- Uploading 10 alert rules to Grafana Cloud Alerting ---"
+RULES_JSON_WIN=$(cygpath -w "$SCRIPT_DIR/grafana-alert-rules.json")
 
-RULES_RESULT=$(curl -sf \
-  -X POST "$RULER_NS_URL" \
-  -H "Content-Type: application/yaml" \
-  -H "Authorization: Bearer $GRAFANA_CLOUD_SA_TOKEN" \
-  --data-binary @"$RULES_YAML")
+RULE_COUNT=$(powershell.exe -NoProfile -NonInteractive -Command "
+  \$rules = Get-Content -Raw -Encoding UTF8 '$RULES_JSON_WIN' | ConvertFrom-Json
+  Write-Output \$rules.Count
+" 2>/dev/null)
 
-echo "Rules upload result: ${RULES_RESULT:-OK (empty 202 response is normal)}"
+echo "Rules to upload: $RULE_COUNT"
+
+for i in $(seq 0 $((RULE_COUNT - 1))); do
+  RULE_TMPFILE=$(mktemp /tmp/gf-rule-XXXXXX.json)
+  trap "rm -f '$RULE_TMPFILE'" EXIT
+
+  RULE_TITLE=$(powershell.exe -NoProfile -NonInteractive -Command "
+    \$rules = Get-Content -Raw -Encoding UTF8 '$RULES_JSON_WIN' | ConvertFrom-Json
+    \$rule = \$rules[$i]
+    [System.IO.File]::WriteAllText('$(cygpath -w "$RULE_TMPFILE")', (\$rule | ConvertTo-Json -Depth 10 -Compress), [System.Text.UTF8Encoding]::new(\$false))
+    Write-Output \$rule.title
+  " 2>/dev/null)
+
+  RULE_RESULT=$(curl -sf \
+    -X POST "$GRAFANA_URL/api/v1/provisioning/alert-rules" \
+    -H "Content-Type: application/json" \
+    -H "X-Disable-Provenance:" \
+    -H "Authorization: Bearer $GRAFANA_CLOUD_SA_TOKEN" \
+    -d "@$RULE_TMPFILE")
+  echo "  [$((i+1))/$RULE_COUNT] $RULE_TITLE → $(echo "$RULE_RESULT" | grep -o '"uid":"[^"]*"' | head -1)"
+  rm -f "$RULE_TMPFILE"
+done
 echo ""
 
 echo "==> Done. Verify at:"
