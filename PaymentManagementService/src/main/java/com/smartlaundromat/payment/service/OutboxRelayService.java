@@ -3,7 +3,9 @@ package com.smartlaundromat.payment.service;
 import com.smartlaundromat.payment.model.OutboxEvent;
 import com.smartlaundromat.payment.repository.OutboxEventRepository;
 import com.smartlaundromat.payment.service.machine.MachineEventPublisher;
-import lombok.RequiredArgsConstructor;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -28,7 +30,6 @@ import java.util.List;
  */
 @Service
 @Slf4j
-@RequiredArgsConstructor
 public class OutboxRelayService {
 
     static final int MAX_RETRIES  = 5;
@@ -37,24 +38,52 @@ public class OutboxRelayService {
 
     private final OutboxEventRepository outboxRepository;
     private final MachineEventPublisher machineEventPublisher;
+    private final Counter processedCounter;
+    private final Counter deadLetterCounter;
+    private final Timer   batchTimer;
+
+    public OutboxRelayService(OutboxEventRepository outboxRepository,
+                              MachineEventPublisher machineEventPublisher,
+                              MeterRegistry registry) {
+        this.outboxRepository       = outboxRepository;
+        this.machineEventPublisher  = machineEventPublisher;
+        this.processedCounter = Counter.builder("outbox.relay.processed.total")
+                .description("Outbox events successfully relayed to MachineStateService")
+                .register(registry);
+        this.deadLetterCounter = Counter.builder("outbox.relay.dead_letter.total")
+                .description("Outbox events dead-lettered after max retries")
+                .register(registry);
+        this.batchTimer = Timer.builder("outbox.relay.batch.duration")
+                .description("Time to process one outbox relay batch")
+                .publishPercentiles(0.5, 0.95, 0.99)
+                .register(registry);
+
+        // Gauge: unprocessed events due now (pending retry or first attempt)
+        registry.gauge("outbox.relay.pending",
+                outboxRepository,
+                repo -> repo.countByProcessedAtIsNullAndNextRetryAtLessThanEqual(OffsetDateTime.now()));
+    }
 
     @Scheduled(fixedDelay = 5_000)
     public void processOutbox() {
-        List<OutboxEvent> pending = outboxRepository
-                .findByProcessedAtIsNullAndNextRetryAtLessThanEqualOrderByCreatedAt(
-                        OffsetDateTime.now(), PageRequest.of(0, BATCH_SIZE));
+        batchTimer.record(() -> {
+            List<OutboxEvent> pending = outboxRepository
+                    .findByProcessedAtIsNullAndNextRetryAtLessThanEqualOrderByCreatedAt(
+                            OffsetDateTime.now(), PageRequest.of(0, BATCH_SIZE));
 
-        for (OutboxEvent event : pending) {
-            try {
-                machineEventPublisher.publish(event);
-                event.setProcessedAt(OffsetDateTime.now());
-                log.info("Outbox event {} processed (type={}, aggregateId={})",
-                        event.getId(), event.getEventType(), event.getAggregateId());
-            } catch (Exception e) {
-                applyRetryPolicy(event, e);
+            for (OutboxEvent event : pending) {
+                try {
+                    machineEventPublisher.publish(event);
+                    event.setProcessedAt(OffsetDateTime.now());
+                    processedCounter.increment();
+                    log.info("Outbox event {} processed (type={}, aggregateId={})",
+                            event.getId(), event.getEventType(), event.getAggregateId());
+                } catch (Exception e) {
+                    applyRetryPolicy(event, e);
+                }
+                outboxRepository.save(event);
             }
-            outboxRepository.save(event);
-        }
+        });
     }
 
     private void applyRetryPolicy(OutboxEvent event, Exception e) {
@@ -64,6 +93,7 @@ public class OutboxRelayService {
 
         if (newRetryCount >= MAX_RETRIES) {
             event.setNextRetryAt(OffsetDateTime.now().plusYears(100));
+            deadLetterCounter.increment();
             log.error("DEAD_LETTER outbox event {} after {} attempts (type={}, aggregateId={}): {}",
                     event.getId(), newRetryCount, event.getEventType(), event.getAggregateId(),
                     e.getMessage());

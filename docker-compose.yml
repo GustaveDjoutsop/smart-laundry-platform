@@ -139,6 +139,49 @@ services:
     environment:
       COLLECTOR_OTLP_ENABLED: 'true'
 
+  # ── Monitoring (P7 — SLOs + dashboards). Opt-in via:
+  #   docker compose --profile monitoring up prometheus grafana
+  # Prometheus scrapes all 5 services via host.docker.internal; Grafana is
+  # pre-provisioned with the Prometheus datasource + smart-laundry dashboard.
+  # Alert rules in monitoring/prometheus/alerts.yml are evaluated by Prometheus.
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: laundry-prometheus
+    profiles: ['monitoring']
+    restart: unless-stopped
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: laundry-grafana
+    profiles: ['monitoring']
+    restart: unless-stopped
+    ports:
+      - '3002:3000'
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
 volumes:
   postgres_data:
   redis_data:
+  prometheus_data:
+  grafana_data:

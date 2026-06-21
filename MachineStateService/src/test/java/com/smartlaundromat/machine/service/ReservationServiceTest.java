@@ -1,5 +1,6 @@
 package com.smartlaundromat.machine.service;
 
+import com.smartlaundromat.machine.client.PricingClient;
 import com.smartlaundromat.machine.config.FeatureProperties;
 import com.smartlaundromat.machine.config.ReservationProperties;
 import com.smartlaundromat.machine.dto.CreateReservationRequest;
@@ -47,6 +48,9 @@ class ReservationServiceTest {
 
     @Mock
     ReservationProperties reservationProperties;
+
+    @Mock
+    PricingClient pricingClient;
 
     @InjectMocks
     ReservationService reservationService;
@@ -182,7 +186,7 @@ class ReservationServiceTest {
             when(reservationRepository.existsByReservationCode(anyString())).thenReturn(false);
             when(reservationProperties.getCodePrefix()).thenReturn("RES-");
             when(reservationProperties.getCodeLength()).thenReturn(6);
-            when(reservationProperties.getFeeAmount()).thenReturn(1500);
+            when(pricingClient.getReservationFee()).thenReturn(1500);
             when(reservationProperties.getCurrency()).thenReturn("XAF");
             when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
 

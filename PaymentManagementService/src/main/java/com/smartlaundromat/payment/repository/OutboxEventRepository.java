@@ -13,4 +13,6 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, Long> 
 
     List<OutboxEvent> findByProcessedAtIsNullAndNextRetryAtLessThanEqualOrderByCreatedAt(
             OffsetDateTime now, Pageable pageable);
+
+    long countByProcessedAtIsNullAndNextRetryAtLessThanEqual(OffsetDateTime now);
 }

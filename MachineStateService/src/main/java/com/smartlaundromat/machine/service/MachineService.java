@@ -18,6 +18,8 @@ import com.smartlaundromat.machine.mqtt.MqttService;
 import com.smartlaundromat.machine.repository.MachineCycleRepository;
 import com.smartlaundromat.machine.repository.MachineEventRepository;
 import com.smartlaundromat.machine.repository.MachineRepository;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -64,6 +66,8 @@ public class MachineService {
 
     /** Reservation gating — enforces that reserved machines need a valid code to start. */
     private final ReservationService reservationService;
+
+    private final MeterRegistry meterRegistry;
 
     @PostConstruct
     public void init() {
@@ -168,6 +172,8 @@ public class MachineService {
             if (existing.isPresent()) {
                 log.info("Idempotent start — returning existing cycle for tx={}",
                         request.getTransactionReference());
+                meterRegistry.counter("machine.cycle.idempotent.total",
+                        "machine_id", request.getMachineId()).increment();
                 return existing.get();
             }
         }
@@ -225,6 +231,9 @@ public class MachineService {
                 .pulseCount(request.getPulseCount())
                 .build();
         machineCycleRepository.save(cycle);
+        meterRegistry.counter("machine.cycle.started.total",
+                "machine_id", request.getMachineId(),
+                "cycle_type", cycleType.name()).increment();
 
         machine.setStatus(MachineStatus.RUNNING);
         machine.setCurrentCycleType(cycleType);

@@ -59,10 +59,14 @@
             <version>2.3.0</version>
         </dependency>
 
-        <!-- Distributed tracing (P1 — OpenTelemetry via Micrometer Tracing) -->
+        <!-- Distributed tracing + Prometheus metrics (P1/P7) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
         <dependency>
             <groupId>io.micrometer</groupId>

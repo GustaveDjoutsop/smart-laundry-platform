@@ -19,6 +19,8 @@ import com.smartlaundromat.machine.mqtt.MqttService;
 import com.smartlaundromat.machine.repository.MachineCycleRepository;
 import com.smartlaundromat.machine.repository.MachineEventRepository;
 import com.smartlaundromat.machine.repository.MachineRepository;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -51,6 +53,8 @@ class MachineServiceTest {
     @Mock ModbusClient modbusClient;
     @Mock ModbusProperties modbusProperties;
     @Mock ReservationService reservationService;
+    @Mock MeterRegistry meterRegistry;
+    @Mock Counter mockCounter;
 
     @InjectMocks
     MachineService machineService;
@@ -59,6 +63,7 @@ class MachineServiceTest {
 
     @BeforeEach
     void setUp() {
+        lenient().when(meterRegistry.counter(any(String.class), any(String[].class))).thenReturn(mockCounter);
         idleMachine = Machine.builder()
                 .machineId("washer_01")
                 .type(MachineType.WASHER)

@@ -56,11 +56,11 @@ spring:
 
 management:
   server:
-    port: ${MANAGEMENT_PORT:8081}
+    port: ${MANAGEMENT_PORT:8091}
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       show-details: when-authorized

@@ -547,7 +547,7 @@ block P6).
 - [x] **Load test scripts** (`load-tests/`) added (2026-06-21): `k6/bff-load.js` (BFF reporting, 20 VU, p95 < 500 ms), `k6/webhook-throughput.js` (PMS webhook flood, 20 VU steady + 100 VU spike, p95 < 200 ms), `k6/pay-to-start.js` (end-to-end outbox relay with idempotency check, p95 lag < 15 s + duplicate_cycles = 0). Seed SQL in `load-tests/seed/`. README documents run steps + tuning levers. **Actual run + Resilience4j/pool tuning** deferred until staging environment with real load profile is available.
 - [ ] **(Optional) Split device control** out of MachineStateService into a `DeviceGatewayService` (MQTT/Modbus/EQLink adapter), leaving MachineStateService as the lifecycle/domain owner (W12).
 - [ ] **(Scale trigger)** Introduce **Kafka/RabbitMQ** behind the existing publisher interface; for high-volume tables (`telemetry`, `transactions`) add finer-grained partitioning, a **read replica** for the Reporting BFF, or split the schema into its **own Supabase project** when volume/noisy-neighbour effects warrant.
-- [ ] Add SLOs + dashboards (latency, error rate, event lag, Postgres replication/PITR lag) and on-call alerts.
+- [x] **SLOs + dashboards** (2026-06-21): `micrometer-registry-prometheus` added to all 5 services; `/actuator/prometheus` exposed; custom metrics: `outbox.relay.pending` (gauge), `outbox.relay.processed.total` (counter), `outbox.relay.dead_letter.total` (counter), `outbox.relay.batch.duration` (timer) in `OutboxRelayService`; `machine.cycle.started.total` and `machine.cycle.idempotent.total` (counters with `machine_id`/`cycle_type` tags) in `MachineService`. Prometheus + Grafana added to `docker-compose.yml` under `monitoring` profile (`docker compose --profile monitoring up`). Alert rules in `monitoring/prometheus/alerts.yml` (ServiceDown, GatewayLatencyHigh, BFFLatencyHigh, WebhookLatencyHigh, HighErrorRate, OutboxDeadLetter, OutboxPendingHigh, OutboxRelayStalled, JVMHeapUsageHigh, HikariPoolExhausted). Grafana dashboard at `monitoring/grafana/dashboards/smart-laundry.json` — 6 rows: service availability, HTTP latency (p50/p95/p99), outbox relay, machine cycles, JVM + HikariCP. Grafana on :3002, Prometheus on :9090. Bot management port default changed :8081 → :8091 (avoid conflict with PMS :8081). **Postgres replication/PITR lag dashboard** deferred until Supavisor bug is resolved and PITR is enabled (Pro plan).  
 
 ---
 
@@ -575,7 +575,7 @@ flowchart LR
 - [ ] Every service persists to the **Supabase Postgres project** (schema-per-service); no separate PostgreSQL instances or H2 remain; migrations via Flyway.
 - [ ] Pay→start is event-driven, idempotent, and compensatable; no Payment↔Machine sync cycle.
 - [ ] All inter-service calls authenticated (Auth0 M2M) and wrapped in circuit breakers.
-- [ ] End-to-end tracing with correlation IDs; Supabase backups + PITR active.
+- [x] End-to-end tracing with correlation IDs (P1). Supabase PITR deferred (Pro plan + Supavisor bug).
 - [ ] Cycle/program/reservation pricing is DB-backed (seeded from `application.yml`), editable from the dashboard by ADMIN/OWNER roles, and consumed (with cache + fallback) by the bot and MachineStateService.
 
 ## Effort sketch (rough, small team)
