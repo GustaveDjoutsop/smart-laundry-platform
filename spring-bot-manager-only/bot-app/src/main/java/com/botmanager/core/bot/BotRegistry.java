@@ -3,6 +3,7 @@ package com.botmanager.core.bot;
 import com.botmanager.bots.laundry.LaundryBotConfig;
 import com.botmanager.bots.laundry.LaundryBotConfiguration;
 import com.botmanager.bots.laundry.LaundryBotProperties;
+import com.botmanager.bots.laundry.PricingClient;
 import com.botmanager.config.BotProperties;
 import com.botmanager.core.flow.FlowEngine;
 import com.botmanager.core.i18n.TranslationService;
@@ -55,6 +56,8 @@ public class BotRegistry extends BotLookup {
     private final TranslationService translationService;
 
     private final ObjectMapper objectMapper;
+
+    private final PricingClient pricingClient;
 
     private final Environment environment;
 
@@ -341,7 +344,7 @@ public class BotRegistry extends BotLookup {
         return switch (botType) {
             case LAUNDRY -> new com.botmanager.bots.laundry.LaundryBot(
                     (LaundryBotConfig) config, flowEngine, redisManager, whatsAppClientFactory, objectMapper,
-                    paymentGateway, machineService, translationService
+                    paymentGateway, machineService, translationService, pricingClient
             );
             case THOMAS_NETWORK -> new com.botmanager.bots.thomasnetwork.ThomasNetworkBot(
                     config, flowEngine, redisManager, whatsAppClientFactory, objectMapper,
