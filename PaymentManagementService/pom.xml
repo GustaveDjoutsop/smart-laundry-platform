@@ -84,6 +84,13 @@
             <version>8.0</version>
         </dependency>
 
+        <!-- Loki log shipping (P7 — push logs to Grafana Cloud Loki) -->
+        <dependency>
+            <groupId>com.github.loki4j</groupId>
+            <artifactId>loki-logback-appender</artifactId>
+            <version>1.5.2</version>
+        </dependency>
+
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
