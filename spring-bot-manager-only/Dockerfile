@@ -1,29 +1,30 @@
-FROM eclipse-temurin:25-jre-alpine
-
-# Create non-root user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-
-# Set working directory
+# ── Build stage ──────────────────────────────────────────────────────────────
+FROM eclipse-temurin:25-jdk-alpine AS build
 WORKDIR /app
 
-# Copy application files
-ARG JAR_FILE=bot-app/target/*.jar
-COPY ${JAR_FILE} app.jar
-COPY run.sh /run.sh
-RUN chmod +x /run.sh
+COPY pom.xml .
+COPY bot-core/  ./bot-core/
+COPY bot-payment/ ./bot-payment/
+COPY bot-laundry/ ./bot-laundry/
+COPY bot-pharmacy/ ./bot-pharmacy/
+COPY bot-app/ ./bot-app/
 
-# Create logs directory
+RUN apk add --no-cache maven && \
+    mvn -B package -DskipTests
+
+# ── Runtime stage ─────────────────────────────────────────────────────────────
+FROM eclipse-temurin:25-jre-alpine
+WORKDIR /app
+
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+COPY --from=build /app/bot-app/target/bot-app-*.jar app.jar
+COPY configs ./configs
+
 RUN mkdir -p /logs && chown -R appuser:appgroup /logs /app
 
-# Switch to non-root user
 USER appuser
 
-# Expose ports
-EXPOSE 3000 8081
+EXPOSE 8090
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD wget -qO- http://localhost:8081/actuator/health || exit 1
-
-# Run application
-ENTRYPOINT ["/bin/sh", "/run.sh"]
+ENTRYPOINT ["java", "-Xms256m", "-Xmx512m", "-XX:+UseG1GC", "-jar", "app.jar"]
