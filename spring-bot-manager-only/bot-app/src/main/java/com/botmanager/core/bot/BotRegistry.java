@@ -4,6 +4,7 @@ import com.botmanager.bots.laundry.LaundryBotConfig;
 import com.botmanager.bots.laundry.LaundryBotConfiguration;
 import com.botmanager.bots.laundry.LaundryBotProperties;
 import com.botmanager.bots.laundry.PricingClient;
+import org.springframework.web.client.RestTemplate;
 import com.botmanager.config.BotProperties;
 import com.botmanager.core.flow.FlowEngine;
 import com.botmanager.core.i18n.TranslationService;
@@ -57,7 +58,7 @@ public class BotRegistry extends BotLookup {
 
     private final ObjectMapper objectMapper;
 
-    private final PricingClient pricingClient;
+    private final RestTemplate restTemplate;
 
     private final Environment environment;
 
@@ -342,10 +343,16 @@ public class BotRegistry extends BotLookup {
         }
 
         return switch (botType) {
-            case LAUNDRY -> new com.botmanager.bots.laundry.LaundryBot(
-                    (LaundryBotConfig) config, flowEngine, redisManager, whatsAppClientFactory, objectMapper,
-                    paymentGateway, machineService, translationService, pricingClient
-            );
+            case LAUNDRY -> {
+                LaundryBotConfig laundryConfig = (LaundryBotConfig) config;
+                String pmsUrl = environment.getProperty("microservice.payment-service-url", "http://localhost:8081");
+                PricingClient pricingClient = new PricingClient(restTemplate, pmsUrl,
+                        laundryConfig.getShortCycle().getPrice(),
+                        laundryConfig.getLongCycle().getPrice());
+                yield new com.botmanager.bots.laundry.LaundryBot(
+                        laundryConfig, flowEngine, redisManager, whatsAppClientFactory, objectMapper,
+                        paymentGateway, machineService, translationService, pricingClient);
+            }
             case THOMAS_NETWORK -> new com.botmanager.bots.thomasnetwork.ThomasNetworkBot(
                     config, flowEngine, redisManager, whatsAppClientFactory, objectMapper,
                     paymentGateway, translationService

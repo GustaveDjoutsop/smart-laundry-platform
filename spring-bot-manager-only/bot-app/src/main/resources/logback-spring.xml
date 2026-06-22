@@ -13,7 +13,7 @@
         </root>
     </springProfile>
 
-    <springProfile name="!local">
+    <springProfile name="!local,!test">
         <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
             <encoder class="net.logstash.logback.encoder.LogstashEncoder">
                 <includeMdcKeyName>traceId</includeMdcKeyName>
