@@ -71,7 +71,7 @@ jobs:
           echo "Sync complete."
 
       - name: Deploy to Railway and verify health
-        working-directory: reporting-bff
+        working-directory: .
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID_BFF }}
