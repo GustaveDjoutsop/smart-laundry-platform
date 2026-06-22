@@ -83,11 +83,11 @@ jobs:
           sleep 90
 
           echo "Fetching deployment logs..."
-          LOGS=$(railway logs --service "$SERVICE_ID" --tail 100 2>&1 \
-                 || railway logs --tail 100 2>&1 \
+          LOGS=$(railway logs --service "$SERVICE_ID" --tail 300 2>&1 \
+                 || railway logs --tail 300 2>&1 \
                  || echo "")
-          echo "--- Last 40 log lines ---"
-          echo "$LOGS" | tail -40
+          echo "--- Log lines (filtered) ---"
+          echo "$LOGS" | grep -v "Loki\|loki4j\|AsyncBuffer\|PlainHttp" | tail -60
           echo "-------------------------"
 
           if echo "$LOGS" | grep -qE "Started .+ in [0-9]"; then
