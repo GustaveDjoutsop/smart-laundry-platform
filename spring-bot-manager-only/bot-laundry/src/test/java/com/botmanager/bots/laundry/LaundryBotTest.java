@@ -12,6 +12,7 @@ import com.botmanager.core.whatsapp.WhatsAppClient;
 import com.botmanager.core.whatsapp.WhatsAppClientFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
+import com.botmanager.bots.laundry.PricingClient;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -53,6 +54,9 @@ class LaundryBotTest {
     @Mock
     WhatsAppClient whatsAppClient;
 
+    @Mock
+    PricingClient pricingClient;
+
     TranslationService translationService;
 
     ObjectMapper objectMapper;
@@ -74,7 +78,7 @@ class LaundryBotTest {
 
         laundryBot = new LaundryBot(config, flowEngine, redisManager,
                 whatsAppClientFactory, objectMapper, paymentGateway,
-                machineService, translationService);
+                machineService, translationService, pricingClient);
     }
 
     @Test

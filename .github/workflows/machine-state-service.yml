@@ -66,6 +66,7 @@ jobs:
             --token "$DOPPLER_TOKEN" \
             | jq -r 'to_entries[] | "\(.key)=\(.value)"')
           echo "Syncing ${#VARS[@]} variables to Railway service $SERVICE_ID..."
+          [ ${#VARS[@]} -eq 0 ] && echo "No Doppler variables to sync, skipping." && exit 0
           railway variables set --service "$SERVICE_ID" "${VARS[@]}"
           echo "Sync complete."
 
