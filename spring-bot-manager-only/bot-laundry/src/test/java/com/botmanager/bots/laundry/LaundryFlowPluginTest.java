@@ -57,6 +57,15 @@ class LaundryFlowPluginTest {
         PricingClient pricingClient = new PricingClient(null, "http://localhost:8081",
                 laundryConfig.getShortCycle().getPrice(), laundryConfig.getLongCycle().getPrice());
         plugin = new LaundryFlowPlugin(paymentGateway, machineService, translationService, laundryConfig, pricingClient);
+        // Inject a business-hours service that always allows cycles so tests
+        // are not sensitive to the wall-clock time when CI happens to run.
+        plugin.setBusinessHoursService(new BusinessHoursService("00:00", "23:59", 0, "UTC") {
+            @Override
+            public CycleCheckResult canStartCycle(int d) {
+                return CycleCheckResult.builder().allowed(true)
+                        .reason(CycleCheckReason.OK).build();
+            }
+        });
     }
 
     private LaundryBotConfig createTestConfig() {

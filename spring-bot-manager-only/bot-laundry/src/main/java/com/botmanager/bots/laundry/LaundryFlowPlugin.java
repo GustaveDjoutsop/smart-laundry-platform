@@ -47,6 +47,10 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
     private BusinessHoursService businessHoursService;
 
+    void setBusinessHoursService(BusinessHoursService businessHoursService) {
+        this.businessHoursService = businessHoursService;
+    }
+
     @Override
     public void handleAction(String action, Map<String, Object> params, FlowContext context) {
         log.debug("LaundryFlowPlugin handling action: {}", action);
