@@ -41,6 +41,14 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+      headers:
+        Authorization: ${GRAFANA_OTLP_BASIC_AUTH:}
 
 auth0:
   audience: ${AUTH0_AUDIENCE:https://smartlaundry.api}

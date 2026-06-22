@@ -2,16 +2,17 @@
 <configuration>
     <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
 
-    <!-- Local/dev: human-readable console pattern (set spring.profiles.active=local). -->
     <springProfile name="local">
         <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
             <encoder>
                 <pattern>${CONSOLE_LOG_PATTERN}</pattern>
             </encoder>
         </appender>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
     </springProfile>
 
-    <!-- Default: structured JSON, including trace/span/correlation IDs from MDC -->
     <springProfile name="!local">
         <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
             <encoder class="net.logstash.logback.encoder.LogstashEncoder">
@@ -21,9 +22,33 @@
                 <customFields>{"service":"api-gateway"}</customFields>
             </encoder>
         </appender>
-    </springProfile>
 
-    <root level="INFO">
-        <appender-ref ref="CONSOLE"/>
-    </root>
+        <appender name="LOKI" class="com.github.loki4j.logback.Loki4jAppender">
+            <http>
+                <url>${LOKI_URL:-http://localhost:3100}/loki/v1/push</url>
+                <basicAuth>
+                    <username>${GRAFANA_CLOUD_LOKI_USERNAME:-0}</username>
+                    <password>${GRAFANA_CLOUD_API_KEY:-}</password>
+                </basicAuth>
+            </http>
+            <format>
+                <label>
+                    <pattern>service=api-gateway,level=%level,env=${RAILWAY_ENVIRONMENT_NAME:-local}</pattern>
+                </label>
+                <message>
+                    <pattern>traceId=%X{traceId:-} spanId=%X{spanId:-} correlationId=%X{correlationId:-} %d{ISO8601} %-5level [%logger{36}] %msg%n</pattern>
+                </message>
+            </format>
+        </appender>
+
+        <appender name="ASYNC_LOKI" class="ch.qos.logback.classic.AsyncAppender">
+            <appender-ref ref="LOKI"/>
+            <neverBlock>true</neverBlock>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="ASYNC_LOKI"/>
+        </root>
+    </springProfile>
 </configuration>
