@@ -6,6 +6,6 @@
 -- a cycle row, so MachineService.startCycle() can return the existing cycle
 -- on a duplicate without any extra idempotency table.
 
-CREATE UNIQUE INDEX idx_machine_cycles_tx_ref
+CREATE UNIQUE INDEX IF NOT EXISTS idx_machine_cycles_tx_ref
     ON machine_cycles (transaction_reference)
     WHERE transaction_reference IS NOT NULL;
