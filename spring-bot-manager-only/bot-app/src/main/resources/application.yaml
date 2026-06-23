@@ -31,8 +31,11 @@ spring:
     enabled: true
     schemas: bot
     default-schema: bot
-    postgresql:
-      transactional-lock: false
+    # Use session-mode pooler (port 5432) so Flyway advisory locks work.
+    # App datasource can stay on transaction-mode (port 6543) for throughput.
+    url: ${FLYWAY_DATASOURCE_URL:${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:15432/smartbot}}
+    user: ${FLYWAY_DATASOURCE_USERNAME:${SPRING_DATASOURCE_USERNAME:smartbot}}
+    password: ${FLYWAY_DATASOURCE_PASSWORD:${SPRING_DATASOURCE_PASSWORD:smartbot}}
 
   # ── Security: Auth0 Resource Server + M2M client ───────────────────────────
   security:
