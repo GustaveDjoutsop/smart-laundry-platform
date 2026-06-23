@@ -31,6 +31,8 @@ spring:
     enabled: true
     schemas: bot
     default-schema: bot
+    postgresql:
+      transactional-lock: false
 
   # ── Security: Auth0 Resource Server + M2M client ───────────────────────────
   security:
