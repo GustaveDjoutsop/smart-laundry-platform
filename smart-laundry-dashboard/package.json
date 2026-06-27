@@ -40,7 +40,11 @@
     "@vitest/browser-playwright": "^4.0.16",
     "@vitest/coverage-v8": "^4.0.16",
     "autoprefixer": "^10.4.19",
+<<<<<<< HEAD
     "eslint": "^8.57.0",
+=======
+    "eslint": "^9.0.0",
+>>>>>>> ce490dcb5c91d4efa253ce57392436c075ec52c1
     "eslint-config-next": "^15.5.0",
     "eslint-plugin-storybook": "^10.1.10",
     "playwright": "^1.57.0",

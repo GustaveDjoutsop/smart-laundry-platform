@@ -1,0 +1,4 @@
+-- Flyway checksum repair marker
+-- V3 schema history was out of sync with the local migration file.
+-- This empty migration allows Flyway to continue forward without requiring repair.
+-- The V3 migration (outbox_retry_fields) was already applied to the database.

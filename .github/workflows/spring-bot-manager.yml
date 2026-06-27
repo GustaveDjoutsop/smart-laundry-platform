@@ -61,7 +61,7 @@ jobs:
             VARS+=("$pair")
           done < <(doppler secrets download \
             --no-file --format json \
-            --project spring-bot-manager \
+            --project spring-bot-manager-only \
             --config dev \
             --token "$DOPPLER_TOKEN" \
             | jq -r 'to_entries[] | "\(.key)=\(.value)"')
