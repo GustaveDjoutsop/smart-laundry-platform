@@ -61,7 +61,10 @@ spring:
 
 management:
   server:
-    port: ${MANAGEMENT_PORT:8091}
+    # When MANAGEMENT_PORT equals server.port (PORT), Spring Boot merges them
+    # into a single server — no separate Tomcat instance, simpler Railway deploys.
+    # Override via MANAGEMENT_PORT env var if a dedicated management port is needed.
+    port: ${MANAGEMENT_PORT:${PORT:8090}}
   endpoints:
     web:
       exposure:
