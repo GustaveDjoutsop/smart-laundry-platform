@@ -52,6 +52,10 @@ public class SecurityConfig {
                 // Public — CamPay/MTN/Orange call this directly; PaymentManagementService
                 // verifies the HMAC signature itself. See design doc §4 security note.
                 .pathMatchers(HttpMethod.POST, "/payments/api/webhook/**").permitAll()
+                // WhatsApp webhook — Meta sends GET for verification and POST for events
+                // with no Auth0 token. Signature is verified by the bot-manager itself.
+                .pathMatchers(HttpMethod.GET, "/bot/api/whatsapp/webhook", "/bot/api/whatsapp/webhooks", "/bot/api/whatsapp/webhooks/**").permitAll()
+                .pathMatchers(HttpMethod.POST, "/bot/api/whatsapp/webhook", "/bot/api/whatsapp/webhooks", "/bot/api/whatsapp/webhooks/**").permitAll()
                 .pathMatchers("/actuator/health", "/actuator/info").permitAll()
                 .pathMatchers("/*/swagger-ui/**", "/*/swagger-ui.html",
                               "/*/v3/api-docs/**", "/*/v3/api-docs").permitAll()
