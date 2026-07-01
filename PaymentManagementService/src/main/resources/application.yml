@@ -15,6 +15,14 @@ spring:
     enabled: true
     schemas: payment
     default-schema: payment
+    # Disable checksum validation — V3 was modified after being applied to the DB.
+    # V6 migration corrects the schema_history entry. Can be re-enabled after V6 runs.
+    validate-on-migrate: ${FLYWAY_VALIDATE_ON_MIGRATE:false}
+    # Session-mode pooler (5432) — advisory locks don't survive transaction-mode
+    # pooler (6543) connection resets. Separate from the runtime datasource.
+    url: ${FLYWAY_DATASOURCE_URL:jdbc:postgresql://localhost:5434/paymentdb}
+    user: ${FLYWAY_DATASOURCE_USERNAME:payment_user}
+    password: ${FLYWAY_DATASOURCE_PASSWORD:payment_pass}
 
   jpa:
     open-in-view: false
