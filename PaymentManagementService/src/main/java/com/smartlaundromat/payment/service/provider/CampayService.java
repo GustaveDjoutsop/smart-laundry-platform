@@ -40,6 +40,9 @@ public class CampayService extends PaymentProviderService {
         String formattedPhone = formatPhoneNumber(phoneNumber);
 
         try {
+            String keyHint = config.getAppKey() != null && config.getAppKey().length() > 4
+                    ? config.getAppKey().substring(0, 4) + "..." : "(empty)";
+            log.info("CamPay config: baseUrl={}, appKeyPrefix={}", config.getBaseUrl(), keyHint);
             log.info("Authenticating with CamPay to get access token");
             String token = getAccessToken(config);
             log.info("Access token obtained successfully");
