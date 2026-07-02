@@ -84,6 +84,12 @@
             <version>1.5.2</version>
         </dependency>
 
+        <!-- Required for logback <if> conditional configuration in logback-spring.xml -->
+        <dependency>
+            <groupId>org.codehaus.janino</groupId>
+            <artifactId>janino</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
