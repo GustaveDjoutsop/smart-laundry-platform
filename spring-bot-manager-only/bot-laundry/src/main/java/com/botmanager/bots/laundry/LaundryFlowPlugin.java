@@ -167,7 +167,11 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
         List<FlowState.ButtonOption> buttons = new ArrayList<>();
         buttons.add(createButton("action_wash", t("btn_start_wash", context)));
-        buttons.add(createButton("action_services", t("btn_services", context)));
+        if (laundryConfig.getFeatures().isReservationEnabled()) {
+            buttons.add(createButton("action_reservation", t("btn_reserve", context)));
+        } else {
+            buttons.add(createButton("action_services", t("btn_services", context)));
+        }
         buttons.add(createButton("action_my_status", t("btn_my_status", context)));
 
         context.set("responseMessage", message);
@@ -346,6 +350,11 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
     private void handleProcessDateSelection(FlowContext context) {
         String input = context.getString("userInput");
+        if ("action_cancel".equals(input)) {
+            context.set("isReservation", null);
+            goTo(context, "main_menu");
+            return;
+        }
         if (input != null && input.toLowerCase().startsWith("res_date_")) {
             context.set("reservationDate", input.substring("res_date_".length()));
             goTo(context, "reservation_time");
@@ -403,6 +412,11 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
     private void handleProcessTimeSelection(FlowContext context) {
         String input = context.getString("userInput");
+        if ("action_cancel".equals(input)) {
+            context.set("isReservation", null);
+            goTo(context, "main_menu");
+            return;
+        }
         if (input != null && input.toLowerCase().startsWith("res_time_")) {
             context.set("reservationTime", input.substring("res_time_".length()));
             goTo(context, "reservation_confirm");
@@ -769,6 +783,11 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
     private void handleProcessCycleSelection(FlowContext context) {
         String input = getInputLower(context);
+
+        if ("action_cancel".equals(input)) {
+            goTo(context, "main_menu");
+            return;
+        }
 
         if (!"cycle_short".equals(input) && !"cycle_long".equals(input)) {
             goTo(context, "cycle_selection");

@@ -22,32 +22,40 @@
             </encoder>
         </appender>
 
-        <appender name="LOKI" class="com.github.loki4j.logback.Loki4jAppender">
-            <http>
-                <url>${LOKI_URL:-http://localhost:3100}/loki/v1/push</url>
-                <basicAuth>
-                    <username>${GRAFANA_CLOUD_LOKI_USERNAME:-0}</username>
-                    <password>${GRAFANA_CLOUD_API_KEY:-}</password>
-                </basicAuth>
-            </http>
-            <format>
-                <label>
-                    <pattern>service=reporting-bff,level=%level,env=${RAILWAY_ENVIRONMENT_NAME:-local}</pattern>
-                </label>
-                <message>
-                    <pattern>traceId=%X{traceId:-} spanId=%X{spanId:-} %d{ISO8601} %-5level [%logger{36}] %msg%n</pattern>
-                </message>
-            </format>
-        </appender>
-
-        <appender name="ASYNC_LOKI" class="ch.qos.logback.classic.AsyncAppender">
-            <appender-ref ref="LOKI"/>
-            <neverBlock>true</neverBlock>
-        </appender>
-
-        <root level="INFO">
-            <appender-ref ref="CONSOLE"/>
-            <appender-ref ref="ASYNC_LOKI"/>
-        </root>
+        <!-- Loki push — only wired when LOKI_URL env var is explicitly set -->
+        <if condition='"${LOKI_URL:-}".length() > 0'>
+            <then>
+                <appender name="LOKI" class="com.github.loki4j.logback.Loki4jAppender">
+                    <http>
+                        <url>${LOKI_URL}/loki/v1/push</url>
+                        <basicAuth>
+                            <username>${GRAFANA_CLOUD_LOKI_USERNAME:-0}</username>
+                            <password>${GRAFANA_CLOUD_API_KEY:-}</password>
+                        </basicAuth>
+                    </http>
+                    <format>
+                        <label>
+                            <pattern>service=reporting-bff,level=%level,env=${RAILWAY_ENVIRONMENT_NAME:-local}</pattern>
+                        </label>
+                        <message>
+                            <pattern>traceId=%X{traceId:-} spanId=%X{spanId:-} %d{ISO8601} %-5level [%logger{36}] %msg%n</pattern>
+                        </message>
+                    </format>
+                </appender>
+                <appender name="ASYNC_LOKI" class="ch.qos.logback.classic.AsyncAppender">
+                    <appender-ref ref="LOKI"/>
+                    <neverBlock>true</neverBlock>
+                </appender>
+                <root level="INFO">
+                    <appender-ref ref="CONSOLE"/>
+                    <appender-ref ref="ASYNC_LOKI"/>
+                </root>
+            </then>
+            <else>
+                <root level="INFO">
+                    <appender-ref ref="CONSOLE"/>
+                </root>
+            </else>
+        </if>
     </springProfile>
 </configuration>
