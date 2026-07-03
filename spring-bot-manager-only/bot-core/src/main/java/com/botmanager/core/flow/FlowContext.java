@@ -1,5 +1,6 @@
 package com.botmanager.core.flow;
 
+import com.botmanager.core.bot.BotConfig;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
@@ -12,6 +13,10 @@ public class FlowContext {
     private final ConversationState conversationState;
 
     private String gotoTarget;
+
+    /** Transient — not persisted to Redis. Set by FlowEngine before each action handler invocation. */
+    @Getter
+    private BotConfig botConfig;
 
     public void set(String key, Object value) {
         conversationState.setContextValue(key, value);
@@ -42,6 +47,10 @@ public class FlowContext {
 
     public boolean hasGotoTarget() {
         return gotoTarget != null;
+    }
+
+    public void setBotConfig(BotConfig botConfig) {
+        this.botConfig = botConfig;
     }
 
 }

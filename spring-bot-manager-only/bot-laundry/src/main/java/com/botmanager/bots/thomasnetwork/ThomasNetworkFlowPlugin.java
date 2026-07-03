@@ -262,7 +262,7 @@ public class ThomasNetworkFlowPlugin extends FlowPlugin {
     }
 
     private void handleInitiatePayment(FlowContext context) {
-        BotConfig botConfig = (BotConfig) context.get("botConfig");
+        BotConfig botConfig = context.getBotConfig();
         String customerPhone = context.getString("customerPhone");
         String bandwidthId = context.getString("bandwidthId");
         String bandwidthLabel = context.getString("bandwidthLabel");

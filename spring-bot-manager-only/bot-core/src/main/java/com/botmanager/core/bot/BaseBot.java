@@ -69,7 +69,11 @@ public abstract class BaseBot {
             return;
         }
 
-        flowEngine.step(config, conversationState, messageBody, whatsAppClient, getPlugin());
+        try {
+            flowEngine.step(config, conversationState, messageBody, whatsAppClient, getPlugin());
+        } catch (Exception exception) {
+            log.error("FlowEngine.step failed for bot={} from={}: {}", config.getBotId(), customerPhone, exception.getMessage(), exception);
+        }
 
         saveConversationState(customerPhone, conversationState);
     }
@@ -94,6 +98,8 @@ public abstract class BaseBot {
 
     protected void saveConversationState(String customerPhone, ConversationState state) {
         String key = CONVERSATION_KEY_PREFIX + config.getBotId() + ":" + customerPhone;
+        log.info("[BaseBot] saving state key={} stateId='{}' flowId='{}'",
+                key, state.getCurrentStateId(), state.getCurrentFlowId());
         redisManager.setWithExpiry(key, state, CONVERSATION_TTL_SECONDS);
     }
 

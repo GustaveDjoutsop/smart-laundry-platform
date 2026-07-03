@@ -37,6 +37,13 @@ public class FlowEngine {
         FlowContext flowContext = new FlowContext(conversationState);
         String normalizedMessage = userMessage != null ? userMessage.trim().toLowerCase() : "";
 
+        log.info("[FlowEngine] botId={} from={} msg='{}' stateId='{}' flowId='{}'",
+                botConfig.getBotId(),
+                conversationState.getContextValue("customerPhone"),
+                normalizedMessage,
+                conversationState.getCurrentStateId(),
+                conversationState.getCurrentFlowId());
+
         FlowDefinition currentFlow = determineFlow(botConfig, conversationState, normalizedMessage);
         if (currentFlow == null) {
             log.warn("No flow found for bot {}", botConfig.getBotId());
@@ -220,7 +227,7 @@ public class FlowEngine {
 
         if (plugin != null && StringUtils.hasText(state.getAction())) {
             Map<String, Object> params = state.getParams() != null ? state.getParams() : Map.of();
-            flowContext.set("botConfig", botConfig);
+            flowContext.setBotConfig(botConfig);
 
             try {
                 plugin.handleAction(state.getAction(), params, flowContext);
@@ -229,7 +236,12 @@ public class FlowEngine {
             }
         }
 
-        flushPluginResponse(flowContext, customerPhone, messageSender);
+        try {
+            flushPluginResponse(flowContext, customerPhone, messageSender);
+        } catch (Exception exception) {
+            log.error("Failed to send WhatsApp response for action '{}' to {}: {}",
+                    state.getAction(), customerPhone, exception.getMessage());
+        }
 
         if (flowContext.hasGotoTarget()) {
             return null;
