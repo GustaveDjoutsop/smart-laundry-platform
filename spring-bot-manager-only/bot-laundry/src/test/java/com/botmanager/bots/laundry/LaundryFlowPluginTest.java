@@ -188,6 +188,35 @@ class LaundryFlowPluginTest {
             // then
             assertThat(context.consumeGotoTarget()).isEqualTo("language_selection");
         }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"action_reservation", "action_wash", "action_services", "action_cancel"})
+        void shouldRecoverToMainMenuWhenActionButtonPressedAtLanguageScreen(String actionInput) {
+            // Regression guard: if Redis loses conversation state, the bot restarts at language_selection.
+            // The user may still have a stale WhatsApp session showing action buttons. Pressing any of
+            // them should NOT loop them in language selection — it should default to EN and go to main_menu.
+            FlowContext context = createContext();
+            context.set("language", null);
+            context.set("userInput", actionInput);
+
+            plugin.handleAction("language.process", Map.of(), context);
+
+            assertThat(context.consumeGotoTarget()).isEqualTo("main_menu");
+            assertThat(context.getString("language")).isEqualTo("en");
+        }
+
+        @Test
+        void shouldPreserveExistingLanguageWhenRecoveringFromLostState() {
+            // If the user already had their language set in context (partial state survival), keep it.
+            FlowContext context = createContext();
+            context.set("language", "fr");
+            context.set("userInput", "action_reservation");
+
+            plugin.handleAction("language.process", Map.of(), context);
+
+            assertThat(context.consumeGotoTarget()).isEqualTo("main_menu");
+            assertThat(context.getString("language")).isEqualTo("fr");
+        }
     }
 
     // ========== Main Menu ==========

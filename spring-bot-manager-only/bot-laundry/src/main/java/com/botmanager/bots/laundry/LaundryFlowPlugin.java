@@ -155,6 +155,18 @@ public class LaundryFlowPlugin extends FlowPlugin {
             context.set("language", Language.FR.getCode());
             context.set("step", LaundryStep.MAIN_MENU);
             goTo(context, "main_menu");
+        } else if (input != null && input.startsWith("action_")) {
+            // User pressed a menu action button while at language selection — their conversation
+            // state was likely lost (Redis eviction / redeploy) and WhatsApp showed a stale session.
+            // Default to English if no language is set, then fall through to the main menu so
+            // the user can re-select from there without being stuck in a language-selection loop.
+            if (context.getString("language") == null) {
+                context.set("language", Language.EN.getCode());
+            }
+            context.set("step", LaundryStep.MAIN_MENU);
+            log.info("Action button '{}' pressed at language selection; recovering to main_menu (customerPhone={})",
+                    input, context.getString("customerPhone"));
+            goTo(context, "main_menu");
         } else {
             goTo(context, "language_selection");
         }
@@ -167,11 +179,7 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
         List<FlowState.ButtonOption> buttons = new ArrayList<>();
         buttons.add(createButton("action_wash", t("btn_start_wash", context)));
-        if (laundryConfig.getFeatures().isReservationEnabled()) {
-            buttons.add(createButton("action_reservation", t("btn_reserve", context)));
-        } else {
-            buttons.add(createButton("action_services", t("btn_services", context)));
-        }
+        buttons.add(createButton("action_services", t("btn_services", context)));
         buttons.add(createButton("action_my_status", t("btn_my_status", context)));
 
         context.set("responseMessage", message);
