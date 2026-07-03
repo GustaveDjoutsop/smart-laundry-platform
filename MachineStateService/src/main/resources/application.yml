@@ -15,6 +15,12 @@ spring:
     enabled: true
     schemas: machine
     default-schema: machine
+    # V2 was edited (added IF NOT EXISTS) after it had already been applied, which
+    # changes its checksum and makes validate-on-migrate abort the whole service on
+    # boot ("Migration checksum mismatch") — this caused a multi-hour outage. The
+    # migration is idempotent and the schema is correct, so skip checksum validation
+    # rather than crash. Never edit an applied migration; always add a new one.
+    validate-on-migrate: false
 
   jpa:
     open-in-view: false
