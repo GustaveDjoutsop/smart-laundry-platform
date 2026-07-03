@@ -11,7 +11,8 @@ public enum MachineStatus {
     IN_USE("IN_USE"),
     COMPLETING("COMPLETING"),
     ERROR("ERROR"),
-    MAINTENANCE("MAINTENANCE");
+    MAINTENANCE("MAINTENANCE"),
+    OFFLINE("OFFLINE");
 
     private final String value;
 
@@ -27,7 +28,7 @@ public enum MachineStatus {
     @JsonCreator
     public static MachineStatus fromValue(String value) {
         if (value == null) {
-            return AVAILABLE;
+            return OFFLINE;
         }
 
         for (MachineStatus status : values()) {
@@ -36,7 +37,7 @@ public enum MachineStatus {
             }
         }
 
-        return AVAILABLE;
+        return OFFLINE;
     }
 
 }

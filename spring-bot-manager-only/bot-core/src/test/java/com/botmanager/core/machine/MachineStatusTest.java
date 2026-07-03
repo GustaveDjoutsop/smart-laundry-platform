@@ -19,7 +19,9 @@ class MachineStatusTest {
             "ERROR, ERROR",
             "error, ERROR",
             "MAINTENANCE, MAINTENANCE",
-            "maintenance, MAINTENANCE"
+            "maintenance, MAINTENANCE",
+            "OFFLINE, OFFLINE",
+            "offline, OFFLINE"
     })
     void shouldParseFromValueCaseInsensitively(String input, String expectedName) {
         // when
@@ -30,21 +32,18 @@ class MachineStatusTest {
     }
 
     @Test
-    void shouldReturnAvailableForNullValue() {
-        // when
+    void shouldReturnOfflineForNullValue() {
+        // Null/unknown status is treated as OFFLINE (unavailable), not AVAILABLE.
         MachineStatus result = MachineStatus.fromValue(null);
-
-        // then
-        assertThat(result).isEqualTo(MachineStatus.AVAILABLE);
+        assertThat(result).isEqualTo(MachineStatus.OFFLINE);
     }
 
     @Test
-    void shouldReturnAvailableForUnknownValue() {
-        // when
+    void shouldReturnOfflineForUnknownValue() {
+        // Unknown status strings (e.g. future MSS statuses) default to OFFLINE, not AVAILABLE,
+        // so they are never accidentally exposed as bookable machines.
         MachineStatus result = MachineStatus.fromValue("UNKNOWN");
-
-        // then
-        assertThat(result).isEqualTo(MachineStatus.AVAILABLE);
+        assertThat(result).isEqualTo(MachineStatus.OFFLINE);
     }
 
     @Test
@@ -55,6 +54,7 @@ class MachineStatusTest {
         assertThat(MachineStatus.COMPLETING.getValue()).isEqualTo("COMPLETING");
         assertThat(MachineStatus.ERROR.getValue()).isEqualTo("ERROR");
         assertThat(MachineStatus.MAINTENANCE.getValue()).isEqualTo("MAINTENANCE");
+        assertThat(MachineStatus.OFFLINE.getValue()).isEqualTo("OFFLINE");
     }
 
 }
