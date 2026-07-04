@@ -39,11 +39,9 @@ import type {
 
 // ============================================
 // Axios instances
-// bffApi      — all /admin/* analytics/reporting → API gateway → Reporting BFF
-// paymentsApi — cycle pricing → API gateway → PaymentManagementService
+// bffApi — all /admin/* analytics/reporting/settings → API gateway → Reporting BFF
 // ============================================
-const BFF_BASE_URL      = process.env.NEXT_PUBLIC_BFF_URL      || 'http://localhost:8080/reports/api';
-const PAYMENTS_BASE_URL = process.env.NEXT_PUBLIC_PAYMENTS_URL || 'http://localhost:8080/payments';
+const BFF_BASE_URL = process.env.NEXT_PUBLIC_BFF_URL || 'http://localhost:8080/reports/api';
 
 // Fetch the Auth0 access token client-side via the /auth/access-token route
 // (served automatically by auth0.middleware). Falls back to null on error or SSR.
@@ -86,8 +84,7 @@ function makeAxios(baseURL: string, timeout = 10_000) {
   return instance;
 }
 
-const bffApi      = makeAxios(BFF_BASE_URL);
-const paymentsApi = makeAxios(PAYMENTS_BASE_URL);
+const bffApi = makeAxios(BFF_BASE_URL);
 
 // ============================================
 // Private adapter helpers
@@ -1457,14 +1454,14 @@ export interface MachineConfig {
 
 export const settingsApi = {
   getMachineConfig: async (): Promise<MachineConfig> => {
-    const [bffResp, pmsResp] = await Promise.allSettled([
+    const [bffResp, pricingResp] = await Promise.allSettled([
       bffApi.get<AnyMap>('/admin/settings/machines'),
-      paymentsApi.get<AnyMap[]>('/api/pricing'),
+      bffApi.get<AnyMap[]>('/admin/settings/pricing'),
     ]);
 
     const raw = bffResp.status === 'fulfilled' ? bffResp.value.data : {};
-    const cyclePricing: CyclePricingItem[] = pmsResp.status === 'fulfilled'
-      ? (pmsResp.value.data ?? []).map((p: AnyMap) => ({
+    const cyclePricing: CyclePricingItem[] = pricingResp.status === 'fulfilled'
+      ? (pricingResp.value.data ?? []).map((p: AnyMap) => ({
           key:      s(p.key),
           label:    s(p.label),
           amount:   n(p.amount),
@@ -1483,15 +1480,15 @@ export const settingsApi = {
   saveMachineConfig: async (config: MachineConfig): Promise<MachineConfig> => {
     const saves: Promise<unknown>[] = [
       bffApi.put<AnyMap>('/admin/settings/machines', {
-        pricing:       config.pricing,
-        warningCycles: config.warningCycles,
+        pricing:        config.pricing,
+        warningCycles:  config.warningCycles,
         criticalCycles: config.criticalCycles,
       }),
     ];
 
     if (config.cyclePricing && config.cyclePricing.length > 0) {
       for (const item of config.cyclePricing) {
-        saves.push(paymentsApi.put(`/api/pricing/${item.key}`, { amount: item.amount }));
+        saves.push(bffApi.put(`/admin/settings/pricing/${item.key}`, { amount: item.amount }));
       }
     }
 
