@@ -2,11 +2,10 @@ package com.smartlaundromat.machine.service;
 
 import com.smartlaundromat.machine.config.MachineConfig;
 import com.smartlaundromat.machine.dto.*;
-import com.smartlaundromat.machine.eqlink.EqLinkClient;
 import com.smartlaundromat.machine.eqlink.EqLinkProperties;
-import com.smartlaundromat.machine.modbus.ModbusClient;
-import com.smartlaundromat.machine.modbus.ModbusProperties;
 import com.smartlaundromat.machine.model.Reservation;
+import com.smartlaundromat.machine.modbus.ModbusProperties;
+import com.smartlaundromat.machine.simulator.MachineCommandDispatcher;
 
 import com.smartlaundromat.machine.exception.MachineNotFoundException;
 import com.smartlaundromat.machine.exception.MachineNotAvailableException;
@@ -18,7 +17,6 @@ import com.smartlaundromat.machine.mqtt.MqttService;
 import com.smartlaundromat.machine.repository.MachineCycleRepository;
 import com.smartlaundromat.machine.repository.MachineEventRepository;
 import com.smartlaundromat.machine.repository.MachineRepository;
-import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -34,16 +32,9 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * Core machine lifecycle service.
- *
- * <h2>Command dispatch strategy</h2>
- * <ol>
- *   <li>If {@code eqlink.enabled=true} <em>and</em> the machine has an EQLink device
- *       mapping → send the start command via EQLink REST API.</li>
- *   <li>Always also send the MQTT pulse (to the ESP32 local relay) as a safety net
- *       so the machine starts even when EQLink has a hiccup.</li>
- *   <li>If EQLink is disabled → use MQTT only (existing behaviour).</li>
- * </ol>
+ * Core machine lifecycle service. Hardware start commands are routed through
+ * {@link com.smartlaundromat.machine.simulator.MachineCommandDispatcher} — either the real
+ * transport (EQLink / Modbus / MQTT) or the simulator no-op depending on the active profile.
  */
 @Service
 @Slf4j
@@ -55,17 +46,14 @@ public class MachineService {
     private final MachineCycleRepository machineCycleRepository;
     private final MachineConfig machineConfig;
     private final MqttService mqttService;
-
-    /** EQLink integration — always injected; all methods are no-ops when disabled. */
-    private final EqLinkClient eqLinkClient;
     private final EqLinkProperties eqLinkProperties;
-
-    /** Modbus RTU integration — always injected; all methods are no-ops when disabled. */
-    private final ModbusClient modbusClient;
     private final ModbusProperties modbusProperties;
 
     /** Reservation gating — enforces that reserved machines need a valid code to start. */
     private final ReservationService reservationService;
+
+    /** Routes the hardware start command to the real transport or the simulator no-op. */
+    private final MachineCommandDispatcher commandDispatcher;
 
     private final MeterRegistry meterRegistry;
 
@@ -244,114 +232,18 @@ public class MachineService {
         machine.setDoorLocked(true);
         machineRepository.save(machine);
 
-        // ── Command dispatch: EQLink / Modbus + MQTT ──────────────────────────
-        dispatchStartCommand(machine, request, cycleType);
+        // ── Command dispatch: routes to real hardware or simulator no-op ─────
+        commandDispatcher.dispatch(machine, request, cycleType);
 
         recordEvent(request.getMachineId(), "CYCLE_STARTED",
                 MachineStatus.IDLE.name(), MachineStatus.RUNNING.name(),
                 "Cycle: " + cycleType + ", Duration: " + request.getDurationMinutes() + "min",
                 request.getRfidCardUid(), request.getTransactionReference());
 
-        log.info("Cycle started: machine={}, type={}, duration={}min, eqlink={}, endsAt={}",
-                request.getMachineId(), cycleType, request.getDurationMinutes(),
-                eqLinkProperties.isEnabled(), endsAt);
+        log.info("Cycle started: machine={}, type={}, duration={}min, endsAt={}",
+                request.getMachineId(), cycleType, request.getDurationMinutes(), endsAt);
 
         return cycle;
-    }
-
-    /**
-     * Dispatches the start command using the configured strategy.
-     *
-     * <h3>Strategy</h3>
-     * <ol>
-     *   <li>If EQLink is enabled and the machine has a {@code devicename} mapping:
-     *     <ol>
-     *       <li>Call {@code iot_check_dev_status} to get the machine's current {@code vend_price}.</li>
-     *       <li>Compute {@code total_amt = pulseCount × vend_price}.</li>
-     *       <li>Send {@code iot_start_device}.</li>
-     *       <li>If EQLink IoT times out (406), fall back to MQTT automatically.</li>
-     *     </ol>
-     *   </li>
-     *   <li>Always also fire the MQTT pulse — belt-and-suspenders approach.</li>
-     *   <li>If EQLink is disabled or not mapped → MQTT only.</li>
-     * </ol>
-     */
-    private void dispatchStartCommand(Machine machine, StartCycleRequest request, CycleType cycleType) {
-        boolean primaryDispatched = false;
-
-        // ── Modbus RTU machines ───────────────────────────────────────────────
-        if (machine.getCommProtocol() == CommProtocol.MODBUS && modbusProperties.isEnabled()) {
-            int program = modbusProgramFor(cycleType);
-            primaryDispatched = modbusClient.startMachine(
-                    request.getMachineId(), request.getPulseCount(), program);
-            if (!primaryDispatched) {
-                log.warn("Modbus start did not ack for {} — MQTT is the fallback", request.getMachineId());
-            }
-            // MQTT safety net + done (Modbus machines are not on EQLink).
-            mqttService.sendCommand(request.getMachineId(), "pulse", request.getPulseCount());
-            log.debug("Command dispatch: machine={}, modbus={}, mqtt=sent",
-                    request.getMachineId(), primaryDispatched ? "sent" : "skipped");
-            return;
-        }
-
-        boolean eqLinkDispatched = false;
-
-        if (machine.getCommProtocol() == CommProtocol.EQLINK && eqLinkProperties.isEnabled()) {
-            eqLinkDispatched = eqLinkProperties.resolveDeviceName(request.getMachineId())
-                    .map(devicename -> {
-                        // Step 1: get vend_price from a fresh status check
-                        int vendPrice = eqLinkProperties.getDefaultVendPrice();
-                        var statusResp = eqLinkClient.checkDeviceStatus(devicename);
-                        if (statusResp != null && statusResp.isSuccess()
-                                && statusResp.getDeviceStatus() != null
-                                && statusResp.getDeviceStatus().getVendPrice() != null
-                                && statusResp.getDeviceStatus().getVendPrice() > 0) {
-                            vendPrice = statusResp.getDeviceStatus().getVendPrice();
-                        }
-
-                        // Step 2: send IoT start (total_amt = pulseCount × vend_price)
-                        var startResp = eqLinkClient.startDeviceIot(
-                                devicename, request.getPulseCount(), vendPrice);
-
-                        if (startResp == null) {
-                            log.warn("EQLink IoT start returned null for {} — MQTT will handle it",
-                                    request.getMachineId());
-                            return false;
-                        }
-                        if (startResp.isIotTimeout()) {
-                            log.warn("EQLink IoT timeout (406) for {} — MQTT is the fallback",
-                                    request.getMachineId());
-                            return false; // let MQTT handle it below
-                        }
-                        return startResp.isSuccess();
-                    })
-                    .orElseGet(() -> {
-                        log.warn("EQLink enabled but no devicename mapping for {} — using MQTT only",
-                                request.getMachineId());
-                        return false;
-                    });
-        }
-
-        // Always fire the MQTT pulse as well (belt-and-suspenders):
-        // - When EQLink is disabled: MQTT is the sole trigger
-        // - When EQLink succeeds:    MQTT acts as a local relay fallback
-        // - When EQLink fails:       MQTT becomes the primary trigger
-        mqttService.sendCommand(request.getMachineId(), "pulse", request.getPulseCount());
-
-        log.debug("Command dispatch: machine={}, eqlink={}, mqtt=sent",
-                request.getMachineId(), eqLinkDispatched ? "sent" : "skipped");
-    }
-
-    /**
-     * Maps a {@link CycleType} to a Modbus program number (1–3) for register
-     * {@code REG_SELECT_PROGRAM}. Short/quick → 1, normal → 2, heavy/long → 3.
-     */
-    private int modbusProgramFor(CycleType cycleType) {
-        return switch (cycleType) {
-            case QUICK, DELICATE, LOW_HEAT, COTTON_40 -> 1;
-            case HEAVY, SANITIZE, HIGH_HEAT, COTTON_90 -> 3;
-            default -> 2;
-        };
     }
 
     // ── Queries ───────────────────────────────────────────────────────────────

@@ -19,4 +19,9 @@ COPY --from=build /app/target/machine-state-service-*.jar app.jar
 
 EXPOSE 8082
 
+# Railway (and any container runtime) can override the active profile by setting
+# SPRING_PROFILES_ACTIVE. The railway.toml startCommand takes precedence for
+# the smart-laundry-dev service; this ENV acts as documentation and fallback.
+ENV SPRING_PROFILES_ACTIVE=default
+
 ENTRYPOINT ["java", "-jar", "app.jar"]

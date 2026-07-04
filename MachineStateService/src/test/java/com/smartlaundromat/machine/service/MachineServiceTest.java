@@ -5,11 +5,9 @@ import com.smartlaundromat.machine.dto.MachineStatusResponse;
 import com.smartlaundromat.machine.dto.MachineSummaryResponse;
 import com.smartlaundromat.machine.dto.StartCycleRequest;
 import com.smartlaundromat.machine.dto.TelemetryPayload;
-import com.smartlaundromat.machine.eqlink.EqLinkClient;
 import com.smartlaundromat.machine.eqlink.EqLinkProperties;
 import com.smartlaundromat.machine.exception.MachineNotAvailableException;
 import com.smartlaundromat.machine.exception.MachineNotFoundException;
-import com.smartlaundromat.machine.modbus.ModbusClient;
 import com.smartlaundromat.machine.modbus.ModbusProperties;
 import com.smartlaundromat.machine.model.Machine;
 import com.smartlaundromat.machine.model.MachineCycle;
@@ -19,6 +17,7 @@ import com.smartlaundromat.machine.mqtt.MqttService;
 import com.smartlaundromat.machine.repository.MachineCycleRepository;
 import com.smartlaundromat.machine.repository.MachineEventRepository;
 import com.smartlaundromat.machine.repository.MachineRepository;
+import com.smartlaundromat.machine.simulator.MachineCommandDispatcher;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,11 +47,10 @@ class MachineServiceTest {
     @Mock MachineCycleRepository machineCycleRepository;
     @Mock MachineConfig machineConfig;
     @Mock MqttService mqttService;
-    @Mock EqLinkClient eqLinkClient;
     @Mock EqLinkProperties eqLinkProperties;
-    @Mock ModbusClient modbusClient;
     @Mock ModbusProperties modbusProperties;
     @Mock ReservationService reservationService;
+    @Mock MachineCommandDispatcher commandDispatcher;
     @Mock MeterRegistry meterRegistry;
     @Mock Counter mockCounter;
 
@@ -250,7 +248,6 @@ class MachineServiceTest {
             when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());
             when(machineCycleRepository.save(any(MachineCycle.class))).thenAnswer(inv -> inv.getArgument(0));
             when(machineRepository.save(any(Machine.class))).thenAnswer(inv -> inv.getArgument(0));
-            when(eqLinkProperties.isEnabled()).thenReturn(false);
 
             StartCycleRequest request = buildRequest();
 
@@ -264,7 +261,7 @@ class MachineServiceTest {
             assertThat(cycle.getDurationMinutes()).isEqualTo(30);
             assertThat(idleMachine.getStatus()).isEqualTo(MachineStatus.RUNNING);
             assertThat(idleMachine.getDoorLocked()).isTrue();
-            verify(mqttService).sendCommand(eq("washer_01"), eq("pulse"), eq(2));
+            verify(commandDispatcher).dispatch(eq(idleMachine), eq(request), eq(CycleType.NORMAL));
             verify(machineEventRepository).save(any(MachineEvent.class));
         }
 
@@ -277,7 +274,6 @@ class MachineServiceTest {
             when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());
             when(machineCycleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(machineRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-            when(eqLinkProperties.isEnabled()).thenReturn(false);
 
             StartCycleRequest request = buildRequest();
             request.setCycleType("INVALID_TYPE");
@@ -332,7 +328,6 @@ class MachineServiceTest {
             when(reservationService.validateAndConsume("RES-ABC", "washer_01")).thenReturn(reservation);
             when(machineCycleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(machineRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-            when(eqLinkProperties.isEnabled()).thenReturn(false);
 
             StartCycleRequest request = buildRequest();
             request.setReservationCode("RES-ABC");
@@ -490,7 +485,6 @@ class MachineServiceTest {
         when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());
         when(machineCycleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(machineRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(eqLinkProperties.isEnabled()).thenReturn(false);
 
         StartCycleRequest request = new StartCycleRequest();
         request.setMachineId("washer_01");

@@ -1,0 +1,61 @@
+# ── Dev profile — machine simulator ──────────────────────────────────────────
+# Activates the machine simulator so all 16 machines come ONLINE automatically
+# within seconds of startup. No Modbus gateway or EQLink credentials are required.
+#
+# Protocol assignment (used by resolveProtocol() for DB records, not for dispatch):
+#   washer_01..06 → MODBUS   (unit-id-mapping present)
+#   washer_07..09 → EQLINK   (device-name-mapping present)
+#   dryer_01..07  → MODBUS   (unit-id-mapping present)
+#
+# Hardware clients are NOT called: simulator.enabled=true routes start commands
+# to SimulatorMachineCommandDispatcher (no-op). modbus.enabled and eqlink.enabled
+# are intentionally false — they gate the real HTTP calls, not the protocol label.
+
+simulator:
+  enabled: true
+  heartbeat-interval-ms: 5000
+  telemetry-update-interval-ms: 10000
+
+machine:
+  available-ids:
+    - washer_01   # Modbus
+    - washer_02   # Modbus
+    - washer_03   # Modbus
+    - washer_04   # Modbus
+    - washer_05   # Modbus
+    - washer_06   # Modbus
+    - washer_07   # EQLink
+    - washer_08   # EQLink
+    - washer_09   # EQLink
+    - dryer_01    # Modbus
+    - dryer_02    # Modbus
+    - dryer_03    # Modbus
+    - dryer_04    # Modbus
+    - dryer_05    # Modbus
+    - dryer_06    # Modbus
+    - dryer_07    # Modbus
+
+modbus:
+  enabled: false
+  gateway-url: http://localhost:9090
+  unit-id-mapping:
+    washer_01: 1
+    washer_02: 2
+    washer_03: 3
+    washer_04: 4
+    washer_05: 5
+    washer_06: 6
+    dryer_01: 11
+    dryer_02: 12
+    dryer_03: 13
+    dryer_04: 14
+    dryer_05: 15
+    dryer_06: 16
+    dryer_07: 17
+
+eqlink:
+  enabled: false
+  device-name-mapping:
+    washer_07: SIM_EQLINK_WA07
+    washer_08: SIM_EQLINK_WA08
+    washer_09: SIM_EQLINK_WA09
