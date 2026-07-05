@@ -70,8 +70,9 @@ class ReservationFlowE2ETest {
 
         PricingClient pricingClient = new PricingClient(null, "http://localhost:8081",
                 config.getShortCycle().getPrice(), config.getLongCycle().getPrice());
+        TransactionClient transactionClient = new TransactionClient(null, "http://localhost:8081");
         plugin = new LaundryFlowPlugin(paymentGateway, machineService,
-                new TranslationService(), config, pricingClient);
+                new TranslationService(), config, pricingClient, transactionClient);
         plugin.setBusinessHoursService(new BusinessHoursService("00:00", "23:59", 0, "Africa/Douala"));
 
         // Mirrors AppConfig#objectMapper — the exact mapper BaseBot uses for Redis (de)serialization.

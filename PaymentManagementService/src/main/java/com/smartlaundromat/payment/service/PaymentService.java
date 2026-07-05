@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -153,6 +154,10 @@ public class PaymentService {
 
     public List<Transaction> getTransactionsByCard(String cardUid) {
         return transactionRepository.findByRfidCardUidOrderByCreatedAtDesc(cardUid);
+    }
+
+    public Optional<Transaction> getActiveCycleByPhone(String phone) {
+        return transactionRepository.findTop1ByPhoneNumberAndStatusOrderByCreatedAtDesc(phone, PaymentStatus.SUCCESSFUL);
     }
 
     public Map<String, Object> getProviderStatus() {

@@ -46,6 +46,8 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
     private final PricingClient pricingClient;
 
+    private final TransactionClient transactionClient;
+
     private BusinessHoursService businessHoursService;
 
     void setBusinessHoursService(BusinessHoursService businessHoursService) {
@@ -946,15 +948,24 @@ public class LaundryFlowPlugin extends FlowPlugin {
     private void handleShowUserCycleStatus(FlowContext context) {
         String customerPhone = context.getString("customerPhone");
 
-        // TODO: Look up active cycle for this user from transaction store
-        // For now, show "no active cycle" message
+        Map<String, Object> activeCycle = transactionClient != null
+                ? transactionClient.getActiveCycle(customerPhone) : null;
+        boolean hasCycle = activeCycle != null && Boolean.TRUE.equals(activeCycle.get("hasCycle"));
 
-        String message = t("status_none", context);
-
+        String message;
         List<FlowState.ButtonOption> buttons = new ArrayList<>();
-        buttons.add(createButton("action_wash", t("btn_start_wash", context)));
-        buttons.add(createButton("action_availability", t("btn_availability", context)));
-        buttons.add(createButton("action_cancel", t("btn_main_menu", context)));
+
+        if (hasCycle) {
+            String machineId = (String) activeCycle.getOrDefault("machineId", "");
+            message = t("status_active_cycle", context, Map.of("machine", machineId));
+            buttons.add(createButton("action_availability", t("btn_availability", context)));
+            buttons.add(createButton("action_cancel", t("btn_main_menu", context)));
+        } else {
+            message = t("status_none", context);
+            buttons.add(createButton("action_wash", t("btn_start_wash", context)));
+            buttons.add(createButton("action_availability", t("btn_availability", context)));
+            buttons.add(createButton("action_cancel", t("btn_main_menu", context)));
+        }
 
         context.set("responseMessage", message);
         context.set("responseButtons", buttons);

@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Slf4j
 @RestController
@@ -49,6 +50,21 @@ public class PaymentController {
     @GetMapping("/card/{cardUid}")
     public ResponseEntity<List<Transaction>> getTransactionsByCard(@PathVariable String cardUid) {
         return ResponseEntity.ok(paymentService.getTransactionsByCard(cardUid));
+    }
+
+    @GetMapping("/phone/{phone}/active")
+    public ResponseEntity<Map<String, Object>> getActiveCycleByPhone(@PathVariable String phone) {
+        Optional<Transaction> tx = paymentService.getActiveCycleByPhone(phone);
+        if (tx.isPresent()) {
+            Transaction t = tx.get();
+            return ResponseEntity.ok(Map.of(
+                    "hasCycle", true,
+                    "machineId", t.getMachineId(),
+                    "amount", t.getAmount(),
+                    "createdAt", t.getCreatedAt().toString()
+            ));
+        }
+        return ResponseEntity.ok(Map.of("hasCycle", false));
     }
 
     @GetMapping("/providers/status")

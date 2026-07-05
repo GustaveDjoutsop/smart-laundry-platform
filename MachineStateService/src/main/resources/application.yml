@@ -89,6 +89,14 @@ modbus:
   # Populated in ci/dev.yaml; empty here so machines stay MQTT until configured.
   unit-id-mapping: {}
 
+# ── Machine simulator (dev only) ─────────────────────────────────────────────
+# When enabled, hardware start commands are skipped and machines are kept ONLINE
+# via synthetic telemetry. Enable via spring.profiles.active=dev or SIMULATOR_ENABLED=true.
+simulator:
+  enabled: ${SIMULATOR_ENABLED:false}
+  heartbeat-interval-ms: ${SIMULATOR_HEARTBEAT_MS:5000}
+  telemetry-update-interval-ms: ${SIMULATOR_TELEMETRY_MS:10000}
+
 # ── Feature flags ─────────────────────────────────────────────────────────────
 # Both default DISABLED. The wash-flow flag is enforced in the bot (spring-bot-manager);
 # the reservation flag is enforced here in MachineStateService.

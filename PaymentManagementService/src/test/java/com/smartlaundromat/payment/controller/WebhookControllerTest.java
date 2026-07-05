@@ -81,7 +81,7 @@ class WebhookControllerTest {
     void shouldHandleCampayWebhook() throws Exception {
         // given
         withConfiguredCampaySecret();
-        when(signatureVerifier.verifyHmacSha256(eq(WEBHOOK_SECRET), anyString(), eq("valid-sig"))).thenReturn(true);
+        when(signatureVerifier.verifyJwt(eq(WEBHOOK_SECRET), eq("valid-jwt-token"))).thenReturn(true);
 
         Transaction tx = Transaction.builder()
                 .externalReference("EXT-001")
@@ -91,18 +91,19 @@ class WebhookControllerTest {
         when(paymentService.processWebhook(eq(PaymentProvider.CAMPAY), anyString(), anyString(), anyString(), any()))
                 .thenReturn(tx);
 
+        // CamPay sends signature as JWT in the body
         String body = """
                 {
-                    "externalReference": "EXT-001",
+                    "external_reference": "EXT-001",
                     "status": "SUCCESSFUL",
-                    "reference": "CAMP-REF-001"
+                    "reference": "CAMP-REF-001",
+                    "signature": "valid-jwt-token"
                 }
                 """;
 
         // when / then
         mockMvc.perform(post("/api/webhook/campay")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .header("X-Campay-Signature", "valid-sig")
                         .content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("received"));
@@ -114,20 +115,20 @@ class WebhookControllerTest {
     void shouldRejectCampayWebhookWithInvalidSignature() throws Exception {
         // given
         withConfiguredCampaySecret();
-        when(signatureVerifier.verifyHmacSha256(eq(WEBHOOK_SECRET), anyString(), anyString())).thenReturn(false);
+        when(signatureVerifier.verifyJwt(eq(WEBHOOK_SECRET), anyString())).thenReturn(false);
 
         String body = """
                 {
-                    "externalReference": "EXT-001",
+                    "external_reference": "EXT-001",
                     "status": "SUCCESSFUL",
-                    "reference": "CAMP-REF-001"
+                    "reference": "CAMP-REF-001",
+                    "signature": "forged-token"
                 }
                 """;
 
         // when / then
         mockMvc.perform(post("/api/webhook/campay")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .header("X-Campay-Signature", "forged-sig")
                         .content(body))
                 .andExpect(status().isUnauthorized());
 
@@ -135,14 +136,15 @@ class WebhookControllerTest {
     }
 
     @Test
-    void shouldRejectCampayWebhookWithMissingSignatureHeader() throws Exception {
+    void shouldRejectCampayWebhookWithMissingSignature() throws Exception {
         // given
         withConfiguredCampaySecret();
-        when(signatureVerifier.verifyHmacSha256(eq(WEBHOOK_SECRET), anyString(), isNull())).thenReturn(false);
+        when(signatureVerifier.verifyJwt(eq(WEBHOOK_SECRET), isNull())).thenReturn(false);
 
+        // No "signature" field in body — payload.getSignature() will be null
         String body = """
                 {
-                    "externalReference": "EXT-001",
+                    "external_reference": "EXT-001",
                     "status": "SUCCESSFUL",
                     "reference": "CAMP-REF-001"
                 }
@@ -164,16 +166,16 @@ class WebhookControllerTest {
 
         String body = """
                 {
-                    "externalReference": "EXT-001",
+                    "external_reference": "EXT-001",
                     "status": "SUCCESSFUL",
-                    "reference": "CAMP-REF-001"
+                    "reference": "CAMP-REF-001",
+                    "signature": "any-token"
                 }
                 """;
 
         // when / then
         mockMvc.perform(post("/api/webhook/campay")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .header("X-Campay-Signature", "any-sig")
                         .content(body))
                 .andExpect(status().isServiceUnavailable());
 
@@ -289,7 +291,7 @@ class WebhookControllerTest {
     void shouldHandleFailedWebhook() throws Exception {
         // given
         withConfiguredCampaySecret();
-        when(signatureVerifier.verifyHmacSha256(eq(WEBHOOK_SECRET), anyString(), eq("valid-sig"))).thenReturn(true);
+        when(signatureVerifier.verifyJwt(eq(WEBHOOK_SECRET), eq("valid-jwt-token"))).thenReturn(true);
 
         Transaction tx = Transaction.builder()
                 .externalReference("EXT-004")
@@ -300,17 +302,17 @@ class WebhookControllerTest {
 
         String body = """
                 {
-                    "externalReference": "EXT-004",
+                    "external_reference": "EXT-004",
                     "status": "FAILED",
                     "reference": "CAMP-REF-002",
-                    "reason": "Insufficient funds"
+                    "reason": "Insufficient funds",
+                    "signature": "valid-jwt-token"
                 }
                 """;
 
         // when / then
         mockMvc.perform(post("/api/webhook/campay")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .header("X-Campay-Signature", "valid-sig")
                         .content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("received"));

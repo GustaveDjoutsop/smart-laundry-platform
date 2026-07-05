@@ -37,12 +37,13 @@ public class LaundryBot extends BaseBot {
                       PaymentGateway paymentGateway,
                       MachineService machineService,
                       TranslationService translationService,
-                      PricingClient pricingClient) {
+                      PricingClient pricingClient,
+                      TransactionClient transactionClient) {
 
         super(config, flowEngine, redisManager, whatsAppClientFactory, objectMapper);
         this.translationService = translationService;
         this.machineService = machineService;
-        this.plugin = new LaundryFlowPlugin(paymentGateway, machineService, translationService, config, pricingClient);
+        this.plugin = new LaundryFlowPlugin(paymentGateway, machineService, translationService, config, pricingClient, transactionClient);
 
         machineService.registerBot(config);
 

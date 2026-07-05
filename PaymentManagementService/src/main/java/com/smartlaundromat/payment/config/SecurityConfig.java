@@ -98,6 +98,8 @@ public class SecurityConfig {
                 // ── Mobile money payment endpoints ──
                 .requestMatchers(HttpMethod.POST, "/api/payments/initiate")
                     .hasAuthority("SCOPE_sls-payment-initiate")
+                // Public: bot queries active cycle by phone (read-only, no sensitive data)
+                .requestMatchers(HttpMethod.GET, "/api/payments/phone/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/payments/**")
                     .hasAuthority("SCOPE_sls-payment-read")
 
