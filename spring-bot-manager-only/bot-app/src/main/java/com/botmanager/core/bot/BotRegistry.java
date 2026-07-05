@@ -4,6 +4,7 @@ import com.botmanager.bots.laundry.LaundryBotConfig;
 import com.botmanager.bots.laundry.LaundryBotConfiguration;
 import com.botmanager.bots.laundry.LaundryBotProperties;
 import com.botmanager.bots.laundry.PricingClient;
+import com.botmanager.bots.laundry.TransactionClient;
 import org.springframework.web.client.RestTemplate;
 import com.botmanager.config.BotProperties;
 import com.botmanager.core.flow.FlowEngine;
@@ -349,9 +350,10 @@ public class BotRegistry extends BotLookup {
                 PricingClient pricingClient = new PricingClient(restTemplate, pmsUrl,
                         laundryConfig.getShortCycle().getPrice(),
                         laundryConfig.getLongCycle().getPrice());
+                TransactionClient transactionClient = new TransactionClient(restTemplate, pmsUrl);
                 yield new com.botmanager.bots.laundry.LaundryBot(
                         laundryConfig, flowEngine, redisManager, whatsAppClientFactory, objectMapper,
-                        paymentGateway, machineService, translationService, pricingClient);
+                        paymentGateway, machineService, translationService, pricingClient, transactionClient);
             }
             case THOMAS_NETWORK -> new com.botmanager.bots.thomasnetwork.ThomasNetworkBot(
                     config, flowEngine, redisManager, whatsAppClientFactory, objectMapper,
