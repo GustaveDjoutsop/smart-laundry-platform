@@ -80,6 +80,8 @@ public class TranslationService {
                 "Welcome to Smart Laundry! \uD83E\uDDFA\nYour unique self-service Laundry!\n\nWhat would you like to do?",
                 "Bienvenue chez Smart Laundry! \uD83E\uDDFA\nVotre laverie libre-service unique!\n\nQue souhaitez-vous faire?");
         addTranslation("btn_start_wash", "\uD83E\uDDFA Start a Wash", "\uD83E\uDDFA Lancer Lavage");
+        addTranslation("btn_start_dry", "\uD83C\uDF2A\uFE0F Start a Dry", "\uD83C\uDF2A\uFE0F Lancer S\u00E9chage");
+        addTranslation("btn_menu", "\uD83D\uDCF1 Menu", "\uD83D\uDCF1 Menu");
         addTranslation("btn_services", "\uD83D\uDCCB Our Services", "\uD83D\uDCCB Nos Services");
         addTranslation("btn_my_status", "\uD83D\uDCCA My Status", "\uD83D\uDCCA Mon Statut");
         addTranslation("btn_main_menu", "\uD83C\uDFE0 Main Menu", "\uD83C\uDFE0 Menu");
@@ -92,6 +94,9 @@ public class TranslationService {
         addTranslation("services_washing", "\uD83E\uDDFA *Washing Programs:*", "\uD83E\uDDFA *Programmes de Lavage:*");
         addTranslation("services_express", "  • Express Wash ({duration} min) - {price} XAF", "  • Lavage Express ({duration} min) - {price} XAF");
         addTranslation("services_standard", "  • Standard Wash ({duration} min) - {price} XAF", "  • Lavage Standard ({duration} min) - {price} XAF");
+        addTranslation("services_drying", "🌪️ *Drying Programs:*", "🌪️ *Programmes de Séchage:*");
+        addTranslation("services_dry_express", "  • Express Dry ({duration} min) - {price} XAF", "  • Séchage Express ({duration} min) - {price} XAF");
+        addTranslation("services_dry_standard", "  • Standard Dry ({duration} min) - {price} XAF", "  • Séchage Standard ({duration} min) - {price} XAF");
         addTranslation("services_capacity", "\uD83D\uDCCF *Machine Capacity:* 10 kg per load", "\uD83D\uDCCF *Capacité Machine:* 10 kg par charge");
         addTranslation("services_amenities", "✨ *Amenities:*\n  • \uD83D\uDCF6 Free WiFi\n  • ☕ Waiting Area & Café", "✨ *Commodités:*\n  • \uD83D\uDCF6 WiFi Gratuit\n  • ☕ Espace d'Attente & Café");
         addTranslation("services_ready", "Ready to get started?", "Prêt à commencer?");

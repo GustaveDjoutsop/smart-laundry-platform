@@ -44,6 +44,14 @@ public class PricingClient {
         return getAmount("long_cycle", longCycleFallback);
     }
 
+    public int getDryShortPrice() {
+        return getAmount("dry_short", shortCycleFallback);
+    }
+
+    public int getDryLongPrice() {
+        return getAmount("dry_long", longCycleFallback);
+    }
+
     private int getAmount(String key, int fallback) {
         List<Map<String, Object>> entries = fetchCached();
         if (entries == null) return fallback;

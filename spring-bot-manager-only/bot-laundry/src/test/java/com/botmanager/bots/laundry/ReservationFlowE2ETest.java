@@ -12,6 +12,7 @@ import com.botmanager.core.i18n.TranslationService;
 import com.botmanager.core.machine.MachineRecord;
 import com.botmanager.core.machine.MachineService;
 import com.botmanager.core.machine.MachineStatus;
+import com.botmanager.core.machine.MachineType;
 import com.botmanager.core.payment.PaymentGateway;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -83,7 +84,7 @@ class ReservationFlowE2ETest {
 
         List<MachineRecord> available = List.of(
                 MachineRecord.builder().botId("laundry").machineId("washer_01")
-                        .name("Washer 1").status(MachineStatus.AVAILABLE).build());
+                        .name("Washer 1").status(MachineStatus.AVAILABLE).type(MachineType.WASHER).build());
         lenient().when(machineService.getAvailableMachines("laundry")).thenReturn(available);
     }
 
@@ -93,7 +94,7 @@ class ReservationFlowE2ETest {
         assertButtonIds("lang_en", "lang_fr"); // sanity: language shown
 
         send("lang_en");
-        assertButtonIds("action_wash", "action_services", "action_my_status"); // main menu
+        assertButtonIds("action_wash", "action_dry", "action_services", "action_my_status"); // main menu
 
         send("action_services");
         // services page: Start a Wash / Reserve / Main Menu
@@ -152,7 +153,16 @@ class ReservationFlowE2ETest {
 
         @Override
         public void sendList(String to, ListMessage message) {
-            lastButtons = new ArrayList<>();
+            List<FlowState.ButtonOption> rows = new ArrayList<>();
+            for (ListSection section : message.sections()) {
+                for (ListRow row : section.rows()) {
+                    FlowState.ButtonOption option = new FlowState.ButtonOption();
+                    option.setId(row.id());
+                    option.setTitle(row.title());
+                    rows.add(option);
+                }
+            }
+            lastButtons = rows;
         }
     }
 

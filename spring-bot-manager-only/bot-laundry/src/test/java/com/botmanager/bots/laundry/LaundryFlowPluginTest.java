@@ -9,6 +9,7 @@ import com.botmanager.core.machine.MachineRecord;
 import com.botmanager.core.machine.MachineService;
 import com.botmanager.core.machine.MachineServiceUnavailableException;
 import com.botmanager.core.machine.MachineStatus;
+import com.botmanager.core.machine.MachineType;
 import com.botmanager.core.payment.PaymentGateway;
 import com.botmanager.core.payment.PaymentResult;
 import com.botmanager.core.payment.PaymentStatus;
@@ -117,12 +118,21 @@ class LaundryFlowPluginTest {
         return (List<FlowState.ButtonOption>) context.get("responseButtons");
     }
 
+    private com.botmanager.core.flow.MessageSender.ListMessage getResponseList(FlowContext context) {
+        return (com.botmanager.core.flow.MessageSender.ListMessage) context.get("responseList");
+    }
+
     private MachineRecord createMachine(String id, String name, MachineStatus status) {
+        return createMachine(id, name, status, MachineType.WASHER);
+    }
+
+    private MachineRecord createMachine(String id, String name, MachineStatus status, MachineType type) {
         return MachineRecord.builder()
                 .botId("test-laundry")
                 .machineId(id)
                 .name(name)
                 .status(status)
+                .type(type)
                 .build();
     }
 
@@ -225,7 +235,7 @@ class LaundryFlowPluginTest {
     class MainMenu {
 
         @Test
-        void shouldShowMainMenuWithThreeButtons() {
+        void shouldShowMainMenuWithFourListRows() {
             // given
             FlowContext context = createContext();
 
@@ -233,8 +243,14 @@ class LaundryFlowPluginTest {
             plugin.handleAction("menu.show", Map.of(), context);
 
             // then
-            assertThat(context.getString("responseMessage")).isNotBlank();
-            assertThat(getButtons(context)).hasSize(3);
+            com.botmanager.core.flow.MessageSender.ListMessage listMessage = getResponseList(context);
+            assertThat(listMessage).isNotNull();
+            assertThat(listMessage.body()).isNotBlank();
+            assertThat(listMessage.sections()).hasSize(1);
+            assertThat(listMessage.sections().getFirst().rows()).hasSize(4);
+            assertThat(listMessage.sections().getFirst().rows())
+                    .extracting(com.botmanager.core.flow.MessageSender.ListRow::id)
+                    .containsExactly("action_wash", "action_dry", "action_services", "action_my_status");
             assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_MENU_CHOICE);
         }
 
@@ -310,7 +326,7 @@ class LaundryFlowPluginTest {
     class Services {
 
         @Test
-        void shouldShowServicesWithReservationButtonWhenReservationEnabled() {
+        void shouldShowServicesWithReservationRowWhenReservationEnabled() {
             // given
             FlowContext context = createContext();
             laundryConfig.getFeatures().setReservationEnabled(true);
@@ -319,14 +335,16 @@ class LaundryFlowPluginTest {
             plugin.handleAction("services.show", Map.of(), context);
 
             // then
-            assertThat(context.getString("responseMessage")).contains("Services");
-            List<FlowState.ButtonOption> buttons = getButtons(context);
-            assertThat(buttons).hasSizeGreaterThanOrEqualTo(3);
+            com.botmanager.core.flow.MessageSender.ListMessage listMessage = getResponseList(context);
+            assertThat(listMessage.body()).contains("Services");
+            assertThat(listMessage.sections().getFirst().rows())
+                    .extracting(com.botmanager.core.flow.MessageSender.ListRow::id)
+                    .containsExactly("action_wash", "action_dry", "action_reservation", "action_cancel");
             assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_MENU_CHOICE);
         }
 
         @Test
-        void shouldShowServicesWithAvailabilityButtonWhenReservationDisabled() {
+        void shouldShowServicesWithAvailabilityRowWhenReservationDisabled() {
             // given
             FlowContext context = createContext();
             laundryConfig.getFeatures().setReservationEnabled(false);
@@ -335,8 +353,10 @@ class LaundryFlowPluginTest {
             plugin.handleAction("services.show", Map.of(), context);
 
             // then
-            List<FlowState.ButtonOption> buttons = getButtons(context);
-            assertThat(buttons).isNotEmpty();
+            com.botmanager.core.flow.MessageSender.ListMessage listMessage = getResponseList(context);
+            assertThat(listMessage.sections().getFirst().rows())
+                    .extracting(com.botmanager.core.flow.MessageSender.ListRow::id)
+                    .containsExactly("action_wash", "action_dry", "action_availability", "action_cancel");
         }
     }
 
@@ -406,6 +426,129 @@ class LaundryFlowPluginTest {
             // then
             assertThat(context.getString("responseMessage")).isNotBlank();
             assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_MENU_CHOICE);
+        }
+
+        @Test
+        void shouldNeverAutoPickADryerWhenMixedMachinesAvailable() {
+            // given
+            FlowContext context = createContext();
+            context.set("userInput", "action_wash");
+            MachineRecord dryer = createMachine("dryer_01", "Dryer 1", MachineStatus.AVAILABLE, MachineType.DRYER);
+            MachineRecord washer = createMachine("washer_01", "Washer 1", MachineStatus.AVAILABLE, MachineType.WASHER);
+            when(machineService.getAvailableMachines("test-laundry")).thenReturn(List.of(dryer, washer));
+
+            // when
+            plugin.handleAction("menu.process", Map.of(), context);
+
+            // then
+            assertThat(context.getString("selectedMachineId")).isEqualTo("washer_01");
+            assertThat(context.getString("selectedMachineType")).isEqualTo("WASHER");
+            assertThat(context.consumeGotoTarget()).isEqualTo("cycle_selection");
+        }
+
+        @Test
+        void shouldShowNoMachinesWhenOnlyDryersAvailable() {
+            // given
+            FlowContext context = createContext();
+            context.set("userInput", "action_wash");
+            MachineRecord dryer = createMachine("dryer_01", "Dryer 1", MachineStatus.AVAILABLE, MachineType.DRYER);
+            when(machineService.getAvailableMachines("test-laundry")).thenReturn(List.of(dryer));
+
+            // when
+            plugin.handleAction("menu.process", Map.of(), context);
+
+            // then
+            assertThat(context.getString("responseMessage")).isNotBlank();
+            assertThat(context.getString("selectedMachineId")).isNull();
+            assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_MENU_CHOICE);
+        }
+    }
+
+    // ========== Dry Flow ==========
+
+    @Nested
+    class DryFlow {
+
+        @Test
+        void shouldAutoPickDryerAndGoToCycleSelectionWhenMachinesAvailable() {
+            // given
+            FlowContext context = createContext();
+            context.set("userInput", "action_dry");
+            MachineRecord machine = createMachine("dryer_01", "Dryer 1", MachineStatus.AVAILABLE, MachineType.DRYER);
+            when(machineService.getAvailableMachines("test-laundry")).thenReturn(List.of(machine));
+
+            // when
+            plugin.handleAction("menu.process", Map.of(), context);
+
+            // then
+            assertThat(context.getString("selectedMachineId")).isEqualTo("dryer_01");
+            assertThat(context.getString("selectedMachineName")).isEqualTo("Dryer 1");
+            assertThat(context.getString("selectedMachineType")).isEqualTo("DRYER");
+            assertThat(context.consumeGotoTarget()).isEqualTo("cycle_selection");
+        }
+
+        @Test
+        void shouldNeverAutoPickAWasherWhenMixedMachinesAvailable() {
+            // given
+            FlowContext context = createContext();
+            context.set("userInput", "action_dry");
+            MachineRecord washer = createMachine("washer_01", "Washer 1", MachineStatus.AVAILABLE, MachineType.WASHER);
+            MachineRecord dryer = createMachine("dryer_01", "Dryer 1", MachineStatus.AVAILABLE, MachineType.DRYER);
+            when(machineService.getAvailableMachines("test-laundry")).thenReturn(List.of(washer, dryer));
+
+            // when
+            plugin.handleAction("menu.process", Map.of(), context);
+
+            // then
+            assertThat(context.getString("selectedMachineId")).isEqualTo("dryer_01");
+            assertThat(context.consumeGotoTarget()).isEqualTo("cycle_selection");
+        }
+
+        @Test
+        void shouldShowNoMachinesWhenOnlyWashersAvailable() {
+            // given
+            FlowContext context = createContext();
+            context.set("userInput", "action_dry");
+            MachineRecord washer = createMachine("washer_01", "Washer 1", MachineStatus.AVAILABLE, MachineType.WASHER);
+            when(machineService.getAvailableMachines("test-laundry")).thenReturn(List.of(washer));
+
+            // when
+            plugin.handleAction("menu.process", Map.of(), context);
+
+            // then
+            assertThat(context.getString("selectedMachineId")).isNull();
+            assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_MENU_CHOICE);
+        }
+
+        @Test
+        void shouldUseDryPricingInCycleSelection() {
+            // given
+            FlowContext context = createContext();
+            context.set("selectedMachineName", "Dryer 1");
+            context.set("selectedMachineType", "DRYER");
+
+            // when
+            plugin.handleAction("cycle.show", Map.of(), context);
+
+            // then — falls back to config defaults since PricingClient has no RestTemplate in tests
+            assertThat(context.getString("responseMessage")).contains("Dryer 1");
+            assertThat(getButtons(context)).hasSize(3);
+        }
+
+        @Test
+        void shouldRecordDryerAsSelectedMachineTypeThroughPayment() {
+            // given
+            FlowContext context = createContext();
+            context.set("selectedMachineType", "DRYER");
+            context.set("selectedMachineId", "dryer_01");
+            context.set("userInput", "cycle_long");
+
+            // when
+            plugin.handleAction("cycle.process", Map.of(), context);
+
+            // then
+            assertThat(context.get("selectedCyclePrice")).isEqualTo(2000);
+            assertThat(context.consumeGotoTarget()).isEqualTo("initiate_payment");
         }
     }
 
@@ -1146,6 +1289,41 @@ class LaundryFlowPluginTest {
         }
 
         @Test
+        void shouldNeverAssignADryerForReservationWhenMixedMachinesAvailable() {
+            // given
+            FlowContext context = createContext();
+            context.set("reservationDate", "2026-06-11");
+            context.set("reservationTime", "10:00");
+            MachineRecord dryer = createMachine("dryer_01", "Dryer 1", MachineStatus.AVAILABLE, MachineType.DRYER);
+            MachineRecord washer = createMachine("washer_01", "Washer 1", MachineStatus.AVAILABLE, MachineType.WASHER);
+            when(machineService.getAvailableMachines("test-laundry")).thenReturn(List.of(dryer, washer));
+
+            // when
+            plugin.handleAction("reservation.confirm", Map.of(), context);
+
+            // then
+            assertThat(context.getString("selectedMachineId")).isEqualTo("washer_01");
+            assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_RESERVATION_CONFIRM);
+        }
+
+        @Test
+        void shouldShowNoMachinesOnReservationConfirmWhenOnlyDryersAvailable() {
+            // given
+            FlowContext context = createContext();
+            context.set("reservationDate", "2026-06-11");
+            context.set("reservationTime", "10:00");
+            MachineRecord dryer = createMachine("dryer_01", "Dryer 1", MachineStatus.AVAILABLE, MachineType.DRYER);
+            when(machineService.getAvailableMachines("test-laundry")).thenReturn(List.of(dryer));
+
+            // when
+            plugin.handleAction("reservation.confirm", Map.of(), context);
+
+            // then
+            assertThat(context.getString("responseMessage")).isNotBlank();
+            assertThat(context.getString("selectedMachineId")).isNull();
+        }
+
+        @Test
         void shouldShowMachineServiceUnavailableOnReservationConfirm() {
             // given
             FlowContext context = createContext();
@@ -1556,6 +1734,6 @@ class LaundryFlowPluginTest {
         plugin.handleAction("menu.show", Map.of(), context);
 
         // then
-        assertThat(context.getString("responseMessage")).contains("Bienvenue");
+        assertThat(getResponseList(context).body()).contains("Bienvenue");
     }
 }

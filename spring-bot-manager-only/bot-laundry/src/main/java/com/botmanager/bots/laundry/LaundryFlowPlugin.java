@@ -10,6 +10,7 @@ import com.botmanager.core.machine.MachineRecord;
 import com.botmanager.core.machine.MachineService;
 import com.botmanager.core.machine.MachineServiceUnavailableException;
 import com.botmanager.core.machine.MachineStatus;
+import com.botmanager.core.machine.MachineType;
 import com.botmanager.core.payment.PaymentGateway;
 import com.botmanager.core.payment.PaymentRequest;
 import com.botmanager.core.payment.PaymentResult;
@@ -177,13 +178,16 @@ public class LaundryFlowPlugin extends FlowPlugin {
     private void handleShowMainMenu(FlowContext context) {
         String message = t("welcome", context);
 
-        List<FlowState.ButtonOption> buttons = new ArrayList<>();
-        buttons.add(createButton("action_wash", t("btn_start_wash", context)));
-        buttons.add(createButton("action_services", t("btn_services", context)));
-        buttons.add(createButton("action_my_status", t("btn_my_status", context)));
+        List<MessageSender.ListRow> rows = new ArrayList<>();
+        rows.add(new MessageSender.ListRow("action_wash", t("btn_start_wash", context), null));
+        rows.add(new MessageSender.ListRow("action_dry", t("btn_start_dry", context), null));
+        rows.add(new MessageSender.ListRow("action_services", t("btn_services", context), null));
+        rows.add(new MessageSender.ListRow("action_my_status", t("btn_my_status", context), null));
 
-        context.set("responseMessage", message);
-        context.set("responseButtons", buttons);
+        MessageSender.ListMessage listMessage = new MessageSender.ListMessage(
+                message, t("btn_menu", context), List.of(new MessageSender.ListSection(null, rows)));
+
+        context.set("responseList", listMessage);
         context.set("step", LaundryStep.AWAITING_MENU_CHOICE);
     }
 
@@ -192,7 +196,8 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
         switch (input) {
             case "action_services" -> goTo(context, "show_services");
-            case "action_wash" -> handleStartWashFlow(context);
+            case "action_wash" -> handleStartCycleFlow(context, MachineType.WASHER);
+            case "action_dry" -> handleStartCycleFlow(context, MachineType.DRYER);
             case "action_reservation" -> handleStartReservationFlow(context);
             case "action_my_status" -> goTo(context, "show_user_status");
             case "action_availability" -> goTo(context, "show_availability");
@@ -211,29 +216,35 @@ public class LaundryFlowPlugin extends FlowPlugin {
                 t("services_washing", context) + "\n" +
                 t("services_express", context, Map.of("duration", shortCycle.getDuration(), "price", pricingClient.getShortCyclePrice())) + "\n" +
                 t("services_standard", context, Map.of("duration", longCycle.getDuration(), "price", pricingClient.getLongCyclePrice())) + "\n\n" +
+                t("services_drying", context) + "\n" +
+                t("services_dry_express", context, Map.of("duration", shortCycle.getDuration(), "price", pricingClient.getDryShortPrice())) + "\n" +
+                t("services_dry_standard", context, Map.of("duration", longCycle.getDuration(), "price", pricingClient.getDryLongPrice())) + "\n\n" +
                 t("services_capacity", context) + "\n\n" +
                 t("services_amenities", context) + "\n\n" +
                 t("services_ready", context);
 
-        List<FlowState.ButtonOption> buttons = new ArrayList<>();
-        buttons.add(createButton("action_wash", t("btn_start_wash", context)));
+        List<MessageSender.ListRow> rows = new ArrayList<>();
+        rows.add(new MessageSender.ListRow("action_wash", t("btn_start_wash", context), null));
+        rows.add(new MessageSender.ListRow("action_dry", t("btn_start_dry", context), null));
         if (laundryConfig.getFeatures().isReservationEnabled()) {
-            buttons.add(createButton("action_reservation", t("btn_reserve", context)));
+            rows.add(new MessageSender.ListRow("action_reservation", t("btn_reserve", context), null));
         } else {
-            buttons.add(createButton("action_availability", t("btn_availability", context)));
+            rows.add(new MessageSender.ListRow("action_availability", t("btn_availability", context), null));
         }
-        buttons.add(createButton("action_cancel", t("btn_main_menu", context)));
+        rows.add(new MessageSender.ListRow("action_cancel", t("btn_main_menu", context), null));
 
-        context.set("responseMessage", message);
-        context.set("responseButtons", buttons);
+        MessageSender.ListMessage listMessage = new MessageSender.ListMessage(
+                message, t("btn_menu", context), List.of(new MessageSender.ListSection(null, rows)));
+
+        context.set("responseList", listMessage);
         context.set("step", LaundryStep.AWAITING_MENU_CHOICE);
 
         goTo(context, "await_menu");
     }
 
-    // ========== Start Wash Flow ==========
+    // ========== Start Wash/Dry Flow ==========
 
-    private void handleStartWashFlow(FlowContext context) {
+    private void handleStartCycleFlow(FlowContext context, MachineType machineType) {
         // Feature flag: when the wash flow is disabled, users can only check machine
         // availability/info — they cannot select a machine, pick a cycle, or pay from the bot.
         if (!laundryConfig.getFeatures().isWashFlowEnabled()) {
@@ -241,6 +252,8 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
             return;
         }
+
+        context.set("selectedMachineType", machineType.name());
 
         int shortestDuration = laundryConfig.getShortCycle().getDuration();
         BusinessHoursService.CycleCheckResult checkResult = businessHoursService.canStartCycle(shortestDuration);
@@ -256,14 +269,14 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
         List<MachineRecord> availableMachines;
         try {
-            availableMachines = getAvailableMachines();
+            availableMachines = getAvailableMachines(machineType);
         } catch (MachineServiceUnavailableException e) {
             showMachineServiceUnavailable(context);
             return;
         }
 
         if (availableMachines.isEmpty()) {
-            log.info("No machines available for wash flow, botId={}", laundryConfig.getBotId());
+            log.info("No {} machines available for cycle flow, botId={}", machineType, laundryConfig.getBotId());
             String message = t("no_machines", context);
 
             List<FlowState.ButtonOption> buttons = new ArrayList<>();
@@ -279,12 +292,12 @@ public class LaundryFlowPlugin extends FlowPlugin {
             return;
         }
 
-        // Auto-pick the first available machine for the user
+        // Auto-pick the first available machine of the requested type for the user
         MachineRecord autoPickedMachine = availableMachines.getFirst();
         context.set("selectedMachineId", autoPickedMachine.getMachineId());
         context.set("selectedMachineName", autoPickedMachine.getName());
-        log.info("Auto-picked machine {} ({}) for wash flow, customerPhone={}",
-                autoPickedMachine.getMachineId(), autoPickedMachine.getName(),
+        log.info("Auto-picked {} machine {} ({}) for cycle flow, customerPhone={}",
+                machineType, autoPickedMachine.getMachineId(), autoPickedMachine.getName(),
                 context.getString("customerPhone"));
 
         goTo(context, "cycle_selection");
@@ -438,17 +451,18 @@ public class LaundryFlowPlugin extends FlowPlugin {
         String time = context.getString("reservationTime");
         LaundryBotConfig.ReservationConfig res = laundryConfig.getReservation();
 
-        // Auto-assign a machine now that the user has selected date + time
+        // Auto-assign a machine now that the user has selected date + time.
+        // Reservations are washer-only — there is no dryer reservation flow/pricing today.
         List<MachineRecord> availableMachines;
         try {
-            availableMachines = getAvailableMachines();
+            availableMachines = getAvailableMachines(MachineType.WASHER);
         } catch (MachineServiceUnavailableException e) {
             showMachineServiceUnavailable(context);
             return;
         }
 
         if (availableMachines.isEmpty()) {
-            log.info("No machines available for reservation on date={}, time={}", date, time);
+            log.info("No washers available for reservation on date={}, time={}", date, time);
             context.set("responseMessage", t("no_machines", context));
             context.set("responseButtons", List.of(createButton("action_cancel", t("btn_main_menu", context))));
             context.set("step", LaundryStep.AWAITING_MENU_CHOICE);
@@ -579,7 +593,7 @@ public class LaundryFlowPlugin extends FlowPlugin {
     private void handleShowMachineMethodSelection(FlowContext context) {
         List<MachineRecord> availableMachines;
         try {
-            availableMachines = getAvailableMachines();
+            availableMachines = getAvailableMachines(getSelectedMachineType(context));
         } catch (MachineServiceUnavailableException e) {
             showMachineServiceUnavailable(context);
             return;
@@ -662,7 +676,7 @@ public class LaundryFlowPlugin extends FlowPlugin {
             return;
         }
 
-        if (foundMachine.getStatus() != MachineStatus.AVAILABLE) {
+        if (foundMachine.getStatus() != MachineStatus.AVAILABLE || foundMachine.getType() != getSelectedMachineType(context)) {
             String message = t("machine_unavailable", context, Map.of("machine", foundMachine.getName()));
 
             List<FlowState.ButtonOption> buttons = new ArrayList<>();
@@ -687,7 +701,7 @@ public class LaundryFlowPlugin extends FlowPlugin {
     private void handleShowMachineList(FlowContext context) {
         List<MachineRecord> availableMachines;
         try {
-            availableMachines = getAvailableMachines();
+            availableMachines = getAvailableMachines(getSelectedMachineType(context));
         } catch (MachineServiceUnavailableException e) {
             showMachineServiceUnavailable(context);
             return;
@@ -734,7 +748,8 @@ public class LaundryFlowPlugin extends FlowPlugin {
             String machineId = input.substring("machine_".length());
             MachineRecord machine = findMachineById(machineId);
 
-            if (machine == null || machine.getStatus() != MachineStatus.AVAILABLE) {
+            if (machine == null || machine.getStatus() != MachineStatus.AVAILABLE
+                    || machine.getType() != getSelectedMachineType(context)) {
                 String message = t("machine_just_taken", context);
 
                 List<FlowState.ButtonOption> buttons = new ArrayList<>();
@@ -760,7 +775,8 @@ public class LaundryFlowPlugin extends FlowPlugin {
         String normalizedInput = input.replace(" ", "_");
         MachineRecord typedMachine = findMachineByIdOrName(normalizedInput);
 
-        if (typedMachine != null && typedMachine.getStatus() == MachineStatus.AVAILABLE) {
+        if (typedMachine != null && typedMachine.getStatus() == MachineStatus.AVAILABLE
+                && typedMachine.getType() == getSelectedMachineType(context)) {
             context.set("selectedMachineId", typedMachine.getMachineId());
             context.set("selectedMachineName", typedMachine.getName());
             boolean isReservation = Boolean.TRUE.equals(context.get("isReservation"));
@@ -780,13 +796,25 @@ public class LaundryFlowPlugin extends FlowPlugin {
         CycleConfig longCycle = laundryConfig.getLongCycle();
 
         List<FlowState.ButtonOption> buttons = new ArrayList<>();
-        buttons.add(createButton("cycle_short", t("cycle_short", context, Map.of("duration", shortCycle.getDuration(), "price", pricingClient.getShortCyclePrice()))));
-        buttons.add(createButton("cycle_long", t("cycle_long", context, Map.of("duration", longCycle.getDuration(), "price", pricingClient.getLongCyclePrice()))));
+        buttons.add(createButton("cycle_short", t("cycle_short", context, Map.of("duration", shortCycle.getDuration(), "price", resolveShortCyclePrice(context)))));
+        buttons.add(createButton("cycle_long", t("cycle_long", context, Map.of("duration", longCycle.getDuration(), "price", resolveLongCyclePrice(context)))));
         buttons.add(createButton("action_cancel", t("btn_cancel", context)));
 
         context.set("responseMessage", message);
         context.set("responseButtons", buttons);
         context.set("step", LaundryStep.SELECT_CYCLE);
+    }
+
+    private int resolveShortCyclePrice(FlowContext context) {
+        return getSelectedMachineType(context) == MachineType.DRYER
+                ? pricingClient.getDryShortPrice()
+                : pricingClient.getShortCyclePrice();
+    }
+
+    private int resolveLongCyclePrice(FlowContext context) {
+        return getSelectedMachineType(context) == MachineType.DRYER
+                ? pricingClient.getDryLongPrice()
+                : pricingClient.getLongCyclePrice();
     }
 
     private void handleProcessCycleSelection(FlowContext context) {
@@ -822,7 +850,7 @@ public class LaundryFlowPlugin extends FlowPlugin {
                 ));
 
                 List<FlowState.ButtonOption> buttons = new ArrayList<>();
-                buttons.add(createButton("cycle_short", t("cycle_short", context, Map.of("duration", shortCycle.getDuration(), "price", pricingClient.getShortCyclePrice()))));
+                buttons.add(createButton("cycle_short", t("cycle_short", context, Map.of("duration", shortCycle.getDuration(), "price", resolveShortCyclePrice(context)))));
                 buttons.add(createButton("action_cancel", t("btn_main_menu", context)));
 
                 context.set("responseMessage", message);
@@ -840,7 +868,7 @@ public class LaundryFlowPlugin extends FlowPlugin {
         }
 
         context.set("selectedCycleDuration", duration);
-        context.set("selectedCyclePrice", isLongCycle ? pricingClient.getLongCyclePrice() : pricingClient.getShortCyclePrice());
+        context.set("selectedCyclePrice", isLongCycle ? resolveLongCyclePrice(context) : resolveShortCyclePrice(context));
         context.set("selectedCyclePulseCount", selectedCycle.getPulseCount());
 
         goTo(context, "initiate_payment");
@@ -864,14 +892,18 @@ public class LaundryFlowPlugin extends FlowPlugin {
         // was initiated successfully.
 
         String reference = laundryConfig.getBotId() + "-" + machineId + "-" + System.currentTimeMillis();
+        MachineType machineType = getSelectedMachineType(context);
 
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("machineId", machineId);
         metadata.put("machineName", machineName);
+        metadata.put("machineType", machineType.name());
         metadata.put("duration", duration);
         metadata.put("pulseCount", pulseCount);
         metadata.put("customerPhone", customerPhone);
         metadata.put("language", getLang(context).name());
+
+        String description = (machineType == MachineType.DRYER ? "Dry" : "Wash") + " cycle for " + machineId;
 
         PaymentRequest request = PaymentRequest.builder()
                 .botId(laundryConfig.getBotId())
@@ -879,7 +911,7 @@ public class LaundryFlowPlugin extends FlowPlugin {
                 .currency("XAF")
                 .phoneNumber(customerPhone)
                 .reference(reference)
-                .description("Wash cycle for " + machineId)
+                .description(description)
                 .metadata(metadata)
                 .build();
 
@@ -897,7 +929,7 @@ public class LaundryFlowPlugin extends FlowPlugin {
             context.set("responseMessage", t("payment_failed", context, Map.of("error", errorMessage)));
 
             List<FlowState.ButtonOption> buttons = new ArrayList<>();
-            buttons.add(createButton("action_wash", t("btn_try_again", context)));
+            buttons.add(createButton(machineType == MachineType.DRYER ? "action_dry" : "action_wash", t("btn_try_again", context)));
             buttons.add(createButton("action_cancel", t("btn_main_menu", context)));
             context.set("responseButtons", buttons);
         }
@@ -1133,6 +1165,25 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
     private List<MachineRecord> getAvailableMachines() {
         return machineService.getAvailableMachines(laundryConfig.getBotId());
+    }
+
+    private List<MachineRecord> getAvailableMachines(MachineType machineType) {
+        return getAvailableMachines().stream()
+                .filter(machine -> machine.getType() == machineType)
+                .toList();
+    }
+
+    /**
+     * Which machine type the current wash/dry flow is scoped to. Defaults to WASHER for
+     * paths that predate the wash/dry split (e.g. reservations, or a stale session that
+     * never went through handleStartCycleFlow).
+     */
+    private MachineType getSelectedMachineType(FlowContext context) {
+        String type = context.getString("selectedMachineType");
+        if ("DRYER".equals(type)) {
+            return MachineType.DRYER;
+        }
+        return MachineType.WASHER;
     }
 
     private void showMachineServiceUnavailable(FlowContext context) {
