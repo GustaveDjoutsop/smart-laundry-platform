@@ -71,7 +71,12 @@ public class WhatsAppClient extends MessageSender {
                 }
                 rows.add(rowMap);
             }
-            sections.add(Map.of("title", section.title(), "rows", rows));
+            Map<String, Object> sectionMap = new HashMap<>();
+            if (StringUtils.hasText(section.title())) {
+                sectionMap.put("title", section.title());
+            }
+            sectionMap.put("rows", rows);
+            sections.add(sectionMap);
         }
 
         Map<String, Object> interactive = new HashMap<>();
