@@ -23,7 +23,7 @@ public class TransactionController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String startDate,
             @RequestParam(required = false) String endDate,
-            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         return transactionReportService.list(status, machineId, search, startDate, endDate, page, size);
     }

@@ -23,7 +23,7 @@ public class TransactionReportService {
             .addValue("startDate", startDate, java.sql.Types.VARCHAR)
             .addValue("endDate",   endDate,   java.sql.Types.VARCHAR)
             .addValue("limit",     size)
-            .addValue("offset",    (long) page * size);
+            .addValue("offset",    (long) (Math.max(page, 1) - 1) * size);
 
         String where = """
             WHERE (CAST(:status    AS TEXT) IS NULL OR t.status     = :status)
