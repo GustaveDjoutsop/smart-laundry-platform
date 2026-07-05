@@ -21,4 +21,6 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     List<Transaction> findByRfidCardUidOrderByCreatedAtDesc(String rfidCardUid);
 
     List<Transaction> findByMachineIdOrderByCreatedAtDesc(String machineId);
+
+    Optional<Transaction> findTop1ByPhoneNumberAndStatusOrderByCreatedAtDesc(String phoneNumber, PaymentStatus status);
 }

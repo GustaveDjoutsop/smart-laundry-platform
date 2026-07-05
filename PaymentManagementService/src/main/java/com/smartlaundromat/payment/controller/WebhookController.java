@@ -1,6 +1,5 @@
 package com.smartlaundromat.payment.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartlaundromat.payment.config.PaymentConfig;
 import com.smartlaundromat.payment.dto.WebhookPayload;
 import com.smartlaundromat.payment.exception.PaymentException;
@@ -40,15 +39,11 @@ public class WebhookController {
     private final WebhookSignatureVerifier signatureVerifier;
     private final MtnMomoService mtnMomoService;
     private final OrangeMoneyService orangeMoneyService;
-    private final ObjectMapper objectMapper;
 
     // ── CamPay ────────────────────────────────────────────────────────────────
 
     @PostMapping("/campay")
-    public ResponseEntity<Map<String, String>> handleCampayWebhook(
-            @RequestHeader(value = "X-Campay-Signature", required = false) String signature,
-            @RequestBody String rawBody) throws Exception {
-
+    public ResponseEntity<Map<String, String>> handleCampayWebhook(@RequestBody WebhookPayload payload) {
         String webhookSecret = paymentConfig.getCampay().getWebhookSecret();
         if (!StringUtils.hasText(webhookSecret)) {
             log.error("CamPay webhook rejected: CAMPAY_WEBHOOK_SECRET is not configured");
@@ -56,13 +51,12 @@ public class WebhookController {
                     .body(Map.of("status", "error", "message", "Webhook not configured"));
         }
 
-        if (!signatureVerifier.verifyHmacSha256(webhookSecret, rawBody, signature)) {
+        if (!signatureVerifier.verifyJwt(webhookSecret, payload.getSignature())) {
             log.warn("CamPay webhook rejected: invalid or missing signature");
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("status", "error", "message", "Invalid signature"));
         }
 
-        WebhookPayload payload = objectMapper.readValue(rawBody, WebhookPayload.class);
         log.info("CamPay webhook received: ref={}, status={}", payload.getExternalReference(), payload.getStatus());
 
         processPaymentWebhookIfApplicable(() -> paymentService.processWebhook(

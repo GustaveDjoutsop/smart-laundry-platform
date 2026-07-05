@@ -17,5 +17,9 @@ public class WebhookPayload {
     private String amount;
     private String financialTransactionId;
     private String reason;
+
+    // CamPay sends its JWT signature in the JSON body (not an HTTP header)
+    private String signature;
+
     private Map<String, Object> additionalData;
 }

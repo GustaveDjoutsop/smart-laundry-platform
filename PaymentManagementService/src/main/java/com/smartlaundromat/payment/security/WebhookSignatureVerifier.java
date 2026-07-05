@@ -1,5 +1,7 @@
 package com.smartlaundromat.payment.security;
 
+import com.nimbusds.jose.crypto.MACVerifier;
+import com.nimbusds.jwt.SignedJWT;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -16,6 +18,25 @@ import java.security.MessageDigest;
 @Slf4j
 @Component
 public class WebhookSignatureVerifier {
+
+    /**
+     * Verifies a CamPay webhook signature.
+     * CamPay sends the signature as a JWT (HS256) in the JSON body field {@code signature},
+     * signed with the "App webhook key" from the CamPay application settings.
+     */
+    public boolean verifyJwt(String webhookKey, String jwtToken) {
+        if (webhookKey == null || jwtToken == null) {
+            return false;
+        }
+        try {
+            SignedJWT signedJWT = SignedJWT.parse(jwtToken);
+            MACVerifier verifier = new MACVerifier(webhookKey.getBytes(StandardCharsets.UTF_8));
+            return signedJWT.verify(verifier);
+        } catch (Exception e) {
+            log.error("CamPay JWT verification failed: {}", e.getMessage());
+            return false;
+        }
+    }
 
     public boolean verifyHmacSha256(String secret, String rawBody, String signatureHex) {
         if (secret == null || rawBody == null || signatureHex == null) {
