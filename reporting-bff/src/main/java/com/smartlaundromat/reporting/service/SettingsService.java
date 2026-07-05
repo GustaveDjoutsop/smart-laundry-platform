@@ -6,10 +6,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import static org.springframework.http.HttpStatus.BAD_REQUEST;
+import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 @Service
 @RequiredArgsConstructor
@@ -72,5 +76,29 @@ public class SettingsService {
         }
 
         return getMachineConfig();
+    }
+
+    public List<Map<String, Object>> getCyclePricing() {
+        return jdbc.queryForList(
+            "SELECT key, label, amount, currency FROM payment.pricing ORDER BY key",
+            Map.of());
+    }
+
+    public Map<String, Object> updateCyclePricing(String key, int amount, String updatedBy) {
+        if (amount <= 0) throw new ResponseStatusException(BAD_REQUEST, "amount must be a positive integer");
+        int rows = jdbc.update("""
+            UPDATE payment.pricing
+               SET amount     = :amount,
+                   updated_at = NOW(),
+                   updated_by = :updatedBy
+             WHERE key = :key
+            """, new MapSqlParameterSource()
+                .addValue("amount", amount)
+                .addValue("updatedBy", updatedBy)
+                .addValue("key", key));
+        if (rows == 0) throw new ResponseStatusException(NOT_FOUND, "Unknown pricing key: " + key);
+        return jdbc.queryForMap(
+            "SELECT key, label, amount, currency FROM payment.pricing WHERE key = :key",
+            Map.of("key", key));
     }
 }
