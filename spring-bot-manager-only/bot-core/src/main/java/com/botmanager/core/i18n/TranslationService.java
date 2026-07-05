@@ -168,6 +168,9 @@ public class TranslationService {
         addTranslation("status_none",
                 "ℹ️ You don't have any active wash cycle at the moment.\n\nWould you like to start one?",
                 "ℹ️ Vous n'avez aucun cycle de lavage actif pour le moment.\n\nSouhaitez-vous en démarrer un?");
+        addTranslation("status_active_cycle",
+                "✅ You have an active wash cycle on machine *{machine}*.\n\nYour laundry is in progress!",
+                "✅ Vous avez un cycle de lavage actif sur la machine *{machine}*.\n\nVotre linge est en cours!");
 
         // Availability
         addTranslation("availability_title", "\uD83D\uDCCA Machine Availability:", "\uD83D\uDCCA Disponibilité des Machines:");

@@ -57,6 +57,9 @@ class LaundryBotTest {
     @Mock
     PricingClient pricingClient;
 
+    @Mock
+    TransactionClient transactionClient;
+
     TranslationService translationService;
 
     ObjectMapper objectMapper;
@@ -78,7 +81,7 @@ class LaundryBotTest {
 
         laundryBot = new LaundryBot(config, flowEngine, redisManager,
                 whatsAppClientFactory, objectMapper, paymentGateway,
-                machineService, translationService, pricingClient);
+                machineService, translationService, pricingClient, transactionClient);
     }
 
     @Test

@@ -122,6 +122,8 @@
                         <includes>
                             <include>**/*Test.java</include>
                         </includes>
+                        <!-- ByteBuddy/Mockito self-attach on Java 21+ requires this flag on Windows/Linux -->
+                        <argLine>-Djdk.attach.allowAttachSelf=true</argLine>
                     </configuration>
                 </plugin>
                 <plugin>

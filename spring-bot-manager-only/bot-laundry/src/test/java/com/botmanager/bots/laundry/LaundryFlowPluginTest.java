@@ -56,7 +56,9 @@ class LaundryFlowPluginTest {
         // PricingClient with no RestTemplate — falls back to config prices immediately
         PricingClient pricingClient = new PricingClient(null, "http://localhost:8081",
                 laundryConfig.getShortCycle().getPrice(), laundryConfig.getLongCycle().getPrice());
-        plugin = new LaundryFlowPlugin(paymentGateway, machineService, translationService, laundryConfig, pricingClient);
+        // TransactionClient with no RestTemplate — always returns null (no active cycle)
+        TransactionClient transactionClient = new TransactionClient(null, "http://localhost:8081");
+        plugin = new LaundryFlowPlugin(paymentGateway, machineService, translationService, laundryConfig, pricingClient, transactionClient);
         // Inject a business-hours service that always allows cycles so tests
         // are not sensitive to the wall-clock time when CI happens to run.
         plugin.setBusinessHoursService(new BusinessHoursService("00:00", "23:59", 0, "UTC") {

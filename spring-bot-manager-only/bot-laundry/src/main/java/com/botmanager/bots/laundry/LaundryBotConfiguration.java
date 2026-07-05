@@ -66,8 +66,10 @@ public class LaundryBotConfiguration {
                 config.getShortCycle().getPrice(),
                 config.getLongCycle().getPrice());
 
+        TransactionClient transactionClient = new TransactionClient(restTemplate, pmsBaseUrl);
+
         return new LaundryBot(config, flowEngine, redisManager, whatsAppClientFactory,
-                objectMapper, paymentGateway, machineService, translationService, pricingClient);
+                objectMapper, paymentGateway, machineService, translationService, pricingClient, transactionClient);
     }
 
     public static void applyYamlOverrides(LaundryBotConfig config, LaundryBotProperties props) {
