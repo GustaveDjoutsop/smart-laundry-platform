@@ -32,13 +32,19 @@ import java.net.URI;
 import java.util.List;
 
 /**
- * Configures the RestTemplate used by {@code MachineStartService} to call
- * MachineStateService's {@code /api/machines/start-cycle}. Attaches an Auth0
- * client-credentials Bearer token (registration {@code smartlaundry-m2m}),
- * mirroring spring-bot-manager-only's MicroserviceClientConfig.
+ * Configures the shared Auth0-M2M-authenticated RestTemplate used for all
+ * outbound calls to other internal services — {@code MachineStartService}
+ * calling MachineStateService's {@code /api/machines/start-cycle}, and
+ * {@code BotNotificationClient} calling spring-bot-manager-only's
+ * {@code /api/notifications/send}. Attaches an Auth0 client-credentials
+ * Bearer token (registration {@code smartlaundry-m2m}), mirroring
+ * spring-bot-manager-only's MicroserviceClientConfig. Per-downstream-service
+ * failure isolation is via separate resilience4j circuit breaker/bulkhead
+ * instances (e.g. {@code machineStateService} vs {@code botManagerService}),
+ * not separate RestTemplate beans.
  *
  * When the M2M client isn't configured (no client-secret), every call fails
- * closed instead of being sent to MachineStateService unauthenticated.
+ * closed instead of being sent downstream unauthenticated.
  */
 @Slf4j
 @Configuration(proxyBeanMethods = false)

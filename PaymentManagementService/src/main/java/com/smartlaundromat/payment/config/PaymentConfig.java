@@ -11,6 +11,8 @@ public class PaymentConfig {
 
     private String currency = "XAF";
     private int timeoutMinutes = 5;
+    private int reminderMinutesBefore = 5;
+    private int reminderLookbackMinutes = 90;
     private Pricing pricing = new Pricing();
     private CampayConfig campay = new CampayConfig();
     private MtnConfig mtn = new MtnConfig();

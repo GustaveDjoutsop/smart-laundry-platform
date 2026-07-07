@@ -138,4 +138,30 @@ class TranslationServiceTest {
         assertThat(result).contains("Insufficient funds");
     }
 
+    @Test
+    void shouldTranslateCycleAlmostDoneInEnglish() {
+        // given
+        Map<String, Object> variables = Map.of("machine", "Washer 1", "minutes", 5);
+
+        // when
+        String result = translationService.translate("cycle_almost_done", Language.EN, variables);
+
+        // then
+        assertThat(result).contains("Washer 1");
+        assertThat(result).contains("5 minute(s) left");
+    }
+
+    @Test
+    void shouldTranslateCycleAlmostDoneInFrench() {
+        // given
+        Map<String, Object> variables = Map.of("machine", "Washer 1", "minutes", 5);
+
+        // when
+        String result = translationService.translate("cycle_almost_done", Language.FR, variables);
+
+        // then
+        assertThat(result).contains("Washer 1");
+        assertThat(result).contains("Bientôt terminé");
+    }
+
 }

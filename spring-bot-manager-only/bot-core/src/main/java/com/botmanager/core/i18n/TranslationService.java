@@ -203,6 +203,11 @@ public class TranslationService {
                 "\uD83C\uDF89 *Your laundry is ready!*\n\n\uD83D\uDCCD Machine: {machine}\n⏱️ Cycle completed at: {endTime}\n\n\uD83D\uDC55 Please collect your clothes so the next customer can use the machine.\n\nThank you for using Smart Laundry! \uD83E\uDDFA",
                 "\uD83C\uDF89 *Votre linge est prêt!*\n\n\uD83D\uDCCD Machine: {machine}\n⏱️ Cycle terminé à: {endTime}\n\n\uD83D\uDC55 Veuillez récupérer vos vêtements pour que le prochain client puisse utiliser la machine.\n\nMerci d'avoir utilisé Smart Laundry! \uD83E\uDDFA");
 
+        // Cycle almost done (proactive reminder, sent by PaymentManagementService)
+        addTranslation("cycle_almost_done",
+                "⏰ *Almost done!*\n\n📍 Machine: {machine}\n⏱️ About {minutes} minute(s) left.\n\nPlease get ready to collect your laundry soon!",
+                "⏰ *Bientôt terminé!*\n\n📍 Machine: {machine}\n⏱️ Environ {minutes} minute(s) restante(s).\n\nPréparez-vous à récupérer votre linge bientôt!");
+
         // Feedback
         addTranslation("feedback_request",
                 "⭐ *How was your experience?*\n\n\uD83D\uDCCD Machine: {machine}\n\nPlease rate your wash cycle:",

@@ -68,6 +68,9 @@ public class Transaction {
     @Column(name = "timeout_at")
     private LocalDateTime timeoutAt;
 
+    @Column(name = "reminder_sent_at")
+    private LocalDateTime reminderSentAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
