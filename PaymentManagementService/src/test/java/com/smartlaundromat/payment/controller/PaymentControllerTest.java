@@ -184,6 +184,37 @@ class PaymentControllerTest {
     }
 
     @Test
+    void shouldGetMultipleActiveCyclesByPhone() throws Exception {
+        // given
+        Transaction washer = Transaction.builder()
+                .machineId("washer_01").amount(new BigDecimal("1000"))
+                .paymentProvider(PaymentProvider.CAMPAY).build();
+        Transaction dryer = Transaction.builder()
+                .machineId("dryer_02").amount(new BigDecimal("500"))
+                .paymentProvider(PaymentProvider.CAMPAY).build();
+        when(paymentService.getActiveCyclesByPhone("237612345678")).thenReturn(List.of(washer, dryer));
+
+        // when / then
+        mockMvc.perform(get("/api/payments/phone/237612345678/active"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hasCycle").value(true))
+                .andExpect(jsonPath("$.cycles.length()").value(2))
+                .andExpect(jsonPath("$.cycles[0].machineId").value("washer_01"))
+                .andExpect(jsonPath("$.cycles[1].machineId").value("dryer_02"));
+    }
+
+    @Test
+    void shouldReturnNoActiveCyclesByPhone() throws Exception {
+        // given
+        when(paymentService.getActiveCyclesByPhone("237612345678")).thenReturn(List.of());
+
+        // when / then
+        mockMvc.perform(get("/api/payments/phone/237612345678/active"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hasCycle").value(false));
+    }
+
+    @Test
     void shouldGetProviderStatus() throws Exception {
         // given
         when(paymentService.getProviderStatus()).thenReturn(Map.of(

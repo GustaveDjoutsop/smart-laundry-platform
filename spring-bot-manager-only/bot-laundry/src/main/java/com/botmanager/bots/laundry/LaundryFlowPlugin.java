@@ -27,6 +27,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -948,16 +949,17 @@ public class LaundryFlowPlugin extends FlowPlugin {
     private void handleShowUserCycleStatus(FlowContext context) {
         String customerPhone = context.getString("customerPhone");
 
-        Map<String, Object> activeCycle = transactionClient != null
-                ? transactionClient.getActiveCycle(customerPhone) : null;
-        boolean hasCycle = activeCycle != null && Boolean.TRUE.equals(activeCycle.get("hasCycle"));
+        List<Map<String, Object>> activeCycles = transactionClient != null
+                ? transactionClient.getActiveCycles(customerPhone) : List.of();
 
         String message;
         List<FlowState.ButtonOption> buttons = new ArrayList<>();
 
-        if (hasCycle) {
-            String machineId = (String) activeCycle.getOrDefault("machineId", "");
-            message = t("status_active_cycle", context, Map.of("machine", machineId));
+        if (!activeCycles.isEmpty()) {
+            String machines = activeCycles.stream()
+                    .map(cycle -> String.valueOf(cycle.getOrDefault("machineId", "")))
+                    .collect(Collectors.joining(", "));
+            message = t("status_active_cycle", context, Map.of("machine", machines));
             buttons.add(createButton("action_availability", t("btn_availability", context)));
             buttons.add(createButton("action_cancel", t("btn_main_menu", context)));
         } else {

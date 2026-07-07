@@ -21,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -156,8 +157,13 @@ public class PaymentService {
         return transactionRepository.findByRfidCardUidOrderByCreatedAtDesc(cardUid);
     }
 
-    public Optional<Transaction> getActiveCycleByPhone(String phone) {
-        return transactionRepository.findTop1ByPhoneNumberAndStatusOrderByCreatedAtDesc(phone, PaymentStatus.SUCCESSFUL);
+    public List<Transaction> getActiveCyclesByPhone(String phone) {
+        LocalDateTime now = LocalDateTime.now();
+        return transactionRepository
+                .findByPhoneNumberAndStatusOrderByCreatedAtDesc(phone, PaymentStatus.SUCCESSFUL)
+                .stream()
+                .filter(tx -> tx.getCreatedAt().plusMinutes(tx.getCycleDuration()).isAfter(now))
+                .toList();
     }
 
     public Map<String, Object> getProviderStatus() {
