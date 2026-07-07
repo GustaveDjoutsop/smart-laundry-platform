@@ -349,7 +349,8 @@ public class BotRegistry extends BotLookup {
                 String pmsUrl = environment.getProperty("microservice.payment-service-url", "http://localhost:8081");
                 PricingClient pricingClient = new PricingClient(restTemplate, pmsUrl,
                         laundryConfig.getShortCycle().getPrice(),
-                        laundryConfig.getLongCycle().getPrice());
+                        laundryConfig.getLongCycle().getPrice(),
+                        laundryConfig.getReservation().getPrice());
                 TransactionClient transactionClient = new TransactionClient(restTemplate, pmsUrl);
                 yield new com.botmanager.bots.laundry.LaundryBot(
                         laundryConfig, flowEngine, redisManager, whatsAppClientFactory, objectMapper,

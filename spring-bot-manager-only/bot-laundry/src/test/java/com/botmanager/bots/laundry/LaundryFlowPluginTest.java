@@ -56,7 +56,8 @@ class LaundryFlowPluginTest {
         laundryConfig = createTestConfig();
         // PricingClient with no RestTemplate — falls back to config prices immediately
         PricingClient pricingClient = new PricingClient(null, "http://localhost:8081",
-                laundryConfig.getShortCycle().getPrice(), laundryConfig.getLongCycle().getPrice());
+                laundryConfig.getShortCycle().getPrice(), laundryConfig.getLongCycle().getPrice(),
+                laundryConfig.getReservation().getPrice());
         // TransactionClient with no RestTemplate — always returns null (no active cycle)
         TransactionClient transactionClient = new TransactionClient(null, "http://localhost:8081");
         plugin = new LaundryFlowPlugin(paymentGateway, machineService, translationService, laundryConfig, pricingClient, transactionClient);

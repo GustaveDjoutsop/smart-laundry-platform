@@ -64,7 +64,8 @@ public class LaundryBotConfiguration {
                 restTemplate,
                 pmsBaseUrl,
                 config.getShortCycle().getPrice(),
-                config.getLongCycle().getPrice());
+                config.getLongCycle().getPrice(),
+                config.getReservation().getPrice());
 
         TransactionClient transactionClient = new TransactionClient(restTemplate, pmsBaseUrl);
 

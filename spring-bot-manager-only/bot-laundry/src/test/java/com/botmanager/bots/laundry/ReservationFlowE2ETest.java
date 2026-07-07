@@ -69,7 +69,8 @@ class ReservationFlowE2ETest {
         config = buildConfig();
 
         PricingClient pricingClient = new PricingClient(null, "http://localhost:8081",
-                config.getShortCycle().getPrice(), config.getLongCycle().getPrice());
+                config.getShortCycle().getPrice(), config.getLongCycle().getPrice(),
+                config.getReservation().getPrice());
         TransactionClient transactionClient = new TransactionClient(null, "http://localhost:8081");
         plugin = new LaundryFlowPlugin(paymentGateway, machineService,
                 new TranslationService(), config, pricingClient, transactionClient);
