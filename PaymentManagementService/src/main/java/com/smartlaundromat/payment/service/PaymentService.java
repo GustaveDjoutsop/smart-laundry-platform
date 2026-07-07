@@ -11,6 +11,7 @@ import com.smartlaundromat.payment.model.enums.PaymentProvider;
 import com.smartlaundromat.payment.model.enums.PaymentStatus;
 import com.smartlaundromat.payment.repository.OutboxEventRepository;
 import com.smartlaundromat.payment.repository.TransactionRepository;
+import com.smartlaundromat.payment.service.machine.MachineAvailabilityClient;
 import com.smartlaundromat.payment.service.provider.CampayService;
 import com.smartlaundromat.payment.service.provider.MtnMomoService;
 import com.smartlaundromat.payment.service.provider.OrangeMoneyService;
@@ -33,6 +34,7 @@ public class PaymentService {
     private final TransactionRepository transactionRepository;
     private final OutboxEventRepository outboxEventRepository;
     private final ObjectMapper objectMapper;
+    private final MachineAvailabilityClient machineAvailabilityClient;
 
     private final CampayService campayService;
     private final MtnMomoService mtnMomoService;
@@ -44,12 +46,10 @@ public class PaymentService {
     public PaymentResponse initiatePayment(PaymentInitiationRequest request) {
         log.info("Initiating payment: machine={}, amount={}, provider={}",
                 request.getMachineId(), request.getAmount(), request.getProvider());
-        List<Transaction> activeCycles = transactionRepository
-                .findByMachineIdAndStatus(request.getMachineId(), PaymentStatus.SUCCESSFUL);
-        if (!activeCycles.isEmpty()) {
-            log.warn("Machine {} has an active cycle, rejecting new payment request", request.getMachineId());
+        if (!machineAvailabilityClient.isAvailable(request.getMachineId())) {
+            log.warn("Machine {} is not available, rejecting new payment request", request.getMachineId());
             throw new PaymentException("MACHINE_BUSY",
-                    "Machine " + request.getMachineId() + " has an active cycle");
+                    "Machine " + request.getMachineId() + " is not available");
         }
         List<Transaction> pendingPayments = transactionRepository
                 .findByMachineIdAndStatus(request.getMachineId(), PaymentStatus.PENDING);
