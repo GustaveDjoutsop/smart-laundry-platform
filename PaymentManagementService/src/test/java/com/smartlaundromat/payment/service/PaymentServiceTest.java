@@ -10,6 +10,7 @@ import com.smartlaundromat.payment.model.enums.PaymentProvider;
 import com.smartlaundromat.payment.model.enums.PaymentStatus;
 import com.smartlaundromat.payment.repository.OutboxEventRepository;
 import com.smartlaundromat.payment.repository.TransactionRepository;
+import com.smartlaundromat.payment.service.machine.MachineAvailabilityClient;
 import com.smartlaundromat.payment.service.provider.CampayService;
 import com.smartlaundromat.payment.service.provider.MtnMomoService;
 import com.smartlaundromat.payment.service.provider.OrangeMoneyService;
@@ -55,6 +56,9 @@ class PaymentServiceTest {
     @Mock
     OrangeMoneyService orangeMoneyService;
 
+    @Mock
+    MachineAvailabilityClient machineAvailabilityClient;
+
     @InjectMocks
     PaymentService paymentService;
 
@@ -79,8 +83,7 @@ class PaymentServiceTest {
 
         @Test
         void shouldInitiatePaymentWhenMachineIsFree() {
-            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.SUCCESSFUL))
-                    .thenReturn(Collections.emptyList());
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
             when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
                     .thenReturn(Collections.emptyList());
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -99,23 +102,27 @@ class PaymentServiceTest {
         }
 
         @Test
-        void shouldThrowWhenMachineHasActiveCycle() {
-            Transaction active = Transaction.builder()
-                    .machineId("MACH-01")
-                    .status(PaymentStatus.SUCCESSFUL)
-                    .build();
-            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.SUCCESSFUL))
-                    .thenReturn(List.of(active));
+        void shouldThrowWhenMachineIsNotAvailable() {
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(false);
 
             assertThatThrownBy(() -> paymentService.initiatePayment(request))
                     .isInstanceOf(PaymentException.class)
-                    .hasMessageContaining("active cycle");
+                    .hasMessageContaining("not available");
+        }
+
+        @Test
+        void shouldThrowWhenMachineStatusUnknown() {
+            when(machineAvailabilityClient.isAvailable("MACH-01"))
+                    .thenThrow(new PaymentException("MACHINE_STATUS_UNKNOWN", "Could not verify status of machine MACH-01"));
+
+            assertThatThrownBy(() -> paymentService.initiatePayment(request))
+                    .isInstanceOf(PaymentException.class)
+                    .hasMessageContaining("Could not verify status");
         }
 
         @Test
         void shouldThrowWhenMachineHasPendingPayment() {
-            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.SUCCESSFUL))
-                    .thenReturn(Collections.emptyList());
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
             Transaction pending = Transaction.builder()
                     .machineId("MACH-01")
                     .status(PaymentStatus.PENDING)
@@ -131,8 +138,7 @@ class PaymentServiceTest {
         @Test
         void shouldUseMtnProviderWhenRequested() {
             request.setProvider(PaymentProvider.MTN);
-            when(transactionRepository.findByMachineIdAndStatus(anyString(), eq(PaymentStatus.SUCCESSFUL)))
-                    .thenReturn(Collections.emptyList());
+            when(machineAvailabilityClient.isAvailable(anyString())).thenReturn(true);
             when(transactionRepository.findByMachineIdAndStatus(anyString(), eq(PaymentStatus.PENDING)))
                     .thenReturn(Collections.emptyList());
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -153,8 +159,7 @@ class PaymentServiceTest {
         @Test
         void shouldUseOrangeProviderWhenRequested() {
             request.setProvider(PaymentProvider.ORANGE_MONEY);
-            when(transactionRepository.findByMachineIdAndStatus(anyString(), eq(PaymentStatus.SUCCESSFUL)))
-                    .thenReturn(Collections.emptyList());
+            when(machineAvailabilityClient.isAvailable(anyString())).thenReturn(true);
             when(transactionRepository.findByMachineIdAndStatus(anyString(), eq(PaymentStatus.PENDING)))
                     .thenReturn(Collections.emptyList());
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));

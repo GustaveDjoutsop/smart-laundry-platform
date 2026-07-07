@@ -46,15 +46,16 @@ spring:
           auth0:
             token-uri: https://dev-iuo6si32jobgnmod.eu.auth0.com/oauth/token
         registration:
-          # M2M client used to call MachineStateService's /api/machines/start-cycle.
-          # Reuses the same Auth0 M2M application as spring-bot-manager-only's
-          # smartlaundry-m2m registration (already granted sls-machine-start).
+          # M2M client used to call MachineStateService's /api/machines/start-cycle
+          # and GET /api/machines/{id} (machine availability check). Reuses the same
+          # Auth0 M2M application as spring-bot-manager-only's smartlaundry-m2m
+          # registration (already granted both scopes there).
           smartlaundry-m2m:
             provider: auth0
             client-id: ${AUTH0_CLIENT_ID:6UGj1BFYTVTUdSC2AklgNsGoXqbCWlGZ}
             client-secret: ${AUTH0_CLIENT_SECRET:}
             authorization-grant-type: client_credentials
-            scope: sls-machine-start
+            scope: sls-machine-start, sls-machine-read
 
 payment:
   currency: XAF
