@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -134,5 +135,97 @@ class CycleReminderServiceTest {
 
         verifyNoInteractions(botNotificationClient);
         verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldSendReminderAtWindowOpenBoundary() {
+        when(paymentConfig.getReminderLookbackMinutes()).thenReturn(90);
+        when(paymentConfig.getReminderMinutesBefore()).thenReturn(5);
+
+        // 30-minute cycle, started 25 minutes ago -> reminderAt is (approximately) "now";
+        // the clock only moves forward between this line and the service's own now(), so
+        // this exercises the reminderAt boundary as inclusive without needing a fake Clock.
+        Transaction tx = buildTransaction(LocalDateTime.now().minusMinutes(25), 30);
+        when(transactionRepository.findByStatusAndReminderSentAtIsNullAndUpdatedAtAfter(
+                eq(PaymentStatus.SUCCESSFUL), any(LocalDateTime.class)))
+                .thenReturn(List.of(tx));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        cycleReminderService.checkAlmostDoneCycles();
+
+        verify(botNotificationClient).sendCycleAlmostDone(eq(tx), anyInt());
+        verify(transactionRepository).save(any(Transaction.class));
+    }
+
+    @Test
+    void shouldNotSendReminderAtCycleEndBoundary() {
+        when(paymentConfig.getReminderLookbackMinutes()).thenReturn(90);
+        when(paymentConfig.getReminderMinutesBefore()).thenReturn(5);
+
+        // 30-minute cycle, started 30 minutes ago -> cycleEnd is (approximately) "now";
+        // same forward-clock reasoning as above exercises cycleEnd as exclusive.
+        Transaction tx = buildTransaction(LocalDateTime.now().minusMinutes(30), 30);
+        when(transactionRepository.findByStatusAndReminderSentAtIsNullAndUpdatedAtAfter(
+                eq(PaymentStatus.SUCCESSFUL), any(LocalDateTime.class)))
+                .thenReturn(List.of(tx));
+
+        cycleReminderService.checkAlmostDoneCycles();
+
+        verifyNoInteractions(botNotificationClient);
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldSkipTransactionWithBlankPhoneNumber() {
+        when(paymentConfig.getReminderLookbackMinutes()).thenReturn(90);
+
+        Transaction tx = buildTransaction(LocalDateTime.now().minusMinutes(27), 30);
+        tx.setPhoneNumber("   ");
+        when(transactionRepository.findByStatusAndReminderSentAtIsNullAndUpdatedAtAfter(
+                eq(PaymentStatus.SUCCESSFUL), any(LocalDateTime.class)))
+                .thenReturn(List.of(tx));
+
+        cycleReminderService.checkAlmostDoneCycles();
+
+        verifyNoInteractions(botNotificationClient);
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldSkipTransactionWithNullCycleDuration() {
+        when(paymentConfig.getReminderLookbackMinutes()).thenReturn(90);
+
+        Transaction tx = buildTransaction(LocalDateTime.now().minusMinutes(27), 30);
+        tx.setCycleDuration(null);
+        when(transactionRepository.findByStatusAndReminderSentAtIsNullAndUpdatedAtAfter(
+                eq(PaymentStatus.SUCCESSFUL), any(LocalDateTime.class)))
+                .thenReturn(List.of(tx));
+
+        cycleReminderService.checkAlmostDoneCycles();
+
+        verifyNoInteractions(botNotificationClient);
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldNotPropagateWhenSaveFailsAfterSuccessfulSend() {
+        when(paymentConfig.getReminderLookbackMinutes()).thenReturn(90);
+        when(paymentConfig.getReminderMinutesBefore()).thenReturn(5);
+
+        Transaction tx = buildTransaction(LocalDateTime.now().minusMinutes(27), 30);
+        when(transactionRepository.findByStatusAndReminderSentAtIsNullAndUpdatedAtAfter(
+                eq(PaymentStatus.SUCCESSFUL), any(LocalDateTime.class)))
+                .thenReturn(List.of(tx));
+        when(transactionRepository.save(any(Transaction.class)))
+                .thenThrow(new RuntimeException("DB connection lost"));
+
+        // The notification already went out; a save failure here must not be treated
+        // like a send failure (it's logged separately, not silently retried at WARN),
+        // and must not throw out of the scheduled method.
+        assertThatCode(() -> cycleReminderService.checkAlmostDoneCycles())
+                .doesNotThrowAnyException();
+
+        verify(botNotificationClient).sendCycleAlmostDone(eq(tx), anyInt());
+        verify(transactionRepository).save(any(Transaction.class));
     }
 }

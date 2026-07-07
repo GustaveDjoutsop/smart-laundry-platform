@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -21,9 +22,17 @@ import java.util.List;
  *
  * <p>The candidate query is bounded by {@code updatedAt} (reminderLookbackMinutes,
  * comfortably above the longest cycle duration) to avoid scanning the whole
- * transactions table. If sending fails, {@code reminderSentAt} is left null so
- * the next 60s poll retries — naturally bounded by the reminder window itself
- * (reminderMinutesBefore..cycleEnd), no extra retry infrastructure needed.
+ * transactions table. {@code updatedAt} is used as a cycle-start proxy (stamped
+ * when status flips to SUCCESSFUL) — do not re-save a SUCCESSFUL transaction for
+ * unrelated reasons, or this will push cycleEnd forward and mis-time the reminder.
+ *
+ * <p>If sending fails, {@code reminderSentAt} is left null so the next 60s poll
+ * retries — naturally bounded by the reminder window itself (reminderMinutesBefore
+ * ..cycleEnd), no extra retry infrastructure needed. If the send succeeds but the
+ * subsequent save fails, the retry could resend the WhatsApp message (no downstream
+ * dedup on the notification endpoint, unlike MachineStartService's idempotent
+ * start-cycle call) — logged at ERROR, separately from ordinary send failures, so
+ * it's visible rather than silently retried at WARN.
  */
 @Service
 @Slf4j
@@ -43,7 +52,7 @@ public class CycleReminderService {
                 .findByStatusAndReminderSentAtIsNullAndUpdatedAtAfter(PaymentStatus.SUCCESSFUL, lookback);
 
         for (Transaction tx : candidates) {
-            if (tx.getPhoneNumber() == null || tx.getCycleDuration() == null) {
+            if (!StringUtils.hasText(tx.getPhoneNumber()) || tx.getCycleDuration() == null) {
                 continue;
             }
 
@@ -57,8 +66,15 @@ public class CycleReminderService {
             try {
                 int minutesLeft = (int) Duration.between(now, cycleEnd).toMinutes();
                 botNotificationClient.sendCycleAlmostDone(tx, minutesLeft);
-                tx.setReminderSentAt(now);
-                transactionRepository.save(tx);
+
+                try {
+                    tx.setReminderSentAt(now);
+                    transactionRepository.save(tx);
+                } catch (Exception saveException) {
+                    log.error("Sent almost-done reminder for tx={} but failed to record reminderSentAt "
+                                    + "— next poll may resend this notification: {}",
+                            tx.getExternalReference(), saveException.getMessage());
+                }
             } catch (Exception e) {
                 log.warn("Failed to send almost-done reminder for tx={}, will retry next poll: {}",
                         tx.getExternalReference(), e.getMessage());
