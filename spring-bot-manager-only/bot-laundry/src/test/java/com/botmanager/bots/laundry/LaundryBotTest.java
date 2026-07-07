@@ -267,6 +267,38 @@ class LaundryBotTest {
     }
 
     @Nested
+    class SendProactiveNotification {
+
+        @Test
+        void shouldSendTranslatedMessageInStoredLanguage() {
+            // given — customer's last conversation was in French
+            com.botmanager.core.flow.ConversationState state = new com.botmanager.core.flow.ConversationState();
+            state.setContextValue("language", "fr");
+            when(redisManager.get("conv:test-laundry:+237690000000", com.botmanager.core.flow.ConversationState.class))
+                    .thenReturn(java.util.Optional.of(state));
+
+            // when
+            laundryBot.sendProactiveNotification("+237690000000", "status_none", Map.of());
+
+            // then
+            verify(whatsAppClient).sendText(eq("+237690000000"), contains("aucun cycle"));
+        }
+
+        @Test
+        void shouldDefaultToEnglishWhenNoStoredConversation() {
+            // given — no prior conversation for this phone
+            when(redisManager.get("conv:test-laundry:+237699999999", com.botmanager.core.flow.ConversationState.class))
+                    .thenReturn(java.util.Optional.empty());
+
+            // when
+            laundryBot.sendProactiveNotification("+237699999999", "status_none", Map.of());
+
+            // then
+            verify(whatsAppClient).sendText(eq("+237699999999"), contains("don't have any active"));
+        }
+    }
+
+    @Nested
     class OnPaymentFailed {
 
         @Test
