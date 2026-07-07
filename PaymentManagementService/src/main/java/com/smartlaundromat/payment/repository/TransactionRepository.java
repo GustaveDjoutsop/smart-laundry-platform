@@ -23,4 +23,6 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     List<Transaction> findByMachineIdOrderByCreatedAtDesc(String machineId);
 
     List<Transaction> findByPhoneNumberAndStatusOrderByCreatedAtDesc(String phoneNumber, PaymentStatus status);
+
+    List<Transaction> findByStatusAndReminderSentAtIsNullAndUpdatedAtAfter(PaymentStatus status, LocalDateTime after);
 }
