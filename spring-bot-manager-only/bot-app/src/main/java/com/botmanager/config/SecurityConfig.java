@@ -53,7 +53,7 @@ import java.util.List;
  * <ul>
  *   <li>sls-machine-read  - GET /api/machines/**</li>
  *   <li>sls-payment-read  - GET /api/payments/{botId}/transactions/**</li>
- *   <li>sls-bot-admin     - reserved for future admin-level bot operations</li>
+ *   <li>sls-bot-admin     - POST /api/notifications/send (proactive WhatsApp push)</li>
  * </ul>
  */
 @Configuration(proxyBeanMethods = false)
@@ -119,6 +119,10 @@ public class SecurityConfig {
                     .hasAuthority("SCOPE_sls-payment-read")
                 .requestMatchers(HttpMethod.GET, "/api/payments/*/external/**")
                     .hasAuthority("SCOPE_sls-payment-read")
+                // Proactive notifications — MachineStateService/PaymentManagementService
+                // pushing a WhatsApp message to a customer outside any inbound conversation
+                .requestMatchers(HttpMethod.POST, "/api/notifications/send")
+                    .hasAuthority("SCOPE_sls-bot-admin")
                 .anyRequest().authenticated()
             )
             .oauth2ResourceServer(oauth2 -> oauth2

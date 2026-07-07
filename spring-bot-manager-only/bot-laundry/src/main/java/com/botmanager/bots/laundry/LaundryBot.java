@@ -1,6 +1,8 @@
 package com.botmanager.bots.laundry;
 
 import com.botmanager.core.bot.BaseBot;
+import com.botmanager.core.bot.ProactiveNotifier;
+import com.botmanager.core.flow.ConversationState;
 import com.botmanager.core.flow.FlowEngine;
 import com.botmanager.core.flow.FlowPlugin;
 import com.botmanager.core.i18n.Language;
@@ -20,7 +22,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Map;
 
 @Slf4j
-public class LaundryBot extends BaseBot {
+public class LaundryBot extends BaseBot implements ProactiveNotifier {
 
     private static final ZoneId DOUALA_ZONE = ZoneId.of("Africa/Douala");
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
@@ -53,6 +55,15 @@ public class LaundryBot extends BaseBot {
     @Override
     public FlowPlugin getPlugin() {
         return plugin;
+    }
+
+    @Override
+    public void sendProactiveNotification(String phone, String messageKey, Map<String, Object> params) {
+        ConversationState state = loadConversationState(phone);
+        Language lang = Language.fromCode(state.getContextValueAsString("language"));
+        String message = translationService.translate(messageKey, lang, params != null ? params : Map.of());
+        sendMessage(phone, message);
+        log.info("Sent proactive notification: bot={}, phone={}, messageKey={}", config.getBotId(), phone, messageKey);
     }
 
     @Override
