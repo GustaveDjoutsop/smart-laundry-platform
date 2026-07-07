@@ -22,5 +22,5 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
 
     List<Transaction> findByMachineIdOrderByCreatedAtDesc(String machineId);
 
-    Optional<Transaction> findTop1ByPhoneNumberAndStatusOrderByCreatedAtDesc(String phoneNumber, PaymentStatus status);
+    List<Transaction> findByPhoneNumberAndStatusOrderByCreatedAtDesc(String phoneNumber, PaymentStatus status);
 }

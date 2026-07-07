@@ -21,6 +21,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.RestTemplate;
 
 import java.util.Collections;
 import java.util.List;
@@ -32,6 +34,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -1436,6 +1439,35 @@ class LaundryFlowPluginTest {
             assertThat(context.getString("responseMessage")).isNotBlank();
             assertThat(getButtons(context)).hasSize(3);
             assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_MENU_CHOICE);
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        void shouldShowAllActiveCyclesWhenMultipleRunning() {
+            // given — customer has paid for two machines that are both still running
+            RestTemplate restTemplate = mock(RestTemplate.class);
+            when(restTemplate.getForEntity(anyString(), eq(Map.class), any(Map.class)))
+                    .thenReturn(ResponseEntity.ok(Map.of(
+                            "hasCycle", true,
+                            "cycles", List.of(
+                                    Map.of("machineId", "washer_01", "amount", 1000),
+                                    Map.of("machineId", "dryer_02", "amount", 500)
+                            )
+                    )));
+            TransactionClient client = new TransactionClient(restTemplate, "http://localhost:8081");
+            PricingClient pricingClient = new PricingClient(null, "http://localhost:8081",
+                    laundryConfig.getShortCycle().getPrice(), laundryConfig.getLongCycle().getPrice(),
+                    laundryConfig.getReservation().getPrice());
+            LaundryFlowPlugin pluginWithCycles = new LaundryFlowPlugin(
+                    paymentGateway, machineService, translationService, laundryConfig, pricingClient, client);
+            FlowContext context = createContext();
+
+            // when
+            pluginWithCycles.handleAction("status.showUserCycle", Map.of(), context);
+
+            // then — both machines are mentioned, not just the most recent one
+            String message = context.getString("responseMessage");
+            assertThat(message).contains("washer_01").contains("dryer_02");
         }
 
         @Test

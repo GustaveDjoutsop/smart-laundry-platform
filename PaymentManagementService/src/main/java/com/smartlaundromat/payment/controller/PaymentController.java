@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 @Slf4j
 @RestController
@@ -53,18 +52,18 @@ public class PaymentController {
     }
 
     @GetMapping("/phone/{phone}/active")
-    public ResponseEntity<Map<String, Object>> getActiveCycleByPhone(@PathVariable String phone) {
-        Optional<Transaction> tx = paymentService.getActiveCycleByPhone(phone);
-        if (tx.isPresent()) {
-            Transaction t = tx.get();
-            return ResponseEntity.ok(Map.of(
-                    "hasCycle", true,
-                    "machineId", t.getMachineId(),
-                    "amount", t.getAmount(),
-                    "createdAt", t.getCreatedAt().toString()
-            ));
+    public ResponseEntity<Map<String, Object>> getActiveCyclesByPhone(@PathVariable String phone) {
+        List<Transaction> cycles = paymentService.getActiveCyclesByPhone(phone);
+        if (cycles.isEmpty()) {
+            return ResponseEntity.ok(Map.of("hasCycle", false));
         }
-        return ResponseEntity.ok(Map.of("hasCycle", false));
+        List<Map<String, Object>> cycleList = cycles.stream()
+                .map(t -> Map.<String, Object>of(
+                        "machineId", t.getMachineId(),
+                        "amount", t.getAmount(),
+                        "createdAt", t.getCreatedAt().toString()))
+                .toList();
+        return ResponseEntity.ok(Map.of("hasCycle", true, "cycles", cycleList));
     }
 
     @GetMapping("/providers/status")

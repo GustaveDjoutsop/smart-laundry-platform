@@ -24,6 +24,7 @@ import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -293,6 +294,47 @@ class PaymentServiceTest {
         List<Transaction> result = paymentService.getTransactionsByCard("ABC123");
 
         assertThat(result).hasSize(1);
+    }
+
+    @Test
+    void shouldGetMultipleActiveCyclesByPhone() {
+        Transaction washer = Transaction.builder()
+                .machineId("washer_01").phoneNumber("237612345678")
+                .status(PaymentStatus.SUCCESSFUL)
+                .cycleDuration(60).createdAt(LocalDateTime.now().minusMinutes(10))
+                .build();
+        Transaction dryer = Transaction.builder()
+                .machineId("dryer_02").phoneNumber("237612345678")
+                .status(PaymentStatus.SUCCESSFUL)
+                .cycleDuration(30).createdAt(LocalDateTime.now().minusMinutes(5))
+                .build();
+        when(transactionRepository.findByPhoneNumberAndStatusOrderByCreatedAtDesc("237612345678", PaymentStatus.SUCCESSFUL))
+                .thenReturn(List.of(washer, dryer));
+
+        List<Transaction> result = paymentService.getActiveCyclesByPhone("237612345678");
+
+        assertThat(result).hasSize(2).extracting(Transaction::getMachineId)
+                .containsExactly("washer_01", "dryer_02");
+    }
+
+    @Test
+    void shouldExcludeFinishedCyclesFromActiveCyclesByPhone() {
+        Transaction finished = Transaction.builder()
+                .machineId("washer_01").phoneNumber("237612345678")
+                .status(PaymentStatus.SUCCESSFUL)
+                .cycleDuration(30).createdAt(LocalDateTime.now().minusMinutes(45))
+                .build();
+        Transaction stillRunning = Transaction.builder()
+                .machineId("dryer_02").phoneNumber("237612345678")
+                .status(PaymentStatus.SUCCESSFUL)
+                .cycleDuration(60).createdAt(LocalDateTime.now().minusMinutes(5))
+                .build();
+        when(transactionRepository.findByPhoneNumberAndStatusOrderByCreatedAtDesc("237612345678", PaymentStatus.SUCCESSFUL))
+                .thenReturn(List.of(finished, stillRunning));
+
+        List<Transaction> result = paymentService.getActiveCyclesByPhone("237612345678");
+
+        assertThat(result).extracting(Transaction::getMachineId).containsExactly("dryer_02");
     }
 
     @Test
