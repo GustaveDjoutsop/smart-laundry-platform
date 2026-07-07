@@ -486,7 +486,7 @@ public class LaundryFlowPlugin extends FlowPlugin {
                 "date", date != null ? date : "",
                 "time", time != null ? time : "",
                 "duration", res.getDurationMinutes(),
-                "price", res.getPrice()
+                "price", pricingClient.getReservationFee()
         ));
 
         List<FlowState.ButtonOption> buttons = new ArrayList<>();
@@ -530,7 +530,7 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
         PaymentRequest request = PaymentRequest.builder()
                 .botId(laundryConfig.getBotId())
-                .amount(res.getPrice())
+                .amount(pricingClient.getReservationFee())
                 .currency("XAF")
                 .phoneNumber(customerPhone)
                 .reference(reference)
