@@ -89,4 +89,39 @@ class BotNotificationClientTest {
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("Connection refused");
     }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void shouldPostCycleCompletedWithExpectedBody() {
+        when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(Map.class)))
+                .thenReturn(ResponseEntity.ok(Map.of("status", "sent")));
+
+        botNotificationClient.sendCycleCompleted(transaction, "14:30");
+
+        ArgumentCaptor<HttpEntity<Map<String, Object>>> captor = ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate).postForEntity(
+                eq("http://localhost:8090/api/notifications/send"),
+                captor.capture(),
+                eq(Map.class));
+
+        Map<String, Object> body = captor.getValue().getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.get("botId")).isEqualTo("laundry");
+        assertThat(body.get("phone")).isEqualTo("+237600000000");
+        assertThat(body.get("messageKey")).isEqualTo("cycle_completed");
+
+        Map<String, Object> params = (Map<String, Object>) body.get("params");
+        assertThat(params.get("machine")).isEqualTo("MACH-01");
+        assertThat(params.get("endTime")).isEqualTo("14:30");
+    }
+
+    @Test
+    void shouldPropagateExceptionOnCycleCompletedRestTemplateFailure() {
+        when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(Map.class)))
+                .thenThrow(new RuntimeException("Connection refused"));
+
+        assertThatThrownBy(() -> botNotificationClient.sendCycleCompleted(transaction, "14:30"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("Connection refused");
+    }
 }
