@@ -25,6 +25,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
@@ -141,6 +142,43 @@ class LaundryBotTest {
 
         @Test
         void shouldSendReservationConfirmationWhenReservation() {
+            // given — the hold (creation) already happened pre-payment in
+            // LaundryFlowPlugin.handleInitiateReservation; the code/reference travel
+            // in via metadata, so onPaymentCompleted only needs to activate.
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("isReservation", true);
+            metadata.put("machineName", "Washer 1");
+            metadata.put("machineId", "w1");
+            metadata.put("reservationDate", "2026-06-11");
+            metadata.put("reservationTime", "10:00");
+            metadata.put("reservationCode", "ABC123");
+            metadata.put("reservationTransactionReference", "ref-1");
+            metadata.put("language", "EN");
+
+            Map<String, Object> activationResponse = new HashMap<>();
+            activationResponse.put("reservationCode", "ABC123");
+            when(machineService.activateReservation("ref-1")).thenReturn(activationResponse);
+
+            PaymentRecord record = PaymentRecord.builder()
+                    .transactionId("txn-1")
+                    .customerPhone("+237690000000")
+                    .amount(500)
+                    .botId("test-laundry")
+                    .metadata(metadata)
+                    .build();
+
+            // when
+            laundryBot.onPaymentCompleted(record);
+
+            // then
+            verify(machineService, never()).createReservation(anyString(), anyString(), anyString());
+            verify(machineService).activateReservation("ref-1");
+            verify(whatsAppClient).sendText(eq("+237690000000"), anyString());
+            verify(feedbackService, never()).sendStaffAlert(any(), anyString(), any());
+        }
+
+        @Test
+        void shouldSendStaffAlertAndCustomerMessageOnActivationFailure() {
             // given
             Map<String, Object> metadata = new HashMap<>();
             metadata.put("isReservation", true);
@@ -148,14 +186,10 @@ class LaundryBotTest {
             metadata.put("machineId", "w1");
             metadata.put("reservationDate", "2026-06-11");
             metadata.put("reservationTime", "10:00");
+            metadata.put("reservationCode", "ABC123");
+            metadata.put("reservationTransactionReference", "ref-1");
             metadata.put("language", "EN");
 
-            Map<String, Object> reservationResponse = new HashMap<>();
-            reservationResponse.put("reservationCode", "ABC123");
-            reservationResponse.put("transactionReference", "ref-1");
-
-            when(machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00"))
-                    .thenReturn(reservationResponse);
             when(machineService.activateReservation("ref-1")).thenReturn(null);
 
             PaymentRecord record = PaymentRecord.builder()
@@ -170,37 +204,7 @@ class LaundryBotTest {
             laundryBot.onPaymentCompleted(record);
 
             // then
-            verify(machineService).createReservation("w1", "+237690000000", "2026-06-11T10:00:00");
-            verify(machineService).activateReservation("ref-1");
-            verify(whatsAppClient).sendText(eq("+237690000000"), anyString());
-        }
-
-        @Test
-        void shouldHandleReservationCreationFailure() {
-            // given
-            Map<String, Object> metadata = new HashMap<>();
-            metadata.put("isReservation", true);
-            metadata.put("machineName", "Washer 1");
-            metadata.put("machineId", "w1");
-            metadata.put("reservationDate", "2026-06-11");
-            metadata.put("reservationTime", "10:00");
-            metadata.put("language", "EN");
-
-            when(machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00"))
-                    .thenReturn(null);
-
-            PaymentRecord record = PaymentRecord.builder()
-                    .transactionId("txn-1")
-                    .customerPhone("+237690000000")
-                    .amount(500)
-                    .botId("test-laundry")
-                    .metadata(metadata)
-                    .build();
-
-            // when
-            laundryBot.onPaymentCompleted(record);
-
-            // then
+            verify(feedbackService).sendStaffAlert(eq(config), eq("staff_alert_reservation_failed"), any());
             verify(whatsAppClient).sendText(eq("+237690000000"), anyString());
         }
 
@@ -425,6 +429,54 @@ class LaundryBotTest {
 
             // then
             verify(whatsAppClient, never()).sendText(anyString(), anyString());
+        }
+
+        @Test
+        void shouldCancelReservationHoldWhenReservationPaymentFails() {
+            // given — the hold was created before payment; a failed payment must
+            // release it instead of leaving the slot blocked until the hold-timeout sweep.
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("isReservation", true);
+            metadata.put("machineName", "Washer 1");
+            metadata.put("reservationTransactionReference", "ref-1");
+            metadata.put("language", "EN");
+
+            PaymentRecord record = PaymentRecord.builder()
+                    .transactionId("txn-1")
+                    .customerPhone("+237690000000")
+                    .botId("test-laundry")
+                    .metadata(metadata)
+                    .raw(null)
+                    .build();
+
+            // when
+            laundryBot.onPaymentFailed(record);
+
+            // then
+            verify(machineService).cancelReservation("ref-1");
+            verify(whatsAppClient).sendText(eq("+237690000000"), anyString());
+        }
+
+        @Test
+        void shouldNotCancelReservationForNonReservationPaymentFailure() {
+            // given
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("machineName", "Washer 1");
+            metadata.put("language", "EN");
+
+            PaymentRecord record = PaymentRecord.builder()
+                    .transactionId("txn-1")
+                    .customerPhone("+237690000000")
+                    .botId("test-laundry")
+                    .metadata(metadata)
+                    .raw(null)
+                    .build();
+
+            // when
+            laundryBot.onPaymentFailed(record);
+
+            // then
+            verify(machineService, never()).cancelReservation(anyString());
         }
 
         @ParameterizedTest

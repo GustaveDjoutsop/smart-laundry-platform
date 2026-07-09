@@ -205,7 +205,7 @@ class MachineServiceTest {
         void shouldThrowWhenMachineNotFound() {
             // given
             StartCycleRequest request = buildRequest();
-            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.empty());
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.empty());
 
             // when / then
             assertThatThrownBy(() -> machineService.startCycle(request))
@@ -216,7 +216,7 @@ class MachineServiceTest {
         void shouldThrowWhenMachineNotAvailable() {
             // given
             idleMachine.setStatus(MachineStatus.RUNNING);
-            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
             StartCycleRequest request = buildRequest();
 
             // when / then
@@ -228,7 +228,7 @@ class MachineServiceTest {
         @Test
         void shouldThrowWhenCycleAlreadyInProgress() {
             // given
-            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
             when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
                     .thenReturn(Optional.of(new MachineCycle()));
             StartCycleRequest request = buildRequest();
@@ -242,7 +242,7 @@ class MachineServiceTest {
         @Test
         void shouldStartCycleSuccessfully() {
             // given
-            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
             when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
                     .thenReturn(Optional.empty());
             when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());
@@ -268,7 +268,7 @@ class MachineServiceTest {
         @Test
         void shouldDefaultToNormalCycleTypeWhenInvalid() {
             // given
-            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
             when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
                     .thenReturn(Optional.empty());
             when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());
@@ -288,7 +288,7 @@ class MachineServiceTest {
         @Test
         void shouldThrowWhenMachineReservedWithoutCode() {
             // given
-            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
             when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
                     .thenReturn(Optional.empty());
 
@@ -313,7 +313,7 @@ class MachineServiceTest {
         @Test
         void shouldStartCycleWithValidReservationCode() {
             // given
-            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
             when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
                     .thenReturn(Optional.empty());
 
@@ -338,6 +338,47 @@ class MachineServiceTest {
             // then
             assertThat(cycle).isNotNull();
             verify(reservationService).validateAndConsume("RES-ABC", "washer_01");
+        }
+
+        @Test
+        void shouldRejectAsNotAvailableWhenCycleSaveRacesConcurrentInsert() {
+            // given
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
+                    .thenReturn(Optional.empty());
+            when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());
+            when(machineCycleRepository.save(any(MachineCycle.class)))
+                    .thenThrow(new org.springframework.dao.DataIntegrityViolationException(
+                            "duplicate key value violates unique constraint idx_machine_cycles_machine_in_progress",
+                            new RuntimeException("duplicate key value violates unique constraint \"idx_machine_cycles_machine_in_progress\"")));
+
+            StartCycleRequest request = buildRequest();
+
+            // when / then
+            assertThatThrownBy(() -> machineService.startCycle(request))
+                    .isInstanceOf(MachineNotAvailableException.class)
+                    .hasMessageContaining("active cycle");
+            verify(commandDispatcher, never()).dispatch(any(), any(), any());
+        }
+
+        @Test
+        void shouldRethrowUnrelatedDataIntegrityViolations() {
+            // given
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
+                    .thenReturn(Optional.empty());
+            when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());
+            when(machineCycleRepository.save(any(MachineCycle.class)))
+                    .thenThrow(new org.springframework.dao.DataIntegrityViolationException(
+                            "value too long",
+                            new RuntimeException("value too long")));
+
+            StartCycleRequest request = buildRequest();
+
+            // when / then
+            assertThatThrownBy(() -> machineService.startCycle(request))
+                    .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class)
+                    .isNotInstanceOf(MachineNotAvailableException.class);
         }
     }
 
@@ -479,7 +520,7 @@ class MachineServiceTest {
     void shouldStartCycleWithVariousCycleTypes(String cycleType, String expectedDefault,
                                                 int duration, int pulseCount) {
         // given
-        when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+        when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
         when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
                 .thenReturn(Optional.empty());
         when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());

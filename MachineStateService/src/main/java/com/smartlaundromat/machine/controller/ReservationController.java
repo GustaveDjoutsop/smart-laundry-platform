@@ -18,6 +18,7 @@ import java.util.List;
  *   <tr><th>Method</th><th>Path</th><th>Purpose</th><th>Scope</th></tr>
  *   <tr><td>POST</td><td>/api/reservations</td><td>Create a 1-hour reservation (PENDING_PAYMENT)</td><td>sls-reservation-write</td></tr>
  *   <tr><td>POST</td><td>/api/reservations/activate</td><td>Activate after fee payment confirmed</td><td>sls-reservation-write</td></tr>
+ *   <tr><td>POST</td><td>/api/reservations/cancel</td><td>Release a PENDING_PAYMENT hold (payment failed/abandoned)</td><td>sls-reservation-write</td></tr>
  *   <tr><td>POST</td><td>/api/reservations/validate</td><td>Cross-check code + machine</td><td>sls-reservation-read</td></tr>
  *   <tr><td>GET</td><td>/api/reservations/{code}</td><td>Fetch a reservation by code</td><td>sls-reservation-read</td></tr>
  *   <tr><td>GET</td><td>/api/reservations/machine/{machineId}</td><td>List a machine's reservations</td><td>sls-reservation-read</td></tr>
@@ -42,6 +43,12 @@ public class ReservationController {
     public ResponseEntity<ReservationResponse> activate(@Valid @RequestBody ActivateReservationRequest request) {
         log.info("Received request to activate reservation with transactionReference={}", request.getTransactionReference());
         return ResponseEntity.ok(reservationService.activateByReference(request.getTransactionReference()));
+    }
+
+    @PostMapping("/cancel")
+    public ResponseEntity<ReservationResponse> cancel(@Valid @RequestBody ActivateReservationRequest request) {
+        log.info("Received request to cancel reservation with transactionReference={}", request.getTransactionReference());
+        return ResponseEntity.ok(reservationService.cancel(request.getTransactionReference()));
     }
 
     @PostMapping("/validate")

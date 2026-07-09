@@ -18,6 +18,7 @@ import com.smartlaundromat.payment.service.provider.OrangeMoneyService;
 import com.smartlaundromat.payment.service.provider.PaymentProviderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -74,7 +75,22 @@ public class PaymentService {
                 .build();
 
         log.info("save new transaction with external reference: {}", externalReference);
-        transactionRepository.save(transaction);
+        try {
+            transactionRepository.save(transaction);
+        } catch (DataIntegrityViolationException exception) {
+            // Backstop for the check-then-act race above: a concurrent request for the same
+            // machine can win between the pending-payment check and this save. The unique
+            // partial index on transactions(machine_id) WHERE status='PENDING' catches it here.
+            // Only this specific constraint means "pending payment race" — any other integrity
+            // violation is a real bug and must not be masked as a routine rejection.
+            String cause = String.valueOf(exception.getMostSpecificCause().getMessage());
+            if (cause.contains("idx_transactions_machine_pending")) {
+                log.warn("Machine {} got a pending payment concurrently, rejecting this request", request.getMachineId());
+                throw new PaymentException("PENDING_PAYMENT",
+                        "Machine " + request.getMachineId() + " has a pending payment");
+            }
+            throw exception;
+        }
 
         PaymentProviderService provider = resolveProvider(request.getProvider());
         log.info("Requesting payment from provider {}: externalReference={}, phoneNumber={}, amount={}",

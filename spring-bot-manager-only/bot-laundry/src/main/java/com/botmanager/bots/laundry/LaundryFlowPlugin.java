@@ -519,6 +519,26 @@ public class LaundryFlowPlugin extends FlowPlugin {
         String reservationTime = context.getString("reservationTime");
         LaundryBotConfig.ReservationConfig res = laundryConfig.getReservation();
 
+        String slotStartIso = reservationDate + "T" + reservationTime + ":00";
+
+        // Create the hold FIRST — if the slot is already taken, we reject here and
+        // never touch payment, instead of charging the customer and finding out later.
+        Map<String, Object> reservationResponse = machineService.createReservation(
+                machineId, customerPhone, slotStartIso);
+
+        if (reservationResponse == null) {
+            context.set("responseMessage", t("reservation_slot_unavailable", context, Map.of("machine", machineName)));
+            List<FlowState.ButtonOption> buttons = new ArrayList<>();
+            buttons.add(createButton("action_reservation", t("btn_reserve", context)));
+            buttons.add(createButton("action_cancel", t("btn_main_menu", context)));
+            context.set("responseButtons", buttons);
+            resetReservationSelectionAndReturnToMenu(context);
+            return;
+        }
+
+        String reservationCode = (String) reservationResponse.get("reservationCode");
+        String reservationTransactionReference = (String) reservationResponse.get("transactionReference");
+
         String reference = laundryConfig.getBotId() + "-res-" + machineId + "-" + System.currentTimeMillis();
 
         Map<String, Object> metadata = new HashMap<>();
@@ -530,6 +550,8 @@ public class LaundryFlowPlugin extends FlowPlugin {
         metadata.put("isReservation", true);
         metadata.put("customerPhone", customerPhone);
         metadata.put("language", getLang(context).name());
+        metadata.put("reservationCode", reservationCode);
+        metadata.put("reservationTransactionReference", reservationTransactionReference);
 
         PaymentRequest request = PaymentRequest.builder()
                 .botId(laundryConfig.getBotId())
@@ -550,6 +572,10 @@ public class LaundryFlowPlugin extends FlowPlugin {
                     createButton("action_cancel", t("btn_main_menu", context))
             ));
         } else {
+            // Payment never got going — release the hold now instead of waiting for
+            // the hold-timeout sweep to free the slot back up.
+            machineService.cancelReservation(reservationTransactionReference);
+
             String errorMessage = toUserFacingError(result.errorMessage(), getLang(context));
             context.set("responseMessage", t("payment_failed", context, Map.of("error", errorMessage)));
             List<FlowState.ButtonOption> buttons = new ArrayList<>();
@@ -558,6 +584,10 @@ public class LaundryFlowPlugin extends FlowPlugin {
             context.set("responseButtons", buttons);
         }
 
+        resetReservationSelectionAndReturnToMenu(context);
+    }
+
+    private void resetReservationSelectionAndReturnToMenu(FlowContext context) {
         context.set("isReservation", null);
         context.set("selectedMachineId", null);
         context.set("selectedMachineName", null);
@@ -1146,6 +1176,16 @@ public class LaundryFlowPlugin extends FlowPlugin {
         // e.g. {"error":"CAMPAY_ER102","message":"..."}
         String errorCode = extractJsonField(raw, "error");
         if (errorCode != null) {
+            switch (errorCode) {
+                case "MACHINE_BUSY":
+                    return translationService.translate("err_machine_busy", lang);
+                case "PENDING_PAYMENT":
+                    return translationService.translate("err_pending_payment", lang);
+                case "MACHINE_STATUS_UNKNOWN":
+                    return translationService.translate("campay_err_unavailable", lang);
+                default:
+                    break;
+            }
             if (errorCode.startsWith("CAMPAY_")) {
                 errorCode = errorCode.substring("CAMPAY_".length());
             }

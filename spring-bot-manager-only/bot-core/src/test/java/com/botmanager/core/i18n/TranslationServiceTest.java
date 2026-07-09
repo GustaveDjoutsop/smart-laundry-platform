@@ -164,4 +164,69 @@ class TranslationServiceTest {
         assertThat(result).contains("Bientôt terminé");
     }
 
+    @Test
+    void shouldTranslateMachineBusyError() {
+        // when
+        String result = translationService.translate("err_machine_busy", Language.EN);
+
+        // then
+        assertThat(result).contains("just taken by another customer");
+    }
+
+    @Test
+    void shouldTranslatePendingPaymentError() {
+        // when
+        String result = translationService.translate("err_pending_payment", Language.FR);
+
+        // then
+        assertThat(result).contains("paiement est déjà en cours");
+    }
+
+    @Test
+    void shouldTranslateReservationSlotUnavailable() {
+        // given
+        Map<String, Object> variables = Map.of("machine", "Washer 1");
+
+        // when
+        String result = translationService.translate("reservation_slot_unavailable", Language.EN, variables);
+
+        // then
+        assertThat(result).contains("Washer 1");
+        assertThat(result).contains("just taken by another customer");
+    }
+
+    @Test
+    void shouldTranslateReservationUpcomingReminder() {
+        // given
+        Map<String, Object> variables = Map.of("machine", "Washer 1", "minutes", 15, "code", "AB12CD");
+
+        // when
+        String result = translationService.translate("reservation_upcoming", Language.EN, variables);
+
+        // then
+        assertThat(result).contains("Washer 1");
+        assertThat(result).contains("15 minute(s)");
+        assertThat(result).contains("AB12CD");
+    }
+
+    @Test
+    void shouldTranslateStaffAlertReservationFailed() {
+        // given
+        Map<String, Object> variables = Map.of(
+                "machine", "Washer 1",
+                "phone", "+237600000000",
+                "amount", 500,
+                "transactionReference", "RESV-washer_01-123",
+                "time", "10:00"
+        );
+
+        // when
+        String result = translationService.translate("staff_alert_reservation_failed", Language.EN, variables);
+
+        // then
+        assertThat(result).contains("RESV-washer_01-123");
+        assertThat(result).contains("500 XAF");
+        assertThat(result).contains("manually verify/refund");
+    }
+
 }

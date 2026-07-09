@@ -160,12 +160,39 @@ public class FeedbackService {
     }
 
     public void sendStaffAlert(LaundryBotConfig config, FeedbackRecord feedback) {
+        Map<String, Object> vars = new HashMap<>();
+        String machine = feedback.getMachineName() != null ? feedback.getMachineName() : feedback.getMachineId();
+        vars.put("machine", machine != null ? machine : "unknown");
+        vars.put("phone", feedback.getCustomerPhone() != null ? feedback.getCustomerPhone() : "unknown");
+        vars.put("rating", feedback.getRating());
+        vars.put("comment", feedback.getComment() != null ? feedback.getComment() : "No comment provided");
+
+        boolean sent = sendStaffAlert(config, "staff_alert_low_rating", vars);
+        if (sent) {
+            feedback.setStaffAlertSent(true);
+            saveFeedback(feedback);
+
+            log.info("Staff alert sent for low rating: phone={}, rating={}",
+                    feedback.getCustomerPhone(), feedback.getRating());
+        }
+    }
+
+    /**
+     * Sends a staff alert for any translation key, not just low-rating feedback
+     * (e.g. reservation-payment-succeeded-but-activation-failed reconciliation
+     * alerts). Adds the current business-hours-local {@code time} var if not
+     * already present in {@code vars}.
+     *
+     * @return true if the message was sent, false if no staff phone is configured
+     *         or the send failed
+     */
+    public boolean sendStaffAlert(LaundryBotConfig config, String translationKey, Map<String, Object> vars) {
         String staffPhone = config.getStaffAlertPhone();
 
         if (staffPhone == null || staffPhone.isBlank()) {
             log.warn("No staff alert phone configured for bot: {}", config.getBotId());
 
-            return;
+            return false;
         }
 
         try {
@@ -174,25 +201,18 @@ public class FeedbackService {
             String currentTime = ZonedDateTime.now(ZoneId.of(config.getBusinessHours().getTimezone()))
                     .format(TIME_FORMATTER);
 
-            Map<String, Object> vars = new HashMap<>();
-            String machine = feedback.getMachineName() != null ? feedback.getMachineName() : feedback.getMachineId();
-            vars.put("machine", machine != null ? machine : "unknown");
-            vars.put("phone", feedback.getCustomerPhone() != null ? feedback.getCustomerPhone() : "unknown");
-            vars.put("rating", feedback.getRating());
-            vars.put("comment", feedback.getComment() != null ? feedback.getComment() : "No comment provided");
-            vars.put("time", currentTime);
+            Map<String, Object> allVars = new HashMap<>(vars);
+            allVars.putIfAbsent("time", currentTime);
 
-            String message = translationService.translate("staff_alert_low_rating", Language.EN, vars);
+            String message = translationService.translate(translationKey, Language.EN, allVars);
 
             client.sendText(staffPhone, message);
 
-            feedback.setStaffAlertSent(true);
-            saveFeedback(feedback);
-
-            log.info("Staff alert sent for low rating: phone={}, rating={}",
-                    feedback.getCustomerPhone(), feedback.getRating());
+            log.info("Staff alert sent: key={}, phone={}", translationKey, staffPhone);
+            return true;
         } catch (Exception exception) {
             log.error("Failed to send staff alert: {}", exception.getMessage());
+            return false;
         }
     }
 

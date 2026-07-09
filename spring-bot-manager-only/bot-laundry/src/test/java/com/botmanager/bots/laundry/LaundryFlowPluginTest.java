@@ -29,6 +29,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -39,6 +40,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -1155,6 +1157,54 @@ class LaundryFlowPluginTest {
             // then
             assertThat(context.getString("responseMessage")).isNotBlank();
         }
+
+        @Test
+        void shouldShowMachineBusyMessageWhenPmsRejects() {
+            // given
+            FlowContext context = createContext();
+            context.set("selectedMachineId", "w1");
+            context.set("selectedMachineName", "Washer 1");
+            context.set("selectedCycleDuration", 30);
+            context.set("selectedCyclePrice", 1000);
+            context.set("selectedCyclePulseCount", 1);
+
+            PaymentResult result = PaymentResult.builder()
+                    .success(false)
+                    .errorMessage("{\"error\":\"MACHINE_BUSY\",\"message\":\"Machine w1 is not available\"}")
+                    .build();
+            when(paymentGateway.initiatePayment(any())).thenReturn(result);
+
+            // when
+            plugin.handleAction("payment.initiate", Map.of(), context);
+
+            // then — specific message, not the generic fallback
+            assertThat(context.getString("responseMessage")).contains("just taken by another customer");
+            assertThat(context.getString("responseMessage")).doesNotContain("could not be completed");
+        }
+
+        @Test
+        void shouldShowPendingPaymentMessageWhenPmsRejects() {
+            // given
+            FlowContext context = createContext();
+            context.set("selectedMachineId", "w1");
+            context.set("selectedMachineName", "Washer 1");
+            context.set("selectedCycleDuration", 30);
+            context.set("selectedCyclePrice", 1000);
+            context.set("selectedCyclePulseCount", 1);
+
+            PaymentResult result = PaymentResult.builder()
+                    .success(false)
+                    .errorMessage("{\"error\":\"PENDING_PAYMENT\",\"message\":\"Machine w1 has a pending payment\"}")
+                    .build();
+            when(paymentGateway.initiatePayment(any())).thenReturn(result);
+
+            // when
+            plugin.handleAction("payment.initiate", Map.of(), context);
+
+            // then — specific message, not the generic fallback
+            assertThat(context.getString("responseMessage")).contains("already a payment in progress");
+            assertThat(context.getString("responseMessage")).doesNotContain("could not be completed");
+        }
     }
 
     // ========== Reservation ==========
@@ -1391,12 +1441,18 @@ class LaundryFlowPluginTest {
 
         @Test
         void shouldInitiateReservationPaymentSuccessfully() {
-            // given
+            // given — the hold (creation) must succeed before payment is ever attempted.
             FlowContext context = createContext();
             context.set("selectedMachineId", "w1");
             context.set("selectedMachineName", "Washer 1");
             context.set("reservationDate", "2026-06-11");
             context.set("reservationTime", "10:00");
+
+            Map<String, Object> reservationResponse = new HashMap<>();
+            reservationResponse.put("reservationCode", "RES-ABC123");
+            reservationResponse.put("transactionReference", "res-ref-1");
+            when(machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00"))
+                    .thenReturn(reservationResponse);
 
             PaymentResult result = PaymentResult.builder()
                     .success(true)
@@ -1413,16 +1469,46 @@ class LaundryFlowPluginTest {
             assertThat(context.get("selectedMachineId")).isNull();
             assertThat(context.get("reservationDate")).isNull();
             assertThat(context.getString("step")).isEqualTo(LaundryStep.MAIN_MENU);
+            verify(machineService, never()).cancelReservation(anyString());
         }
 
         @Test
-        void shouldHandleReservationPaymentFailure() {
-            // given
+        void shouldShowSlotUnavailableAndNeverPayWhenHoldCreationFails() {
+            // given — the machine got taken between selection and confirm; no payment
+            // should ever be attempted.
             FlowContext context = createContext();
             context.set("selectedMachineId", "w1");
             context.set("selectedMachineName", "Washer 1");
             context.set("reservationDate", "2026-06-11");
             context.set("reservationTime", "10:00");
+
+            when(machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00"))
+                    .thenReturn(null);
+
+            // when
+            plugin.handleAction("reservation.initiate", Map.of(), context);
+
+            // then
+            assertThat(context.getString("responseMessage")).contains("Washer 1");
+            assertThat(context.getString("step")).isEqualTo(LaundryStep.MAIN_MENU);
+            verify(paymentGateway, never()).initiatePayment(any());
+        }
+
+        @Test
+        void shouldCancelHoldWhenPaymentInitiationFailsAfterHoldCreated() {
+            // given — hold succeeds, but the payment gateway rejects synchronously;
+            // the hold must be released immediately rather than left for the timeout sweep.
+            FlowContext context = createContext();
+            context.set("selectedMachineId", "w1");
+            context.set("selectedMachineName", "Washer 1");
+            context.set("reservationDate", "2026-06-11");
+            context.set("reservationTime", "10:00");
+
+            Map<String, Object> reservationResponse = new HashMap<>();
+            reservationResponse.put("reservationCode", "RES-ABC123");
+            reservationResponse.put("transactionReference", "res-ref-1");
+            when(machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00"))
+                    .thenReturn(reservationResponse);
 
             PaymentResult result = PaymentResult.builder()
                     .success(false)
@@ -1436,6 +1522,7 @@ class LaundryFlowPluginTest {
             // then
             assertThat(context.getString("responseMessage")).isNotBlank();
             assertThat(context.getString("step")).isEqualTo(LaundryStep.MAIN_MENU);
+            verify(machineService).cancelReservation("res-ref-1");
         }
     }
 

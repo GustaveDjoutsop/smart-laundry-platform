@@ -21,6 +21,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -166,7 +167,10 @@ public class MachineService {
             }
         }
 
-        Machine machine = machineRepository.findByMachineId(request.getMachineId())
+        // Locked fetch: holds the row for the rest of this transaction so the
+        // active-cycle check below and the cycle/machine save are atomic against
+        // a second concurrent startCycle call for the same machine.
+        Machine machine = machineRepository.findByMachineIdForUpdate(request.getMachineId())
                 .orElseThrow(() -> new MachineNotFoundException("Machine not found: " + request.getMachineId()));
 
         if (!machine.isAvailable()) {
@@ -218,7 +222,19 @@ public class MachineService {
                 .transactionReference(request.getTransactionReference())
                 .pulseCount(request.getPulseCount())
                 .build();
-        machineCycleRepository.save(cycle);
+        try {
+            machineCycleRepository.save(cycle);
+        } catch (DataIntegrityViolationException exception) {
+            // Backstop for the locked-fetch guard above, in case some future caller
+            // bypasses it: the partial unique index on machine_cycles(machine_id)
+            // WHERE status='IN_PROGRESS' is the last line of defense.
+            String cause = String.valueOf(exception.getMostSpecificCause().getMessage());
+            if (cause.contains("idx_machine_cycles_machine_in_progress")) {
+                throw new MachineNotAvailableException(
+                        "Machine " + request.getMachineId() + " already has an active cycle");
+            }
+            throw exception;
+        }
         meterRegistry.counter("machine.cycle.started.total",
                 "machine_id", request.getMachineId(),
                 "cycle_type", cycleType.name()).increment();

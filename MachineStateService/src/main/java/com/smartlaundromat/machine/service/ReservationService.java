@@ -72,7 +72,10 @@ public class ReservationService {
     public ReservationResponse createReservation(CreateReservationRequest request) {
         requireEnabled();
 
-        Machine machine = machineRepository.findByMachineId(request.getMachineId())
+        // Locked fetch: holds the machine row for the rest of this transaction so
+        // the overlap check below and the reservation save are atomic against a
+        // second concurrent createReservation call for the same machine/slot.
+        Machine machine = machineRepository.findByMachineIdForUpdate(request.getMachineId())
                 .orElseThrow(() -> new MachineNotFoundException(
                         "Machine not found: " + request.getMachineId()));
 
@@ -122,7 +125,9 @@ public class ReservationService {
     @Transactional
     public ReservationResponse activateByReference(String transactionReference) {
         requireEnabled();
-        Reservation reservation = reservationRepository.findByTransactionReference(transactionReference)
+        // Locked fetch: prevents this read-then-write from racing a concurrent
+        // cancel/activate call or the hold-expiry sweep on the same reservation.
+        Reservation reservation = reservationRepository.findByTransactionReferenceForUpdate(transactionReference)
                 .orElseThrow(() -> new ReservationException(
                         "No reservation for transaction reference: " + transactionReference));
 
@@ -146,6 +151,38 @@ public class ReservationService {
         log.info("Reservation ACTIVATED: code={} machine={} ref={}",
                 reservation.getReservationCode(), reservation.getMachineId(), transactionReference);
         return toResponse(reservation, "Reservation is now active for its 1-hour slot");
+    }
+
+    // ── Cancel (payment failed, or never initiated) ──────────────────────────────
+
+    /**
+     * Releases a not-yet-activated hold, e.g. when the reservation-fee payment fails
+     * or the caller never proceeds to pay. Only {@code PENDING_PAYMENT} reservations
+     * can be cancelled — an already-{@code ACTIVE} one has been paid for and must go
+     * through support, not a silent cancel.
+     */
+    @Transactional
+    public ReservationResponse cancel(String transactionReference) {
+        requireEnabled();
+        // Locked fetch: same reasoning as activateByReference above.
+        Reservation reservation = reservationRepository.findByTransactionReferenceForUpdate(transactionReference)
+                .orElseThrow(() -> new ReservationException(
+                        "No reservation for transaction reference: " + transactionReference));
+
+        if (reservation.getStatus() == ReservationStatus.CANCELLED) {
+            return toResponse(reservation, "Reservation already cancelled");
+        }
+        if (reservation.getStatus() != ReservationStatus.PENDING_PAYMENT) {
+            throw new ReservationException(
+                    "Reservation cannot be cancelled from status " + reservation.getStatus());
+        }
+
+        reservation.setStatus(ReservationStatus.CANCELLED);
+        reservationRepository.save(reservation);
+
+        log.info("Reservation CANCELLED: code={} machine={} ref={}",
+                reservation.getReservationCode(), reservation.getMachineId(), transactionReference);
+        return toResponse(reservation, "Reservation hold released");
     }
 
     // ── Validate / consume (code + machine) ─────────────────────────────────────
@@ -257,6 +294,32 @@ public class ReservationService {
         if (!expirable.isEmpty()) {
             reservationRepository.saveAll(expirable);
             log.info("Expired {} overdue reservation(s)", expirable.size());
+        }
+    }
+
+    /**
+     * Releases holds that were created but never paid for within
+     * {@code reservation.hold-timeout-minutes}. Distinct from {@link #expireOverdue()}
+     * (which handles slots that elapsed with a valid, possibly-active reservation) —
+     * this handles the abandoned-checkout case, so the slot doesn't stay blocked until
+     * {@code slotEnd} just because a customer never completed payment.
+     *
+     * <p>Uses a single atomic {@code UPDATE ... WHERE status = PENDING_PAYMENT}
+     * (see {@link com.smartlaundromat.machine.repository.ReservationRepository#cancelStalePendingHolds})
+     * rather than a read-then-save loop: a read-then-write here would race
+     * {@link #activateByReference} — the row could be activated (paid) between this
+     * sweep's read and its write, and a blind save would silently cancel an
+     * already-paid reservation. The atomic UPDATE's WHERE clause makes it a no-op
+     * for any row that has left PENDING_PAYMENT by the time it runs.
+     */
+    @Scheduled(fixedDelayString = "${reservation.hold-check-ms:60000}")
+    @Transactional
+    public void releaseExpiredHolds() {
+        if (!isEnabled()) return;
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(reservationProperties.getHoldTimeoutMinutes());
+        int released = reservationRepository.cancelStalePendingHolds(cutoff);
+        if (released > 0) {
+            log.info("Released {} unpaid reservation hold(s)", released);
         }
     }
 

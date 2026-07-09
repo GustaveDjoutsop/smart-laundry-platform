@@ -518,6 +518,52 @@ class MachineServiceTest {
     }
 
     @Nested
+    class CancelReservation {
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnResponseOnSuccessfulCancel() {
+            // given
+            Map<String, Object> response = new HashMap<>();
+            response.put("status", "CANCELLED");
+
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.just(response));
+
+            // when
+            Map<String, Object> result = machineService.cancelReservation("ref-1");
+
+            // then
+            assertThat(result).isEqualTo(response);
+            verify(requestBodyUriSpec).uri("http://localhost:8082/api/reservations/cancel");
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnNullWhenCallFails() {
+            // given
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.error(new RuntimeException("Connection refused")));
+
+            // when
+            Map<String, Object> result = machineService.cancelReservation("ref-1");
+
+            // then
+            assertThat(result).isNull();
+        }
+    }
+
+    @Nested
     class MachineServiceUnavailableExceptionTest {
 
         @Test

@@ -137,6 +137,40 @@ class PaymentServiceTest {
         }
 
         @Test
+        void shouldRejectAsPendingPaymentWhenSaveRacesConcurrentInsert() {
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
+                    .thenReturn(Collections.emptyList());
+            when(transactionRepository.save(any(Transaction.class)))
+                    .thenThrow(new org.springframework.dao.DataIntegrityViolationException(
+                            "duplicate key value violates unique constraint idx_transactions_machine_pending",
+                            new RuntimeException("duplicate key value violates unique constraint \"idx_transactions_machine_pending\"")));
+
+            assertThatThrownBy(() -> paymentService.initiatePayment(request))
+                    .isInstanceOf(PaymentException.class)
+                    .hasMessageContaining("pending payment");
+
+            verifyNoInteractions(campayService, mtnMomoService, orangeMoneyService);
+        }
+
+        @Test
+        void shouldRethrowUnrelatedDataIntegrityViolations() {
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
+                    .thenReturn(Collections.emptyList());
+            when(transactionRepository.save(any(Transaction.class)))
+                    .thenThrow(new org.springframework.dao.DataIntegrityViolationException(
+                            "value too long for type character varying(30)",
+                            new RuntimeException("value too long for type character varying(30)")));
+
+            assertThatThrownBy(() -> paymentService.initiatePayment(request))
+                    .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class)
+                    .isNotInstanceOf(PaymentException.class);
+
+            verifyNoInteractions(campayService, mtnMomoService, orangeMoneyService);
+        }
+
+        @Test
         void shouldUseMtnProviderWhenRequested() {
             request.setProvider(PaymentProvider.MTN);
             when(machineAvailabilityClient.isAvailable(anyString())).thenReturn(true);

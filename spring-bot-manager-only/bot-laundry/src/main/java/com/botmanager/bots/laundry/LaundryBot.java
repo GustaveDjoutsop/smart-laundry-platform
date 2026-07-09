@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -35,6 +36,8 @@ public class LaundryBot extends BaseBot implements ProactiveNotifier {
     private final TranslationService translationService;
     private final MachineService machineService;
     private final TransactionClient transactionClient;
+    private final FeedbackService feedbackService;
+    private final LaundryBotConfig laundryConfig;
 
     public LaundryBot(LaundryBotConfig config,
                       FlowEngine flowEngine,
@@ -52,6 +55,8 @@ public class LaundryBot extends BaseBot implements ProactiveNotifier {
         this.translationService = translationService;
         this.machineService = machineService;
         this.transactionClient = transactionClient;
+        this.feedbackService = feedbackService;
+        this.laundryConfig = config;
         this.plugin = new LaundryFlowPlugin(paymentGateway, machineService, translationService, config, pricingClient, transactionClient, feedbackService);
 
         machineService.registerBot(config);
@@ -192,52 +197,45 @@ public class LaundryBot extends BaseBot implements ProactiveNotifier {
         String machineId = (String) metadata.get("machineId");
         String reservationDate = (String) metadata.get("reservationDate");
         String reservationTime = (String) metadata.get("reservationTime");
+        String reservationCode = (String) metadata.get("reservationCode");
+        String transactionReference = (String) metadata.get("reservationTransactionReference");
 
         log.info("Reservation payment confirmed for customer={}, machine={}, date={}, time={}",
                 customerPhone, machineId, reservationDate, reservationTime);
 
-        // Build the slot start datetime for MachineStateService
-        String slotStartIso = reservationDate + "T" + reservationTime + ":00";
+        // The hold was already created — and the slot's availability already
+        // confirmed — before payment was initiated (LaundryFlowPlugin.handleInitiateReservation).
+        // Only activation remains here.
+        Map<String, Object> activationResponse = machineService.activateReservation(transactionReference);
+        if (activationResponse == null) {
+            log.error("Reservation payment confirmed but activation failed for customer={}, machine={}, transactionReference={}",
+                    customerPhone, machineId, transactionReference);
 
-        // Create the reservation in MachineStateService
-        Map<String, Object> reservationResponse = machineService.createReservation(
-                machineId, customerPhone, slotStartIso);
+            Map<String, Object> alertVars = new HashMap<>();
+            alertVars.put("machine", machineName);
+            alertVars.put("phone", customerPhone);
+            alertVars.put("amount", record.getAmount());
+            alertVars.put("transactionReference", transactionReference != null ? transactionReference : "unknown");
+            feedbackService.sendStaffAlert(laundryConfig, "staff_alert_reservation_failed", alertVars);
 
-        if (reservationResponse != null) {
-            String reservationCode = (String) reservationResponse.get("reservationCode");
-            String transactionReference = (String) reservationResponse.get("transactionReference");
-
-            // Activate the reservation immediately since payment is already confirmed
-            Map<String, Object> activationResponse = machineService.activateReservation(transactionReference);
-            if (activationResponse == null) {
-                log.error("Reservation created (code={}) but activation failed for customer={}, machine={}, transactionReference={}",
-                        reservationCode, customerPhone, machineId, transactionReference);
-                String message = translationService.translate("reservation_creation_failed", lang, Map.of(
-                        "machine", machineName
-                ));
-                sendMessage(customerPhone, message);
-                return;
-            }
-
-            String message = translationService.translate("reservation_confirmed", lang, Map.of(
-                    "machine", machineName,
-                    "date", reservationDate != null ? reservationDate : "",
-                    "time", reservationTime != null ? reservationTime : "",
-                    "code", reservationCode != null ? reservationCode : "",
-                    "amount", record.getAmount()
-            ));
-
-            log.info("Reservation confirmed: code={}, machine={}, customer={}",
-                    reservationCode, machineName, customerPhone);
-            sendMessage(customerPhone, message);
-        } else {
-            log.error("Failed to create reservation after payment for customer={}, machine={}",
-                    customerPhone, machineId);
             String message = translationService.translate("reservation_creation_failed", lang, Map.of(
                     "machine", machineName
             ));
             sendMessage(customerPhone, message);
+            return;
         }
+
+        String message = translationService.translate("reservation_confirmed", lang, Map.of(
+                "machine", machineName,
+                "date", reservationDate != null ? reservationDate : "",
+                "time", reservationTime != null ? reservationTime : "",
+                "code", reservationCode != null ? reservationCode : "",
+                "amount", record.getAmount()
+        ));
+
+        log.info("Reservation confirmed: code={}, machine={}, customer={}",
+                reservationCode, machineName, customerPhone);
+        sendMessage(customerPhone, message);
     }
 
     @Override
@@ -249,6 +247,15 @@ public class LaundryBot extends BaseBot implements ProactiveNotifier {
         Language lang = resolveLanguage(metadata);
         String machineName = (String) metadata.getOrDefault("machineName", "machine");
         String reason = extractFailureReason(record, lang);
+
+        // For reservations, the hold was created before payment; a failed payment
+        // must release it rather than leaving the slot blocked until it times out.
+        if (Boolean.TRUE.equals(metadata.get("isReservation"))) {
+            String transactionReference = (String) metadata.get("reservationTransactionReference");
+            if (transactionReference != null) {
+                machineService.cancelReservation(transactionReference);
+            }
+        }
 
         String message = translationService.translate("payment_failed_notification", lang, Map.of(
                 "machine", machineName,

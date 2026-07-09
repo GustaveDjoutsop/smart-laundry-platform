@@ -280,6 +280,12 @@ public class TranslationService {
         addTranslation("campay_err_generic",
                 "Payment request failed. Please try again.",
                 "La demande de paiement a échoué. Veuillez réessayer.");
+        addTranslation("err_machine_busy",
+                "❌ This machine was just taken by another customer. Please choose a different machine or try again in a moment.",
+                "❌ Cette machine vient d'être prise par un autre client. Veuillez choisir une autre machine ou réessayer dans un instant.");
+        addTranslation("err_pending_payment",
+                "❌ There's already a payment in progress for this machine. Please wait a moment and try again.",
+                "❌ Un paiement est déjà en cours pour cette machine. Veuillez patienter un instant et réessayer.");
 
         // Reservation
         addTranslation("btn_reserve", "📅 Reserve", "📅 Réserver");
@@ -319,11 +325,20 @@ public class TranslationService {
         addTranslation("reservation_creation_failed",
                 "⚠️ Your payment was confirmed but we could not finalize the reservation for {machine}. Please contact support.\n\nType 'start' for the main menu.",
                 "⚠️ Votre paiement a été confirmé mais nous n'avons pas pu finaliser la réservation pour {machine}. Veuillez contacter le support.\n\nTapez 'start' pour le menu principal.");
+        addTranslation("reservation_slot_unavailable",
+                "❌ Sorry, that slot for {machine} was just taken by another customer. Please choose a different time or machine.\n\nNo payment was taken.\n\nType 'start' for the main menu.",
+                "❌ Désolé, ce créneau pour {machine} vient d'être pris par un autre client. Veuillez choisir une autre heure ou une autre machine.\n\nAucun paiement n'a été prélevé.\n\nTapez 'start' pour le menu principal.");
+        addTranslation("reservation_upcoming",
+                "⏰ *Reminder!*\n\n🖥️ Machine: {machine}\n🕐 Your reservation starts in about {minutes} minute(s).\n🔑 Code: {code}\n\nPlease head to the laundromat soon.",
+                "⏰ *Rappel!*\n\n🖥️ Machine: {machine}\n🕐 Votre réservation commence dans environ {minutes} minute(s).\n🔑 Code: {code}\n\nVeuillez vous rendre bientôt à la laverie.");
 
         // Staff alert
         addTranslation("staff_alert_low_rating",
                 "⚠️ *LOW RATING ALERT*\n\n\uD83D\uDCCD Machine: {machine}\n\uD83D\uDCF1 Customer: {phone}\n⭐ Rating: {rating}/5\n\uD83D\uDCAC Comment: {comment}\n\uD83D\uDD50 Time: {time}\n\nPlease follow up with the customer.",
                 "⚠️ *ALERTE NOTE BASSE*\n\n\uD83D\uDCCD Machine: {machine}\n\uD83D\uDCF1 Client: {phone}\n⭐ Note: {rating}/5\n\uD83D\uDCAC Commentaire: {comment}\n\uD83D\uDD50 Heure: {time}\n\nVeuillez faire un suivi avec le client.");
+        addTranslation("staff_alert_reservation_failed",
+                "⚠️ *RESERVATION RECONCILIATION NEEDED*\n\n📍 Machine: {machine}\n📱 Customer: {phone}\n💰 Amount charged: {amount} XAF\n🧾 Transaction ref: {transactionReference}\n🕐 Time: {time}\n\nPayment succeeded but the reservation could not be activated. Please manually verify/refund.",
+                "⚠️ *RÉCONCILIATION DE RÉSERVATION NÉCESSAIRE*\n\n📍 Machine: {machine}\n📱 Client: {phone}\n💰 Montant prélevé: {amount} XAF\n🧾 Réf. transaction: {transactionReference}\n🕐 Heure: {time}\n\nLe paiement a réussi mais la réservation n'a pas pu être activée. Veuillez vérifier/rembourser manuellement.");
     }
 
 }

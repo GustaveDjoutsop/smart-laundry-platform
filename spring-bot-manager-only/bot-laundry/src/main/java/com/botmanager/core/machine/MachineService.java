@@ -231,6 +231,36 @@ public class MachineService {
         }
     }
 
+    /**
+     * Cancels a not-yet-activated reservation via MachineStateService, releasing the
+     * hold on the slot (e.g. when the reservation-fee payment fails or is never
+     * initiated). Safe to call even if the reservation was never created.
+     *
+     * @return the cancellation response map, or null if the call failed
+     */
+    public Map<String, Object> cancelReservation(String transactionReference) {
+        try {
+            Map<String, Object> body = new HashMap<>();
+            body.put("transactionReference", transactionReference);
+
+            log.info("Cancelling reservation via MachineStateService: transactionReference={}", transactionReference);
+
+            Map<String, Object> response = callMachineService(() -> webClient.post()
+                    .uri(machineStateServiceUrl + "/api/reservations/cancel")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                    .block());
+
+            log.info("Reservation cancelled successfully: {}", response);
+            return response;
+        } catch (Exception exception) {
+            log.error("Failed to cancel reservation with ref {}: {}", transactionReference, exception.getMessage());
+            return null;
+        }
+    }
+
     @EventListener
     public void onPaymentCompleted(PaymentEventPublisher.PaymentCompletedEvent event) {
         PaymentRecord record = event.getRecord();
