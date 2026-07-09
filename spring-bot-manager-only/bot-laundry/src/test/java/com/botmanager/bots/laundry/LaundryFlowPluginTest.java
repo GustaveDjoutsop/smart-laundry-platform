@@ -1735,19 +1735,20 @@ class LaundryFlowPluginTest {
         }
 
         @Test
-        void shouldAlertStaffOnLowRatingAfterCommentStep() {
-            // given — rating 1 is "low"; the staff alert fires once the comment step
-            // (skip or real comment) completes, not at rating time.
+        void shouldAlertStaffOnLowRatingImmediately() {
+            // given — rating 1 is "low"; the staff alert fires as soon as the rating is
+            // submitted, not after the (optional) comment step, so a customer who never
+            // replies again still triggers a timely alert.
             laundryConfig.setStaffAlertPhone("+237699999999");
             WhatsAppClient staffClient = mock(WhatsAppClient.class);
             when(whatsAppClientFactory.getClient(laundryConfig.getBotId(), laundryConfig.getPhoneNumberId()))
                     .thenReturn(staffClient);
 
-            FlowContext context = ratedContext("feedback_1");
-            context.set("userInput", "skip");
+            FlowContext context = createContext();
+            context.set("userInput", "feedback_1");
 
             // when
-            plugin.handleAction("feedback.processComment", Map.of(), context);
+            plugin.handleAction("feedback.processRating", Map.of(), context);
 
             // then
             verify(staffClient).sendText(eq("+237699999999"), anyString());

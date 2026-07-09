@@ -67,10 +67,11 @@ public class BotNotificationClient {
      * so the caller (CycleCompletionService) can retry on its next poll.
      */
     public void sendCycleCompleted(Transaction tx, String endTime) {
+        String transactionId = tx.getExternalReference() != null ? tx.getExternalReference() : "unknown";
         postNotification(tx.getPhoneNumber(), "cycle_completed", Map.of(
                 "machine", tx.getMachineId(),
                 "endTime", endTime,
-                "transactionId", tx.getExternalReference()
+                "transactionId", transactionId
         ));
 
         log.info("Sent cycle-completed notification: tx={}, machine={}",

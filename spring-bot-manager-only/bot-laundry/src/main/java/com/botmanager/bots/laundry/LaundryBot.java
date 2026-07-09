@@ -83,6 +83,15 @@ public class LaundryBot extends BaseBot implements ProactiveNotifier {
      * so a customer running multiple machines isn't interrupted mid-visit) and
      * only once per 24h (Redis dedup, same setIfAbsent pattern MessageProcessor
      * uses for inbound message dedup).
+     *
+     * <p>Reloads conversation state fresh right before mutating it (rather than
+     * reusing the state loaded earlier in sendProactiveNotification), to pick up
+     * whatever the customer's own in-flight reply may have just written during
+     * the getActiveCycles round-trip above. There's still no per-conversation
+     * locking on the conv:{botId}:{phone} key (none exists anywhere in this
+     * codebase today — BaseBot.handleMessage has the same gap), so a genuinely
+     * concurrent inbound message can still race this save. Accepted for now;
+     * would need real locking to close completely.
      */
     private void maybeSendFeedbackRequest(String phone, Map<String, Object> params, Language lang) {
         if (params == null) {

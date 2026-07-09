@@ -1078,6 +1078,12 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
                 goTo(context, "await_menu");
             } else {
+                // Alert staff immediately — don't wait for the optional comment step, since a
+                // customer who just had a bad experience may not reply again. The comment (if any)
+                // isn't available yet at this point; staff can follow up directly with the customer.
+                feedbackService.getFeedback(result.getFeedbackId())
+                        .ifPresent(record -> feedbackService.sendStaffAlert(laundryConfig, record));
+
                 context.set("responseMessage", result.getMessage());
                 context.set("responseButtons", List.of());
                 context.set("step", LaundryStep.AWAITING_FEEDBACK_COMMENT);
@@ -1095,7 +1101,6 @@ public class LaundryFlowPlugin extends FlowPlugin {
         String inputLower = input != null ? input.toLowerCase() : "";
         Language lang = getLang(context);
         String feedbackId = context.getString("feedbackId");
-        Integer rating = (Integer) context.get("feedbackRating");
 
         FeedbackService.FeedbackResult result;
 
@@ -1114,11 +1119,6 @@ public class LaundryFlowPlugin extends FlowPlugin {
             }
         } else {
             return;
-        }
-
-        if (rating != null && rating != 5) {
-            feedbackService.getFeedback(feedbackId)
-                    .ifPresent(record -> feedbackService.sendStaffAlert(laundryConfig, record));
         }
 
         List<FlowState.ButtonOption> buttons = new ArrayList<>();
