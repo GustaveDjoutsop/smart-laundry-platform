@@ -39,7 +39,7 @@ class CycleReminderServiceTest {
     @InjectMocks
     CycleReminderService cycleReminderService;
 
-    private Transaction buildTransaction(LocalDateTime updatedAt, int cycleDuration) {
+    private Transaction buildTransaction(LocalDateTime cycleStartedAt, int cycleDuration) {
         return Transaction.builder()
                 .externalReference("EXT-001")
                 .machineId("MACH-01")
@@ -48,7 +48,7 @@ class CycleReminderServiceTest {
                 .cycleDuration(cycleDuration)
                 .paymentProvider(PaymentProvider.CAMPAY)
                 .status(PaymentStatus.SUCCESSFUL)
-                .updatedAt(updatedAt)
+                .cycleStartedAt(cycleStartedAt)
                 .build();
     }
 
@@ -205,6 +205,44 @@ class CycleReminderServiceTest {
 
         verifyNoInteractions(botNotificationClient);
         verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldSkipTransactionWithNullCycleStartedAt() {
+        when(paymentConfig.getReminderLookbackMinutes()).thenReturn(90);
+
+        Transaction tx = buildTransaction(LocalDateTime.now().minusMinutes(27), 30);
+        tx.setCycleStartedAt(null);
+        when(transactionRepository.findByStatusAndReminderSentAtIsNullAndUpdatedAtAfter(
+                eq(PaymentStatus.SUCCESSFUL), any(LocalDateTime.class)))
+                .thenReturn(List.of(tx));
+
+        cycleReminderService.checkAlmostDoneCycles();
+
+        verifyNoInteractions(botNotificationClient);
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldComputeCycleEndFromCycleStartedAtNotUpdatedAt() {
+        when(paymentConfig.getReminderLookbackMinutes()).thenReturn(90);
+        when(paymentConfig.getReminderMinutesBefore()).thenReturn(5);
+
+        // cycleStartedAt says 27 minutes ago (3 min left, inside the 5-min window), but
+        // updatedAt (as if refreshed by a prior @PreUpdate save, e.g. this job's own
+        // bookkeeping write on an earlier poll) says only 1 minute ago. If timing math
+        // incorrectly used updatedAt instead of cycleStartedAt, this would look like
+        // 29 minutes left and no reminder would be sent.
+        Transaction tx = buildTransaction(LocalDateTime.now().minusMinutes(27), 30);
+        tx.setUpdatedAt(LocalDateTime.now().minusMinutes(1));
+        when(transactionRepository.findByStatusAndReminderSentAtIsNullAndUpdatedAtAfter(
+                eq(PaymentStatus.SUCCESSFUL), any(LocalDateTime.class)))
+                .thenReturn(List.of(tx));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        cycleReminderService.checkAlmostDoneCycles();
+
+        verify(botNotificationClient).sendCycleAlmostDone(eq(tx), anyInt());
     }
 
     @Test

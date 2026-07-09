@@ -39,7 +39,7 @@ class CycleCompletionServiceTest {
     @InjectMocks
     CycleCompletionService cycleCompletionService;
 
-    private Transaction buildTransaction(LocalDateTime updatedAt, int cycleDuration) {
+    private Transaction buildTransaction(LocalDateTime cycleStartedAt, int cycleDuration) {
         return Transaction.builder()
                 .externalReference("EXT-001")
                 .machineId("MACH-01")
@@ -48,7 +48,7 @@ class CycleCompletionServiceTest {
                 .cycleDuration(cycleDuration)
                 .paymentProvider(PaymentProvider.CAMPAY)
                 .status(PaymentStatus.SUCCESSFUL)
-                .updatedAt(updatedAt)
+                .cycleStartedAt(cycleStartedAt)
                 .build();
     }
 
@@ -117,6 +117,61 @@ class CycleCompletionServiceTest {
 
         verifyNoInteractions(botNotificationClient);
         verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldSkipTransactionWithNullCycleStartedAt() {
+        when(paymentConfig.getReminderLookbackMinutes()).thenReturn(90);
+
+        Transaction tx = buildTransaction(LocalDateTime.now().minusMinutes(31), 30);
+        tx.setCycleStartedAt(null);
+        when(transactionRepository.findByStatusAndCompletedNotifiedAtIsNullAndUpdatedAtAfter(
+                eq(PaymentStatus.SUCCESSFUL), any(LocalDateTime.class)))
+                .thenReturn(List.of(tx));
+
+        cycleCompletionService.checkCompletedCycles();
+
+        verifyNoInteractions(botNotificationClient);
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldComputeCycleEndFromCycleStartedAtNotUpdatedAt() {
+        when(paymentConfig.getReminderLookbackMinutes()).thenReturn(90);
+
+        // cycleStartedAt says 31 minutes ago (already finished), but updatedAt (as if
+        // refreshed by CycleReminderService's own @PreUpdate-triggering save on an
+        // earlier poll) says only 1 minute ago. If timing math incorrectly used
+        // updatedAt instead of cycleStartedAt, this would look like still running
+        // and no completion notification would be sent.
+        Transaction tx = buildTransaction(LocalDateTime.now().minusMinutes(31), 30);
+        tx.setUpdatedAt(LocalDateTime.now().minusMinutes(1));
+        when(transactionRepository.findByStatusAndCompletedNotifiedAtIsNullAndUpdatedAtAfter(
+                eq(PaymentStatus.SUCCESSFUL), any(LocalDateTime.class)))
+                .thenReturn(List.of(tx));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        cycleCompletionService.checkCompletedCycles();
+
+        verify(botNotificationClient).sendCycleCompleted(eq(tx), anyString());
+    }
+
+    @Test
+    void shouldFormatEndTimeInDoualaTimezone() {
+        when(paymentConfig.getReminderLookbackMinutes()).thenReturn(90);
+
+        // Fixed cycleStartedAt far in the past so cycleEnd is unambiguously finished
+        // regardless of when this test runs. cycleEnd = 2026-01-01T12:30:00 (treated
+        // as UTC) -> Africa/Douala is UTC+1 year-round (WAT, no DST) -> 13:30.
+        Transaction tx = buildTransaction(LocalDateTime.of(2026, 1, 1, 12, 0), 30);
+        when(transactionRepository.findByStatusAndCompletedNotifiedAtIsNullAndUpdatedAtAfter(
+                eq(PaymentStatus.SUCCESSFUL), any(LocalDateTime.class)))
+                .thenReturn(List.of(tx));
+        when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        cycleCompletionService.checkCompletedCycles();
+
+        verify(botNotificationClient).sendCycleCompleted(tx, "13:30");
     }
 
     @Test

@@ -22,9 +22,12 @@ import java.util.List;
  *
  * <p>The candidate query is bounded by {@code updatedAt} (reminderLookbackMinutes,
  * comfortably above the longest cycle duration) to avoid scanning the whole
- * transactions table. {@code updatedAt} is used as a cycle-start proxy (stamped
- * when status flips to SUCCESSFUL) — do not re-save a SUCCESSFUL transaction for
- * unrelated reasons, or this will push cycleEnd forward and mis-time the reminder.
+ * transactions table — used only to bound the scan, not for timing math.
+ * {@code cycleEnd} is computed from {@code cycleStartedAt}, which is set once
+ * when status flips to SUCCESSFUL and never touched again. ({@code updatedAt}
+ * is refreshed by {@code @PreUpdate} on every save, including this job's own
+ * {@code reminderSentAt} bookkeeping write, so it isn't safe as a cycle-start
+ * anchor.)
  *
  * <p>If sending fails, {@code reminderSentAt} is left null so the next 60s poll
  * retries — naturally bounded by the reminder window itself (reminderMinutesBefore
@@ -52,11 +55,12 @@ public class CycleReminderService {
                 .findByStatusAndReminderSentAtIsNullAndUpdatedAtAfter(PaymentStatus.SUCCESSFUL, lookback);
 
         for (Transaction tx : candidates) {
-            if (!StringUtils.hasText(tx.getPhoneNumber()) || tx.getCycleDuration() == null) {
+            if (!StringUtils.hasText(tx.getPhoneNumber()) || tx.getCycleDuration() == null
+                    || tx.getCycleStartedAt() == null) {
                 continue;
             }
 
-            LocalDateTime cycleEnd = tx.getUpdatedAt().plusMinutes(tx.getCycleDuration());
+            LocalDateTime cycleEnd = tx.getCycleStartedAt().plusMinutes(tx.getCycleDuration());
             LocalDateTime reminderAt = cycleEnd.minusMinutes(paymentConfig.getReminderMinutesBefore());
 
             if (now.isBefore(reminderAt) || !now.isBefore(cycleEnd)) {

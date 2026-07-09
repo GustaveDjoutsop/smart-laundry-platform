@@ -23,6 +23,11 @@ import java.util.List;
  * Mirrors {@link CycleReminderService}'s scheduled-sweep style, sharing the
  * same {@code reminderLookbackMinutes} bound to keep the candidate query small.
  *
+ * <p>{@code cycleEnd} is computed from {@code cycleStartedAt} (set once when
+ * status flips to SUCCESSFUL, never touched again) — not {@code updatedAt},
+ * which is refreshed by {@code @PreUpdate} on every save, including this
+ * job's own and {@link CycleReminderService}'s bookkeeping writes.
+ *
  * <p>If sending fails, {@code completedNotifiedAt} is left null so the next
  * 60s poll retries. Unlike the almost-done reminder, there's no upper bound
  * on the retry window other than the shared lookback — once a candidate falls
@@ -49,11 +54,12 @@ public class CycleCompletionService {
                 .findByStatusAndCompletedNotifiedAtIsNullAndUpdatedAtAfter(PaymentStatus.SUCCESSFUL, lookback);
 
         for (Transaction tx : candidates) {
-            if (!StringUtils.hasText(tx.getPhoneNumber()) || tx.getCycleDuration() == null) {
+            if (!StringUtils.hasText(tx.getPhoneNumber()) || tx.getCycleDuration() == null
+                    || tx.getCycleStartedAt() == null) {
                 continue;
             }
 
-            LocalDateTime cycleEnd = tx.getUpdatedAt().plusMinutes(tx.getCycleDuration());
+            LocalDateTime cycleEnd = tx.getCycleStartedAt().plusMinutes(tx.getCycleDuration());
             if (now.isBefore(cycleEnd)) {
                 continue;
             }
