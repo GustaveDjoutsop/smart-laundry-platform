@@ -13,6 +13,10 @@ import com.botmanager.core.machine.MachineType;
 import com.botmanager.core.payment.PaymentGateway;
 import com.botmanager.core.payment.PaymentResult;
 import com.botmanager.core.payment.PaymentStatus;
+import com.botmanager.core.redis.RedisManager;
+import com.botmanager.core.whatsapp.WhatsAppClient;
+import com.botmanager.core.whatsapp.WhatsAppClientFactory;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -36,6 +40,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -47,11 +52,16 @@ class LaundryFlowPluginTest {
     @Mock
     MachineService machineService;
 
+    @Mock
+    WhatsAppClientFactory whatsAppClientFactory;
+
     TranslationService translationService;
 
     LaundryBotConfig laundryConfig;
 
     LaundryFlowPlugin plugin;
+
+    FeedbackService feedbackService;
 
     @BeforeEach
     void setUp() {
@@ -63,7 +73,14 @@ class LaundryFlowPluginTest {
                 laundryConfig.getReservation().getPrice());
         // TransactionClient with no RestTemplate — always returns null (no active cycle)
         TransactionClient transactionClient = new TransactionClient(null, "http://localhost:8081");
-        plugin = new LaundryFlowPlugin(paymentGateway, machineService, translationService, laundryConfig, pricingClient, transactionClient);
+        // Real FeedbackService backed by RedisManager's in-memory fallback (no Redis in unit tests —
+        // RedisManager.redisAvailable defaults to false when @PostConstruct init() never runs).
+        // JavaTimeModule is required to (de)serialize FeedbackRecord.submittedAt (an Instant).
+        ObjectMapper feedbackObjectMapper = new ObjectMapper().registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        feedbackService = new FeedbackService(new RedisManager(null, feedbackObjectMapper),
+                translationService, whatsAppClientFactory, feedbackObjectMapper);
+        plugin = new LaundryFlowPlugin(paymentGateway, machineService, translationService, laundryConfig,
+                pricingClient, transactionClient, feedbackService);
         // Inject a business-hours service that always allows cycles so tests
         // are not sensitive to the wall-clock time when CI happens to run.
         plugin.setBusinessHoursService(new BusinessHoursService("00:00", "23:59", 0, "UTC") {
@@ -1459,7 +1476,8 @@ class LaundryFlowPluginTest {
                     laundryConfig.getShortCycle().getPrice(), laundryConfig.getLongCycle().getPrice(),
                     laundryConfig.getReservation().getPrice());
             LaundryFlowPlugin pluginWithCycles = new LaundryFlowPlugin(
-                    paymentGateway, machineService, translationService, laundryConfig, pricingClient, client);
+                    paymentGateway, machineService, translationService, laundryConfig, pricingClient, client,
+                    feedbackService);
             FlowContext context = createContext();
 
             // when
@@ -1627,6 +1645,7 @@ class LaundryFlowPluginTest {
             // then
             assertThat(context.getString("responseMessage")).isNotBlank();
             assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_FEEDBACK_COMMENT);
+            assertThat(context.getString("feedbackId")).isNotBlank();
         }
 
         @Test
@@ -1658,8 +1677,8 @@ class LaundryFlowPluginTest {
         @ParameterizedTest
         @ValueSource(strings = {"skip", "passer"})
         void shouldSkipCommentWhenSkipEntered(String input) {
-            // given
-            FlowContext context = createContext();
+            // given — go through the rating step first so a real feedbackId exists
+            FlowContext context = ratedContext("feedback_3");
             context.set("userInput", input);
 
             // when
@@ -1673,7 +1692,7 @@ class LaundryFlowPluginTest {
         @Test
         void shouldAcceptValidFeedbackComment() {
             // given
-            FlowContext context = createContext();
+            FlowContext context = ratedContext("feedback_3");
             context.set("userInput", "The machine was noisy");
 
             // when
@@ -1687,7 +1706,7 @@ class LaundryFlowPluginTest {
         @Test
         void shouldRejectTooLongComment() {
             // given
-            FlowContext context = createContext();
+            FlowContext context = ratedContext("feedback_3");
             StringBuilder longComment = new StringBuilder();
             for (int i = 0; i < 110; i++) {
                 longComment.append("word ");
@@ -1704,7 +1723,7 @@ class LaundryFlowPluginTest {
         @Test
         void shouldHandleNullCommentInput() {
             // given
-            FlowContext context = createContext();
+            FlowContext context = ratedContext("feedback_3");
             context.set("userInput", null);
 
             // when
@@ -1712,8 +1731,49 @@ class LaundryFlowPluginTest {
 
             // then - should not throw, behavior is to skip gracefully (skip path)
             // With null input, inputLower becomes "", which is not "skip" or "passer",
-            // and input is null so the if (input != null && !input.isBlank()) check fails
-            // No explicit response set - just verifying no exception
+            // and input is null so the else-if branch is skipped too — no exception.
+        }
+
+        @Test
+        void shouldAlertStaffOnLowRatingImmediately() {
+            // given — rating 1 is "low"; the staff alert fires as soon as the rating is
+            // submitted, not after the (optional) comment step, so a customer who never
+            // replies again still triggers a timely alert.
+            laundryConfig.setStaffAlertPhone("+237699999999");
+            WhatsAppClient staffClient = mock(WhatsAppClient.class);
+            when(whatsAppClientFactory.getClient(laundryConfig.getBotId(), laundryConfig.getPhoneNumberId()))
+                    .thenReturn(staffClient);
+
+            FlowContext context = createContext();
+            context.set("userInput", "feedback_1");
+
+            // when
+            plugin.handleAction("feedback.processRating", Map.of(), context);
+
+            // then
+            verify(staffClient).sendText(eq("+237699999999"), anyString());
+        }
+
+        @Test
+        void shouldNotAlertStaffOnHighRating() {
+            // given — rating 5 never enters the comment step at all, so no alert either way
+            laundryConfig.setStaffAlertPhone("+237699999999");
+
+            FlowContext context = createContext();
+            context.set("userInput", "feedback_5");
+
+            // when
+            plugin.handleAction("feedback.processRating", Map.of(), context);
+
+            // then
+            verifyNoInteractions(whatsAppClientFactory);
+        }
+
+        private FlowContext ratedContext(String ratingInput) {
+            FlowContext context = createContext();
+            context.set("userInput", ratingInput);
+            plugin.handleAction("feedback.processRating", Map.of(), context);
+            return context;
         }
     }
 

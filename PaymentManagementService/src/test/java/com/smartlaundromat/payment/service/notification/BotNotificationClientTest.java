@@ -113,6 +113,7 @@ class BotNotificationClientTest {
         Map<String, Object> params = (Map<String, Object>) body.get("params");
         assertThat(params.get("machine")).isEqualTo("MACH-01");
         assertThat(params.get("endTime")).isEqualTo("14:30");
+        assertThat(params.get("transactionId")).isEqualTo("EXT-001");
     }
 
     @Test

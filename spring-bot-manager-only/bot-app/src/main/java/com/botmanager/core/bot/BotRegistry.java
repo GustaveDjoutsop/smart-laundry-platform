@@ -63,6 +63,8 @@ public class BotRegistry extends BotLookup {
 
     private final Environment environment;
 
+    private final com.botmanager.bots.laundry.FeedbackService feedbackService;
+
     @Autowired(required = false)
     private BusinessRepository businessRepository;
 
@@ -354,7 +356,8 @@ public class BotRegistry extends BotLookup {
                 TransactionClient transactionClient = new TransactionClient(restTemplate, pmsUrl);
                 yield new com.botmanager.bots.laundry.LaundryBot(
                         laundryConfig, flowEngine, redisManager, whatsAppClientFactory, objectMapper,
-                        paymentGateway, machineService, translationService, pricingClient, transactionClient);
+                        paymentGateway, machineService, translationService, pricingClient, transactionClient,
+                        feedbackService);
             }
             case THOMAS_NETWORK -> new com.botmanager.bots.thomasnetwork.ThomasNetworkBot(
                     config, flowEngine, redisManager, whatsAppClientFactory, objectMapper,

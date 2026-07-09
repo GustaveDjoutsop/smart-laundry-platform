@@ -25,6 +25,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
@@ -60,6 +61,9 @@ class LaundryBotTest {
     @Mock
     TransactionClient transactionClient;
 
+    @Mock
+    FeedbackService feedbackService;
+
     TranslationService translationService;
 
     ObjectMapper objectMapper;
@@ -79,9 +83,12 @@ class LaundryBotTest {
         lenient().when(whatsAppClientFactory.getClient("test-laundry", "phone-123"))
                 .thenReturn(whatsAppClient);
 
+        lenient().when(transactionClient.getActiveCycles(anyString())).thenReturn(java.util.List.of());
+        lenient().when(redisManager.setIfAbsent(anyString(), anyString(), anyLong())).thenReturn(true);
+
         laundryBot = new LaundryBot(config, flowEngine, redisManager,
                 whatsAppClientFactory, objectMapper, paymentGateway,
-                machineService, translationService, pricingClient, transactionClient);
+                machineService, translationService, pricingClient, transactionClient, feedbackService);
     }
 
     @Test
@@ -295,6 +302,86 @@ class LaundryBotTest {
 
             // then
             verify(whatsAppClient).sendText(eq("+237699999999"), contains("don't have any active"));
+        }
+
+        @Test
+        void shouldTriggerFeedbackRequestOnCycleCompletedWhenNoOtherActiveCycles() {
+            // given — this was the customer's last active cycle, and they haven't been asked today
+            when(redisManager.get("conv:test-laundry:+237690000000", com.botmanager.core.flow.ConversationState.class))
+                    .thenReturn(java.util.Optional.empty());
+            when(transactionClient.getActiveCycles("+237690000000")).thenReturn(java.util.List.of());
+            when(redisManager.setIfAbsent(eq("feedback-asked:test-laundry:+237690000000"), anyString(), eq(86400L)))
+                    .thenReturn(true);
+
+            // when
+            laundryBot.sendProactiveNotification("+237690000000", "cycle_completed",
+                    Map.of("machine", "washer_01", "endTime", "14:30", "transactionId", "EXT-001"));
+
+            // then — the generic completed message went out, then an interactive feedback prompt
+            verify(whatsAppClient).sendText(eq("+237690000000"), anyString());
+            @SuppressWarnings("unchecked")
+            org.mockito.ArgumentCaptor<java.util.List<com.botmanager.core.flow.FlowState.ButtonOption>> buttonsCaptor =
+                    org.mockito.ArgumentCaptor.forClass(java.util.List.class);
+            verify(whatsAppClient).sendButtons(eq("+237690000000"), anyString(), buttonsCaptor.capture());
+            assertThat(buttonsCaptor.getValue()).extracting(com.botmanager.core.flow.FlowState.ButtonOption::getId)
+                    .containsExactly("feedback_5", "feedback_3", "feedback_1");
+
+            org.mockito.ArgumentCaptor<com.botmanager.core.flow.ConversationState> stateCaptor =
+                    org.mockito.ArgumentCaptor.forClass(com.botmanager.core.flow.ConversationState.class);
+            verify(redisManager).setWithExpiry(eq("conv:test-laundry:+237690000000"), stateCaptor.capture(), eq(86400L));
+            com.botmanager.core.flow.ConversationState saved = stateCaptor.getValue();
+            assertThat(saved.getCurrentFlowId()).isEqualTo("laundry_flow");
+            assertThat(saved.getCurrentStateId()).isEqualTo("await_feedback_rating");
+            assertThat(saved.getContextValueAsString("feedbackTransactionId")).isEqualTo("EXT-001");
+            assertThat(saved.getContextValueAsString("feedbackMachineId")).isEqualTo("washer_01");
+        }
+
+        @Test
+        void shouldSkipFeedbackRequestWhenAnotherCycleIsStillActive() {
+            // given — customer is running a second machine, don't interrupt mid-visit
+            when(redisManager.get("conv:test-laundry:+237690000000", com.botmanager.core.flow.ConversationState.class))
+                    .thenReturn(java.util.Optional.empty());
+            when(transactionClient.getActiveCycles("+237690000000"))
+                    .thenReturn(java.util.List.of(Map.of("machineId", "dryer_02")));
+
+            // when
+            laundryBot.sendProactiveNotification("+237690000000", "cycle_completed",
+                    Map.of("machine", "washer_01", "endTime", "14:30", "transactionId", "EXT-001"));
+
+            // then
+            verify(whatsAppClient, never()).sendButtons(anyString(), anyString(), org.mockito.ArgumentMatchers.anyList());
+        }
+
+        @Test
+        void shouldSkipFeedbackRequestWhenAlreadyAskedWithinLast24h() {
+            // given
+            when(redisManager.get("conv:test-laundry:+237690000000", com.botmanager.core.flow.ConversationState.class))
+                    .thenReturn(java.util.Optional.empty());
+            when(transactionClient.getActiveCycles("+237690000000")).thenReturn(java.util.List.of());
+            when(redisManager.setIfAbsent(eq("feedback-asked:test-laundry:+237690000000"), anyString(), eq(86400L)))
+                    .thenReturn(false);
+
+            // when
+            laundryBot.sendProactiveNotification("+237690000000", "cycle_completed",
+                    Map.of("machine", "washer_01", "endTime", "14:30", "transactionId", "EXT-001"));
+
+            // then
+            verify(whatsAppClient, never()).sendButtons(anyString(), anyString(), org.mockito.ArgumentMatchers.anyList());
+        }
+
+        @Test
+        void shouldNotTriggerFeedbackRequestForOtherMessageKeys() {
+            // given
+            when(redisManager.get("conv:test-laundry:+237690000000", com.botmanager.core.flow.ConversationState.class))
+                    .thenReturn(java.util.Optional.empty());
+
+            // when
+            laundryBot.sendProactiveNotification("+237690000000", "cycle_almost_done",
+                    Map.of("machine", "washer_01", "minutes", 5));
+
+            // then
+            verify(whatsAppClient, never()).sendButtons(anyString(), anyString(), org.mockito.ArgumentMatchers.anyList());
+            verify(transactionClient, never()).getActiveCycles(anyString());
         }
     }
 

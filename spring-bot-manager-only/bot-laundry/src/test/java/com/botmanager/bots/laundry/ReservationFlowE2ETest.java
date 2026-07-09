@@ -31,6 +31,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
@@ -73,7 +74,7 @@ class ReservationFlowE2ETest {
                 config.getReservation().getPrice());
         TransactionClient transactionClient = new TransactionClient(null, "http://localhost:8081");
         plugin = new LaundryFlowPlugin(paymentGateway, machineService,
-                new TranslationService(), config, pricingClient, transactionClient);
+                new TranslationService(), config, pricingClient, transactionClient, mock(FeedbackService.class));
         plugin.setBusinessHoursService(new BusinessHoursService("00:00", "23:59", 0, "Africa/Douala"));
 
         // Mirrors AppConfig#objectMapper — the exact mapper BaseBot uses for Redis (de)serialization.
