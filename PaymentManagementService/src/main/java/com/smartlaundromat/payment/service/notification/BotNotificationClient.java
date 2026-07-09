@@ -69,7 +69,8 @@ public class BotNotificationClient {
     public void sendCycleCompleted(Transaction tx, String endTime) {
         postNotification(tx.getPhoneNumber(), "cycle_completed", Map.of(
                 "machine", tx.getMachineId(),
-                "endTime", endTime
+                "endTime", endTime,
+                "transactionId", tx.getExternalReference()
         ));
 
         log.info("Sent cycle-completed notification: tx={}, machine={}",

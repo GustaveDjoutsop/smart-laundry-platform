@@ -49,6 +49,8 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
     private final TransactionClient transactionClient;
 
+    private final FeedbackService feedbackService;
+
     private BusinessHoursService businessHoursService;
 
     void setBusinessHoursService(BusinessHoursService businessHoursService) {
@@ -1051,25 +1053,33 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
         try {
             int rating = Integer.parseInt(input.replace("feedback_", ""));
+            Language lang = getLang(context);
 
-            if (rating == 5) {
-                String message = t("feedback_thanks_high", context);
+            FeedbackService.FeedbackResult result = feedbackService.processRating(
+                    laundryConfig.getBotId(),
+                    context.getString("customerPhone"),
+                    context.getString("feedbackTransactionId"),
+                    context.getString("feedbackMachineId"),
+                    context.getString("feedbackMachineName"),
+                    rating,
+                    lang);
 
+            context.set("feedbackRating", rating);
+            context.set("feedbackId", result.getFeedbackId());
+
+            if (!result.isNeedsComment()) {
                 List<FlowState.ButtonOption> buttons = new ArrayList<>();
                 buttons.add(createButton("action_wash", t("btn_start_wash", context)));
                 buttons.add(createButton("action_cancel", t("btn_main_menu", context)));
 
-                context.set("responseMessage", message);
+                context.set("responseMessage", result.getMessage());
                 context.set("responseButtons", buttons);
                 context.set("step", LaundryStep.MAIN_MENU);
 
                 goTo(context, "await_menu");
             } else {
-                String message = t("feedback_thanks_low", context);
-
-                context.set("responseMessage", message);
+                context.set("responseMessage", result.getMessage());
                 context.set("responseButtons", List.of());
-                context.set("feedbackRating", rating);
                 context.set("step", LaundryStep.AWAITING_FEEDBACK_COMMENT);
 
                 goTo(context, "await_feedback_comment");
@@ -1083,51 +1093,43 @@ public class LaundryFlowPlugin extends FlowPlugin {
     private void handleProcessFeedbackComment(FlowContext context) {
         String input = context.getString("userInput");
         String inputLower = input != null ? input.toLowerCase() : "";
+        Language lang = getLang(context);
+        String feedbackId = context.getString("feedbackId");
+        Integer rating = (Integer) context.get("feedbackRating");
+
+        FeedbackService.FeedbackResult result;
 
         if ("skip".equals(inputLower) || "passer".equals(inputLower)) {
-            String message = t("feedback_skipped", context);
+            result = feedbackService.skipComment(feedbackId, lang);
+        } else if (input != null && !input.isBlank()) {
+            result = feedbackService.processComment(feedbackId, input, lang);
 
-            List<FlowState.ButtonOption> buttons = new ArrayList<>();
-            buttons.add(createButton("action_wash", t("btn_start_wash", context)));
-            buttons.add(createButton("action_cancel", t("btn_main_menu", context)));
-
-            context.set("responseMessage", message);
-            context.set("responseButtons", buttons);
-            context.set("step", LaundryStep.MAIN_MENU);
-
-            goTo(context, "await_menu");
-
-            return;
-        }
-
-        if (input != null && !input.isBlank()) {
-            int wordCount = input.split("\\s+").length;
-
-            if (wordCount > 100) {
-                String message = t("feedback_comment_too_long", context, Map.of("words", wordCount));
-
-                context.set("responseMessage", message);
+            if (result.isTooLong()) {
+                context.set("responseMessage", result.getMessage());
                 context.set("responseButtons", List.of());
 
                 goTo(context, "await_feedback_comment");
 
                 return;
             }
-
-            // TODO: Save feedback comment to database
-
-            String message = t("feedback_comment_received", context);
-
-            List<FlowState.ButtonOption> buttons = new ArrayList<>();
-            buttons.add(createButton("action_wash", t("btn_start_wash", context)));
-            buttons.add(createButton("action_cancel", t("btn_main_menu", context)));
-
-            context.set("responseMessage", message);
-            context.set("responseButtons", buttons);
-            context.set("step", LaundryStep.MAIN_MENU);
-
-            goTo(context, "await_menu");
+        } else {
+            return;
         }
+
+        if (rating != null && rating != 5) {
+            feedbackService.getFeedback(feedbackId)
+                    .ifPresent(record -> feedbackService.sendStaffAlert(laundryConfig, record));
+        }
+
+        List<FlowState.ButtonOption> buttons = new ArrayList<>();
+        buttons.add(createButton("action_wash", t("btn_start_wash", context)));
+        buttons.add(createButton("action_cancel", t("btn_main_menu", context)));
+
+        context.set("responseMessage", result.getMessage());
+        context.set("responseButtons", buttons);
+        context.set("step", LaundryStep.MAIN_MENU);
+
+        goTo(context, "await_menu");
     }
 
     // ========== Helpers ==========

@@ -5,12 +5,14 @@ import com.botmanager.core.bot.ProactiveNotifier;
 import com.botmanager.core.flow.ConversationState;
 import com.botmanager.core.flow.FlowEngine;
 import com.botmanager.core.flow.FlowPlugin;
+import com.botmanager.core.flow.FlowState;
 import com.botmanager.core.i18n.Language;
 import com.botmanager.core.i18n.TranslationService;
 import com.botmanager.core.machine.MachineService;
 import com.botmanager.core.payment.PaymentGateway;
 import com.botmanager.core.payment.PaymentRecord;
 import com.botmanager.core.redis.RedisManager;
+import com.botmanager.core.whatsapp.WhatsAppClient;
 import com.botmanager.core.whatsapp.WhatsAppClientFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -19,6 +21,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -26,10 +29,12 @@ public class LaundryBot extends BaseBot implements ProactiveNotifier {
 
     private static final ZoneId DOUALA_ZONE = ZoneId.of("Africa/Douala");
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
+    private static final long FEEDBACK_DEDUP_TTL_SECONDS = 86400; // 24h
 
     private final LaundryFlowPlugin plugin;
     private final TranslationService translationService;
     private final MachineService machineService;
+    private final TransactionClient transactionClient;
 
     public LaundryBot(LaundryBotConfig config,
                       FlowEngine flowEngine,
@@ -40,12 +45,14 @@ public class LaundryBot extends BaseBot implements ProactiveNotifier {
                       MachineService machineService,
                       TranslationService translationService,
                       PricingClient pricingClient,
-                      TransactionClient transactionClient) {
+                      TransactionClient transactionClient,
+                      FeedbackService feedbackService) {
 
         super(config, flowEngine, redisManager, whatsAppClientFactory, objectMapper);
         this.translationService = translationService;
         this.machineService = machineService;
-        this.plugin = new LaundryFlowPlugin(paymentGateway, machineService, translationService, config, pricingClient, transactionClient);
+        this.transactionClient = transactionClient;
+        this.plugin = new LaundryFlowPlugin(paymentGateway, machineService, translationService, config, pricingClient, transactionClient, feedbackService);
 
         machineService.registerBot(config);
 
@@ -64,6 +71,72 @@ public class LaundryBot extends BaseBot implements ProactiveNotifier {
         String message = translationService.translate(messageKey, lang, params != null ? params : Map.of());
         sendMessage(phone, message);
         log.info("Sent proactive notification: bot={}, phone={}, messageKey={}", config.getBotId(), phone, messageKey);
+
+        if ("cycle_completed".equals(messageKey)) {
+            maybeSendFeedbackRequest(phone, params, lang);
+        }
+    }
+
+    /**
+     * After a cycle-completed notification, asks for feedback — but only if
+     * this was the customer's last active cycle (checked via TransactionClient,
+     * so a customer running multiple machines isn't interrupted mid-visit) and
+     * only once per 24h (Redis dedup, same setIfAbsent pattern MessageProcessor
+     * uses for inbound message dedup).
+     */
+    private void maybeSendFeedbackRequest(String phone, Map<String, Object> params, Language lang) {
+        if (params == null) {
+            return;
+        }
+
+        List<Map<String, Object>> activeCycles = transactionClient.getActiveCycles(phone);
+        if (!activeCycles.isEmpty()) {
+            log.info("Skipping feedback request for {} — {} other active cycle(s)", phone, activeCycles.size());
+            return;
+        }
+
+        String dedupKey = "feedback-asked:" + config.getBotId() + ":" + phone;
+        if (!redisManager.setIfAbsent(dedupKey, "1", FEEDBACK_DEDUP_TTL_SECONDS)) {
+            log.info("Skipping feedback request for {} — already asked within the last 24h", phone);
+            return;
+        }
+
+        String machine = (String) params.get("machine");
+        String transactionId = (String) params.get("transactionId");
+
+        ConversationState state = loadConversationState(phone);
+        state.setContextValue("customerPhone", phone);
+        state.setContextValue("feedbackTransactionId", transactionId);
+        state.setContextValue("feedbackMachineId", machine);
+        state.setContextValue("feedbackMachineName", machine);
+        state.setCurrentFlowId("laundry_flow");
+        state.setCurrentStateId("await_feedback_rating");
+
+        String message = translationService.translate("feedback_request", lang,
+                Map.of("machine", machine != null ? machine : ""));
+        List<FlowState.ButtonOption> buttons = List.of(
+                ratingButton("feedback_5", "btn_rating_5", lang),
+                ratingButton("feedback_3", "btn_rating_3", lang),
+                ratingButton("feedback_1", "btn_rating_1", lang)
+        );
+
+        WhatsAppClient client = whatsAppClientFactory.getClient(config.getBotId(), config.getPhoneNumberId());
+        if (client != null) {
+            client.sendButtons(phone, message, buttons);
+        }
+
+        saveConversationState(phone, state);
+
+        log.info("Sent feedback request: bot={}, phone={}, transactionId={}", config.getBotId(), phone, transactionId);
+    }
+
+    private FlowState.ButtonOption ratingButton(String id, String translationKey, Language lang) {
+        FlowState.ButtonOption button = new FlowState.ButtonOption();
+        button.setId(id);
+        String title = translationService.translate(translationKey, lang);
+        button.setTitle(title.length() > 20 ? title.substring(0, 20) : title);
+
+        return button;
     }
 
     @Override

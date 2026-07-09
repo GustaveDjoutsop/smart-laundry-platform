@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -173,13 +174,15 @@ public class FeedbackService {
             String currentTime = ZonedDateTime.now(ZoneId.of(config.getBusinessHours().getTimezone()))
                     .format(TIME_FORMATTER);
 
-            String message = translationService.translate("staff_alert_low_rating", Language.EN, Map.of(
-                    "machine", feedback.getMachineName() != null ? feedback.getMachineName() : feedback.getMachineId(),
-                    "phone", feedback.getCustomerPhone(),
-                    "rating", feedback.getRating(),
-                    "comment", feedback.getComment() != null ? feedback.getComment() : "No comment provided",
-                    "time", currentTime
-            ));
+            Map<String, Object> vars = new HashMap<>();
+            String machine = feedback.getMachineName() != null ? feedback.getMachineName() : feedback.getMachineId();
+            vars.put("machine", machine != null ? machine : "unknown");
+            vars.put("phone", feedback.getCustomerPhone() != null ? feedback.getCustomerPhone() : "unknown");
+            vars.put("rating", feedback.getRating());
+            vars.put("comment", feedback.getComment() != null ? feedback.getComment() : "No comment provided");
+            vars.put("time", currentTime);
+
+            String message = translationService.translate("staff_alert_low_rating", Language.EN, vars);
 
             client.sendText(staffPhone, message);
 
