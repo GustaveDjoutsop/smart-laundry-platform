@@ -53,14 +53,35 @@ public class BotNotificationClient {
      * failure so the caller (CycleReminderService) can retry on its next poll.
      */
     public void sendCycleAlmostDone(Transaction tx, int minutesLeft) {
+        postNotification(tx.getPhoneNumber(), "cycle_almost_done", Map.of(
+                "machine", tx.getMachineId(),
+                "minutes", minutesLeft
+        ));
+
+        log.info("Sent almost-done reminder: tx={}, machine={}, minutesLeft={}",
+                tx.getExternalReference(), tx.getMachineId(), minutesLeft);
+    }
+
+    /**
+     * Notifies the customer that their cycle has finished. Throws on failure
+     * so the caller (CycleCompletionService) can retry on its next poll.
+     */
+    public void sendCycleCompleted(Transaction tx, String endTime) {
+        postNotification(tx.getPhoneNumber(), "cycle_completed", Map.of(
+                "machine", tx.getMachineId(),
+                "endTime", endTime
+        ));
+
+        log.info("Sent cycle-completed notification: tx={}, machine={}",
+                tx.getExternalReference(), tx.getMachineId());
+    }
+
+    private void postNotification(String phone, String messageKey, Map<String, Object> params) {
         Map<String, Object> body = Map.of(
                 "botId", botId,
-                "phone", tx.getPhoneNumber(),
-                "messageKey", "cycle_almost_done",
-                "params", Map.of(
-                        "machine", tx.getMachineId(),
-                        "minutes", minutesLeft
-                )
+                "phone", phone,
+                "messageKey", messageKey,
+                "params", params
         );
 
         String url = botManagerServiceUrl + "/api/notifications/send";
@@ -72,8 +93,5 @@ public class BotNotificationClient {
         call = Bulkhead.decorateSupplier(bulkhead, call);
         call = CircuitBreaker.decorateSupplier(circuitBreaker, call);
         call.get();
-
-        log.info("Sent almost-done reminder: tx={}, machine={}, minutesLeft={}",
-                tx.getExternalReference(), tx.getMachineId(), minutesLeft);
     }
 }

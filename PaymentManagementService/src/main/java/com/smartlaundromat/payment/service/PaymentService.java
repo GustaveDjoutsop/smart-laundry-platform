@@ -125,6 +125,7 @@ public class PaymentService {
         if ("SUCCESSFUL".equalsIgnoreCase(status)) {
             transaction.setStatus(PaymentStatus.SUCCESSFUL);
             transaction.setProviderReference(providerReference);
+            transaction.setCycleStartedAt(LocalDateTime.now());
             transactionRepository.save(transaction);
 
             log.info("Payment SUCCESSFUL — tx={}, machine={}, provider={}",

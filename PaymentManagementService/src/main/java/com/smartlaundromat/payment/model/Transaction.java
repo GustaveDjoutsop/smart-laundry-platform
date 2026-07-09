@@ -71,6 +71,19 @@ public class Transaction {
     @Column(name = "reminder_sent_at")
     private LocalDateTime reminderSentAt;
 
+    @Column(name = "completed_notified_at")
+    private LocalDateTime completedNotifiedAt;
+
+    /**
+     * Set once, when the payment for this cycle first succeeds — never
+     * touched again. Unlike {@code updatedAt} (refreshed by {@code @PreUpdate}
+     * on every save, including the reminder/completion jobs' own bookkeeping
+     * writes), this is safe to use as an immutable cycle-start anchor for
+     * computing cycleEnd = cycleStartedAt + cycleDuration.
+     */
+    @Column(name = "cycle_started_at")
+    private LocalDateTime cycleStartedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
