@@ -14,12 +14,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -76,10 +78,27 @@ class ReservationReminderServiceTest {
 
         reservationReminderService.checkUpcomingReservations();
 
-        verify(botNotificationClient).sendReservationUpcoming(eq(reservation), anyInt());
+        verify(botNotificationClient).sendReservationUpcoming(eq(reservation), anyInt(), anyString());
         ArgumentCaptor<Reservation> captor = ArgumentCaptor.forClass(Reservation.class);
         verify(reservationRepository).save(captor.capture());
         assertThat(captor.getValue().getReminderSentAt()).isNotNull();
+    }
+
+    @Test
+    void shouldFormatSlotEndAsHhMm() {
+        when(featureProperties.isReservationEnabled()).thenReturn(true);
+        when(reservationProperties.getReminderMinutesBefore()).thenReturn(15);
+
+        Reservation reservation = buildReservation(LocalDateTime.now().plusMinutes(10));
+        when(reservationRepository.findByStatusAndReminderSentAtIsNullAndSlotStartBefore(
+                eq(ReservationStatus.ACTIVE), any(LocalDateTime.class)))
+                .thenReturn(List.of(reservation));
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        reservationReminderService.checkUpcomingReservations();
+
+        String expectedSlotEnd = reservation.getSlotEnd().format(DateTimeFormatter.ofPattern("HH:mm"));
+        verify(botNotificationClient).sendReservationUpcoming(eq(reservation), anyInt(), eq(expectedSlotEnd));
     }
 
     @Test
@@ -123,7 +142,7 @@ class ReservationReminderServiceTest {
                 eq(ReservationStatus.ACTIVE), any(LocalDateTime.class)))
                 .thenReturn(List.of(reservation));
         doThrow(new RuntimeException("bot service unavailable"))
-                .when(botNotificationClient).sendReservationUpcoming(eq(reservation), anyInt());
+                .when(botNotificationClient).sendReservationUpcoming(eq(reservation), anyInt(), anyString());
 
         reservationReminderService.checkUpcomingReservations();
 
@@ -148,7 +167,7 @@ class ReservationReminderServiceTest {
         assertThatCode(() -> reservationReminderService.checkUpcomingReservations())
                 .doesNotThrowAnyException();
 
-        verify(botNotificationClient).sendReservationUpcoming(eq(reservation), anyInt());
+        verify(botNotificationClient).sendReservationUpcoming(eq(reservation), anyInt(), anyString());
         verify(reservationRepository).save(any(Reservation.class));
     }
 }

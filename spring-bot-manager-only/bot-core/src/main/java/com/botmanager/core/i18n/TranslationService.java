@@ -329,8 +329,8 @@ public class TranslationService {
                 "❌ Sorry, that slot for {machine} was just taken by another customer. Please choose a different time or machine.\n\nNo payment was taken.\n\nType 'start' for the main menu.",
                 "❌ Désolé, ce créneau pour {machine} vient d'être pris par un autre client. Veuillez choisir une autre heure ou une autre machine.\n\nAucun paiement n'a été prélevé.\n\nTapez 'start' pour le menu principal.");
         addTranslation("reservation_upcoming",
-                "⏰ *Reminder!*\n\n🖥️ Machine: {machine}\n🕐 Your reservation starts in about {minutes} minute(s).\n🔑 Code: {code}\n\nPlease head to the laundromat soon.",
-                "⏰ *Rappel!*\n\n🖥️ Machine: {machine}\n🕐 Votre réservation commence dans environ {minutes} minute(s).\n🔑 Code: {code}\n\nVeuillez vous rendre bientôt à la laverie.");
+                "⏰ *Your slot is starting soon!*\n\n🖥️ Machine: {machine}\n🕐 Starts in about {minutes} minute(s), until {slotEnd}.\n🔑 Code: {code}\n\nPlease come present this code at the machine to start it. If unclaimed after your slot ends, the reservation will be released.",
+                "⏰ *Votre créneau commence bientôt!*\n\n🖥️ Machine: {machine}\n🕐 Commence dans environ {minutes} minute(s), jusqu'à {slotEnd}.\n🔑 Code: {code}\n\nVeuillez présenter ce code à la machine pour la démarrer. S'il n'est pas utilisé avant la fin du créneau, la réservation sera libérée.");
 
         // Reservation redemption
         addTranslation("btn_redeem_code", "🔑 I Have a Reservation Code", "🔑 J'ai un Code de Réservation");

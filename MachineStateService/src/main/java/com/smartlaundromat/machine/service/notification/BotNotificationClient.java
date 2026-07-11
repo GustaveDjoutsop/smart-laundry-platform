@@ -52,11 +52,12 @@ public class BotNotificationClient {
      * failure so the caller ({@code ReservationReminderService}) can retry on
      * its next poll.
      */
-    public void sendReservationUpcoming(Reservation reservation, int minutesBefore) {
+    public void sendReservationUpcoming(Reservation reservation, int minutesBefore, String slotEndStr) {
         postNotification(reservation.getCustomerPhone(), "reservation_upcoming", Map.of(
                 "machine", reservation.getMachineId(),
                 "minutes", minutesBefore,
-                "code", reservation.getReservationCode()
+                "code", reservation.getReservationCode(),
+                "slotEnd", slotEndStr
         ));
 
         log.info("Sent reservation-upcoming reminder: code={}, machine={}, minutesBefore={}",

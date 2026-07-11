@@ -198,7 +198,8 @@ class TranslationServiceTest {
     @Test
     void shouldTranslateReservationUpcomingReminder() {
         // given
-        Map<String, Object> variables = Map.of("machine", "Washer 1", "minutes", 15, "code", "AB12CD");
+        Map<String, Object> variables = Map.of(
+                "machine", "Washer 1", "minutes", 15, "code", "AB12CD", "slotEnd", "11:00");
 
         // when
         String result = translationService.translate("reservation_upcoming", Language.EN, variables);
@@ -207,6 +208,7 @@ class TranslationServiceTest {
         assertThat(result).contains("Washer 1");
         assertThat(result).contains("15 minute(s)");
         assertThat(result).contains("AB12CD");
+        assertThat(result).contains("11:00");
     }
 
     @Test
