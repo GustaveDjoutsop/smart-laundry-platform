@@ -83,21 +83,39 @@ jobs:
           echo "Deploying to Railway..."
           railway up --service "$SERVICE_ID"
 
-          echo "Waiting 90s for container startup..."
-          sleep 90
+          # Fixed 90s sleep + single log snapshot was too flaky: Flyway migrations + DB pool
+          # init can push Spring Boot startup past 90s, and a stale-but-fine app would show
+          # neither the success nor failure marker in one snapshot. Poll instead, exiting as
+          # soon as either marker appears, capped at 240s total.
+          MAX_WAIT=240
+          INTERVAL=15
+          ELAPSED=0
+          STATUS="timeout"
+          LOGS=""
 
-          echo "Fetching deployment logs..."
-          LOGS=$(railway logs --service "$SERVICE_ID" --tail 100 2>&1 \
-                 || railway logs --tail 100 2>&1 \
-                 || echo "")
+          echo "Polling for startup confirmation (up to ${MAX_WAIT}s)..."
+          while [ "$ELAPSED" -lt "$MAX_WAIT" ]; do
+            sleep "$INTERVAL"
+            ELAPSED=$((ELAPSED + INTERVAL))
+            LOGS=$(railway logs --service "$SERVICE_ID" --tail 100 2>&1 \
+                   || railway logs --tail 100 2>&1 \
+                   || echo "")
+
+            if echo "$LOGS" | grep -qE "Started .+ in [0-9]"; then
+              STATUS="success"; break
+            fi
+            if echo "$LOGS" | grep -qE "APPLICATION FAILED TO START|Exception encountered during context initialization|BeanCreationException"; then
+              STATUS="failed"; break
+            fi
+            echo "  ...${ELAPSED}s elapsed, not started yet, checking again..."
+          done
+
           echo "--- Last 40 log lines ---"
           echo "$LOGS" | tail -40
           echo "-------------------------"
 
-          if echo "$LOGS" | grep -qE "Started .+ in [0-9]"; then
-            echo "✓ Spring Boot started successfully"; exit 0
-          fi
-          if echo "$LOGS" | grep -qE "APPLICATION FAILED TO START|Exception encountered during context initialization|BeanCreationException"; then
-            echo "✗ Application startup failed — check logs above"; exit 1
-          fi
-          echo "✗ Could not determine startup status from logs"; exit 1
+          case "$STATUS" in
+            success) echo "✓ Spring Boot started successfully"; exit 0 ;;
+            failed)  echo "✗ Application startup failed — check logs above"; exit 1 ;;
+            *)       echo "✗ Could not confirm startup within ${MAX_WAIT}s — check logs above"; exit 1 ;;
+          esac
