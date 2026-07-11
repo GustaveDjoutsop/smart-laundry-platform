@@ -107,7 +107,16 @@ public class ReservationClient {
                 return Optional.empty();
             }
             Object slotStart = response.get("conflictingSlotStart");
-            return Optional.ofNullable(slotStart).map(Object::toString).map(LocalDateTime::parse);
+            if (slotStart == null) {
+                // A reported conflict with no slot details is a malformed response, not "no
+                // conflict" — treating it as empty here would silently let a charge/start
+                // through despite MachineStateService saying there's an overlap.
+                throw new PaymentException("RESERVATION_STATUS_UNKNOWN",
+                        "Reservation conflict reported for machine " + machineId + " but slot details were missing");
+            }
+            return Optional.of(LocalDateTime.parse(slotStart.toString()));
+        } catch (PaymentException e) {
+            throw e;
         } catch (Exception e) {
             log.warn("ReservationClient: could not check reservation conflicts for machine {} — failing closed: {}",
                     machineId, e.getMessage());

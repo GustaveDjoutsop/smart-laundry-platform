@@ -92,6 +92,19 @@ class ReservationClientTest {
     }
 
     @Test
+    void shouldThrowWhenConflictReportedButSlotStartMissing() {
+        // A malformed "conflict=true, no slotStart" response must fail closed, not be
+        // silently treated as "no conflict".
+        when(restTemplate.getForObject(
+                eq("http://localhost:8082/api/reservations/conflicts?machineId=MACH-01&durationMinutes=60"), eq(Map.class)))
+                .thenReturn(Map.of("conflict", true));
+
+        assertThatThrownBy(() -> client.checkConflict("MACH-01", 60, null))
+                .isInstanceOf(PaymentException.class)
+                .hasMessageContaining("slot details were missing");
+    }
+
+    @Test
     void shouldThrowReservationStatusUnknownWhenConflictCheckFails() {
         when(restTemplate.getForObject(anyString(), eq(Map.class)))
                 .thenThrow(new RuntimeException("Connection refused"));

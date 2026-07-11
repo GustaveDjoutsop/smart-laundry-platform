@@ -224,6 +224,17 @@ class ReservationControllerTest {
 
     @Test
     @WithMockUser(authorities = "SCOPE_sls-reservation-read")
+    void shouldReturn400WhenDurationMinutesIsNotPositive() throws Exception {
+        // when / then
+        mockMvc.perform(get("/api/reservations/conflicts")
+                        .param("machineId", "washer_01")
+                        .param("durationMinutes", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    @WithMockUser(authorities = "SCOPE_sls-reservation-read")
     void shouldListReservationsForMachine() throws Exception {
         // given
         Reservation reservation = Reservation.builder()
