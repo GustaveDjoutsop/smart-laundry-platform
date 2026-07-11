@@ -596,7 +596,7 @@ class MachineServiceTest {
             response.put("slotEnd", "2026-06-11T11:00:00");
 
             when(webClient.get()).thenReturn(requestHeadersUriSpec);
-            when(requestHeadersUriSpec.uri(anyString())).thenReturn(requestHeadersSpec);
+            when(requestHeadersUriSpec.uri(anyString(), any(Object.class))).thenReturn(requestHeadersSpec);
             when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
             when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
                     .thenReturn(Mono.just(response));
@@ -606,7 +606,7 @@ class MachineServiceTest {
 
             // then
             assertThat(result).contains(response);
-            verify(requestHeadersUriSpec).uri("http://localhost:8082/api/reservations/RES-ABC123");
+            verify(requestHeadersUriSpec).uri("http://localhost:8082/api/reservations/{code}", "RES-ABC123");
         }
 
         @SuppressWarnings("unchecked")
@@ -614,7 +614,7 @@ class MachineServiceTest {
         void shouldReturnEmptyWhenCallFails() {
             // given
             when(webClient.get()).thenReturn(requestHeadersUriSpec);
-            when(requestHeadersUriSpec.uri(anyString())).thenReturn(requestHeadersSpec);
+            when(requestHeadersUriSpec.uri(anyString(), any(Object.class))).thenReturn(requestHeadersSpec);
             when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
             when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
                     .thenReturn(Mono.error(new RuntimeException("404 Not Found")));

@@ -403,10 +403,8 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
         String code = input.trim().toUpperCase();
 
-        // Reject anything outside the reservation code's own alphabet before it ever reaches a
-        // URL path segment (getReservationByCode appends it directly, unencoded) — a raw WhatsApp
-        // message could otherwise contain '/', '?', or other characters that corrupt or hijack
-        // the request path.
+        // Reject anything outside the reservation code's own alphabet before spending a round
+        // trip on it — a raw WhatsApp message could otherwise contain arbitrary characters.
         if (!RESERVATION_CODE_PATTERN.matcher(code).matches()) {
             showRedeemRetry(context, t("redeem_code_not_found", context));
             return;
@@ -419,6 +417,11 @@ public class LaundryFlowPlugin extends FlowPlugin {
         }
 
         String machineId = (String) reservationOpt.get().get("machineId");
+        if (machineId == null || machineId.isBlank()) {
+            log.warn("Reservation lookup for code {} returned no machineId — treating as not found", code);
+            showRedeemRetry(context, t("redeem_code_not_found", context));
+            return;
+        }
 
         Optional<Map<String, Object>> validationOpt = machineService.validateReservation(code, machineId);
         boolean valid = validationOpt.isPresent() && Boolean.TRUE.equals(validationOpt.get().get("valid"));

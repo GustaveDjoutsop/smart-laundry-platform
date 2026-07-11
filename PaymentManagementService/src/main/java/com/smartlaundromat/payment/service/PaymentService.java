@@ -57,6 +57,17 @@ public class PaymentService {
             throw new PaymentException("MACHINE_BUSY",
                     "Machine " + request.getMachineId() + " is not available");
         }
+        // Checked before the reservation-code/conflict validation below (both remote calls): a
+        // machine already mid-checkout should be rejected as PENDING_PAYMENT from local state
+        // alone, without spending a round-trip (and risking a fail-closed error) on a request
+        // that's going to be rejected regardless of reservation state.
+        List<Transaction> pendingPayments = transactionRepository
+                .findByMachineIdAndStatus(request.getMachineId(), PaymentStatus.PENDING);
+        if (!pendingPayments.isEmpty()) {
+            log.warn("Machine {} has a pending payment, rejecting new payment request", request.getMachineId());
+            throw new PaymentException("PENDING_PAYMENT",
+                    "Machine " + request.getMachineId() + " has a pending payment");
+        }
         if (StringUtils.hasText(request.getReservationCode())
                 && !reservationClient.isValid(request.getReservationCode(), request.getMachineId())) {
             log.warn("Reservation code invalid for machine {}, rejecting new payment request", request.getMachineId());
@@ -73,13 +84,6 @@ public class PaymentService {
                     throw new PaymentException("RESERVATION_SLOT_CONFLICT",
                             "Machine " + request.getMachineId() + " is reserved starting at " + conflictingSlotStart);
                 });
-        List<Transaction> pendingPayments = transactionRepository
-                .findByMachineIdAndStatus(request.getMachineId(), PaymentStatus.PENDING);
-        if (!pendingPayments.isEmpty()) {
-            log.warn("Machine {} has a pending payment, rejecting new payment request", request.getMachineId());
-            throw new PaymentException("PENDING_PAYMENT",
-                    "Machine " + request.getMachineId() + " has a pending payment");
-        }
 
         String externalReference = UUID.randomUUID().toString();
 

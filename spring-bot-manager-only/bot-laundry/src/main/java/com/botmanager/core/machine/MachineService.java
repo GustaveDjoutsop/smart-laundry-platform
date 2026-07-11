@@ -279,8 +279,10 @@ public class MachineService {
      */
     public Optional<Map<String, Object>> getReservationByCode(String code) {
         try {
+            // URI template variable (not string concatenation) so WebClient percent-encodes the
+            // code — this method is public and must not assume callers have already sanitized it.
             Map<String, Object> response = callMachineServiceRead(() -> webClient.get()
-                    .uri(machineStateServiceUrl + "/api/reservations/" + code)
+                    .uri(machineStateServiceUrl + "/api/reservations/{code}", code)
                     .retrieve()
                     .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                     .block());
