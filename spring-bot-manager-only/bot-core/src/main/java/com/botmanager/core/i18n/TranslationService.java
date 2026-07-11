@@ -332,6 +332,33 @@ public class TranslationService {
                 "⏰ *Reminder!*\n\n🖥️ Machine: {machine}\n🕐 Your reservation starts in about {minutes} minute(s).\n🔑 Code: {code}\n\nPlease head to the laundromat soon.",
                 "⏰ *Rappel!*\n\n🖥️ Machine: {machine}\n🕐 Votre réservation commence dans environ {minutes} minute(s).\n🔑 Code: {code}\n\nVeuillez vous rendre bientôt à la laverie.");
 
+        // Reservation redemption
+        addTranslation("btn_redeem_code", "🔑 I Have a Reservation Code", "🔑 J'ai un Code de Réservation");
+        addTranslation("redeem_code_prompt",
+                "🔑 Please enter your reservation code (e.g. RES-AB12CD):\n\n_Type 'cancel' to go back._",
+                "🔑 Veuillez entrer votre code de réservation (ex: RES-AB12CD):\n\n_Tapez 'cancel' pour revenir._");
+        addTranslation("redeem_code_not_found",
+                "❌ We couldn't find a reservation with that code.\n\nPlease check the code and try again.",
+                "❌ Nous n'avons trouvé aucune réservation avec ce code.\n\nVeuillez vérifier le code et réessayer.");
+        addTranslation("redeem_code_used",
+                "❌ This reservation code has already been used.",
+                "❌ Ce code de réservation a déjà été utilisé.");
+        addTranslation("redeem_code_cancelled",
+                "❌ This reservation was cancelled.",
+                "❌ Cette réservation a été annulée.");
+        addTranslation("redeem_code_not_active",
+                "❌ This reservation hasn't been confirmed yet — payment may still be in progress.",
+                "❌ Cette réservation n'a pas encore été confirmée — le paiement est peut-être toujours en cours.");
+        addTranslation("redeem_code_out_of_slot",
+                "❌ This code is only valid during your reserved time slot.",
+                "❌ Ce code n'est valable que pendant votre créneau de réservation.");
+        addTranslation("redeem_code_confirmed",
+                "✅ Reservation found for {machine}!\n\nYour slot ends at {slotEnd}. Please choose your wash cycle:",
+                "✅ Réservation trouvée pour {machine}!\n\nVotre créneau se termine à {slotEnd}. Veuillez choisir votre cycle de lavage:");
+        addTranslation("err_invalid_reservation_code",
+                "❌ That reservation code isn't valid for this machine right now.",
+                "❌ Ce code de réservation n'est pas valable pour cette machine en ce moment.");
+
         // Staff alert
         addTranslation("staff_alert_low_rating",
                 "⚠️ *LOW RATING ALERT*\n\n\uD83D\uDCCD Machine: {machine}\n\uD83D\uDCF1 Customer: {phone}\n⭐ Rating: {rating}/5\n\uD83D\uDCAC Comment: {comment}\n\uD83D\uDD50 Time: {time}\n\nPlease follow up with the customer.",

@@ -27,6 +27,8 @@ public final class LaundryStep {
 
     public static final String AWAITING_RESERVATION_CONFIRM = "AWAITING_RESERVATION_CONFIRM";
 
+    public static final String AWAITING_REDEEM_CODE = "AWAITING_REDEEM_CODE";
+
     public static final String AWAITING_FEEDBACK = "AWAITING_FEEDBACK";
 
     public static final String AWAITING_FEEDBACK_COMMENT = "AWAITING_FEEDBACK_COMMENT";

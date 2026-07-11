@@ -11,6 +11,7 @@ import com.botmanager.core.machine.MachineServiceUnavailableException;
 import com.botmanager.core.machine.MachineStatus;
 import com.botmanager.core.machine.MachineType;
 import com.botmanager.core.payment.PaymentGateway;
+import com.botmanager.core.payment.PaymentRequest;
 import com.botmanager.core.payment.PaymentResult;
 import com.botmanager.core.payment.PaymentStatus;
 import com.botmanager.core.redis.RedisManager;
@@ -22,7 +23,9 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
@@ -364,7 +367,7 @@ class LaundryFlowPluginTest {
             assertThat(listMessage.body()).contains("Services");
             assertThat(listMessage.sections().getFirst().rows())
                     .extracting(com.botmanager.core.flow.MessageSender.ListRow::id)
-                    .containsExactly("action_wash", "action_dry", "action_reservation", "action_cancel");
+                    .containsExactly("action_wash", "action_dry", "action_reservation", "action_redeem", "action_cancel");
             assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_MENU_CHOICE);
         }
 
@@ -967,6 +970,21 @@ class LaundryFlowPluginTest {
         }
 
         @Test
+        void shouldShowReservationConfirmedMessageWhenRedeemingCode() {
+            // given
+            FlowContext context = createContext();
+            context.set("selectedMachineName", "Washer 1");
+            context.set("reservationCode", "RES-ABC123");
+            context.set("reservationSlotEnd", "11:00");
+
+            // when
+            plugin.handleAction("cycle.show", Map.of(), context);
+
+            // then
+            assertThat(context.getString("responseMessage")).contains("Washer 1").contains("11:00");
+        }
+
+        @Test
         void shouldGoToPaymentWhenShortCycleSelected() {
             // given
             FlowContext context = createContext();
@@ -1203,6 +1221,77 @@ class LaundryFlowPluginTest {
 
             // then — specific message, not the generic fallback
             assertThat(context.getString("responseMessage")).contains("already a payment in progress");
+            assertThat(context.getString("responseMessage")).doesNotContain("could not be completed");
+        }
+
+        @Test
+        void shouldIncludeReservationCodeInMetadataWhenRedeeming() {
+            // given
+            FlowContext context = createContext();
+            context.set("selectedMachineId", "w1");
+            context.set("selectedMachineName", "Washer 1");
+            context.set("selectedCycleDuration", 30);
+            context.set("selectedCyclePrice", 1000);
+            context.set("selectedCyclePulseCount", 1);
+            context.set("reservationCode", "RES-ABC123");
+
+            when(paymentGateway.initiatePayment(any()))
+                    .thenReturn(PaymentResult.builder().success(true).transactionId("txn1").build());
+
+            // when
+            plugin.handleAction("payment.initiate", Map.of(), context);
+
+            // then
+            ArgumentCaptor<PaymentRequest> captor = ArgumentCaptor.forClass(PaymentRequest.class);
+            verify(paymentGateway).initiatePayment(captor.capture());
+            assertThat(captor.getValue().metadata()).containsEntry("reservationCode", "RES-ABC123");
+            assertThat(context.get("reservationCode")).isNull();
+        }
+
+        @Test
+        void shouldOmitReservationCodeFromMetadataForWalkIn() {
+            // given
+            FlowContext context = createContext();
+            context.set("selectedMachineId", "w1");
+            context.set("selectedMachineName", "Washer 1");
+            context.set("selectedCycleDuration", 30);
+            context.set("selectedCyclePrice", 1000);
+            context.set("selectedCyclePulseCount", 1);
+
+            when(paymentGateway.initiatePayment(any()))
+                    .thenReturn(PaymentResult.builder().success(true).transactionId("txn1").build());
+
+            // when
+            plugin.handleAction("payment.initiate", Map.of(), context);
+
+            // then
+            ArgumentCaptor<PaymentRequest> captor = ArgumentCaptor.forClass(PaymentRequest.class);
+            verify(paymentGateway).initiatePayment(captor.capture());
+            assertThat(captor.getValue().metadata()).doesNotContainKey("reservationCode");
+        }
+
+        @Test
+        void shouldShowInvalidReservationCodeMessageWhenPmsRejects() {
+            // given
+            FlowContext context = createContext();
+            context.set("selectedMachineId", "w1");
+            context.set("selectedMachineName", "Washer 1");
+            context.set("selectedCycleDuration", 30);
+            context.set("selectedCyclePrice", 1000);
+            context.set("selectedCyclePulseCount", 1);
+            context.set("reservationCode", "RES-ABC123");
+
+            PaymentResult result = PaymentResult.builder()
+                    .success(false)
+                    .errorMessage("{\"error\":\"RESERVATION_INVALID_CODE\",\"message\":\"Reservation code is not valid\"}")
+                    .build();
+            when(paymentGateway.initiatePayment(any())).thenReturn(result);
+
+            // when
+            plugin.handleAction("payment.initiate", Map.of(), context);
+
+            // then — specific message, not the generic fallback
+            assertThat(context.getString("responseMessage")).contains("isn't valid for this machine");
             assertThat(context.getString("responseMessage")).doesNotContain("could not be completed");
         }
     }
@@ -1523,6 +1612,212 @@ class LaundryFlowPluginTest {
             assertThat(context.getString("responseMessage")).isNotBlank();
             assertThat(context.getString("step")).isEqualTo(LaundryStep.MAIN_MENU);
             verify(machineService).cancelReservation("res-ref-1");
+        }
+    }
+
+    // ========== Reservation Redemption ==========
+
+    @Nested
+    class RedeemReservation {
+
+        @Test
+        void shouldStartRedeemFlowWhenEnabled() {
+            // given
+            FlowContext context = createContext();
+            context.set("userInput", "action_redeem");
+
+            // when
+            plugin.handleAction("menu.process", Map.of(), context);
+
+            // then
+            assertThat(context.getString("selectedMachineType")).isEqualTo("WASHER");
+            assertThat(context.consumeGotoTarget()).isEqualTo("enter_reservation_code");
+        }
+
+        @Test
+        void shouldShowDisabledMessageWhenReservationDisabled() {
+            // given
+            FlowContext context = createContext();
+            context.set("userInput", "action_redeem");
+            laundryConfig.getFeatures().setReservationEnabled(false);
+
+            // when
+            plugin.handleAction("menu.process", Map.of(), context);
+
+            // then
+            assertThat(context.getString("responseMessage")).isNotBlank();
+            assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_MENU_CHOICE);
+        }
+
+        @Test
+        void shouldShowRedeemCodePrompt() {
+            // given
+            FlowContext context = createContext();
+
+            // when
+            plugin.handleAction("reservation.showRedeemPrompt", Map.of(), context);
+
+            // then
+            assertThat(context.getString("responseMessage")).isNotBlank();
+            assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_REDEEM_CODE);
+        }
+
+        @Test
+        void shouldGoToMainMenuWhenInputBlank() {
+            // given
+            FlowContext context = createContext();
+            context.set("userInput", "");
+
+            // when
+            plugin.handleAction("reservation.processRedeemCode", Map.of(), context);
+
+            // then
+            assertThat(context.consumeGotoTarget()).isEqualTo("main_menu");
+            verifyNoInteractions(machineService);
+        }
+
+        @Test
+        void shouldGoToMainMenuWhenCancelled() {
+            // given
+            FlowContext context = createContext();
+            context.set("userInput", "action_cancel");
+
+            // when
+            plugin.handleAction("reservation.processRedeemCode", Map.of(), context);
+
+            // then
+            assertThat(context.consumeGotoTarget()).isEqualTo("main_menu");
+            verifyNoInteractions(machineService);
+        }
+
+        @Test
+        void shouldRetryWhenCodeNotFound() {
+            // given
+            FlowContext context = createContext();
+            context.set("userInput", "res-doesnotexist");
+            when(machineService.getReservationByCode("RES-DOESNOTEXIST")).thenReturn(Optional.empty());
+
+            // when
+            plugin.handleAction("reservation.processRedeemCode", Map.of(), context);
+
+            // then
+            assertThat(context.getString("responseMessage")).isNotBlank();
+            assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_REDEEM_CODE);
+            assertThat(context.consumeGotoTarget()).isEqualTo("await_reservation_code");
+            verify(machineService, never()).validateReservation(any(), any());
+        }
+
+        @Test
+        void shouldRetryWithoutCallingServiceWhenCodeHasInvalidFormat() {
+            // given — fail fast on garbage input (e.g. a pasted URL fragment) rather than
+            // spending a round trip on a code that can't possibly match the alphabet.
+            FlowContext context = createContext();
+            context.set("userInput", "../../api/machines");
+
+            // when
+            plugin.handleAction("reservation.processRedeemCode", Map.of(), context);
+
+            // then
+            assertThat(context.getString("responseMessage")).isNotBlank();
+            assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_REDEEM_CODE);
+            assertThat(context.consumeGotoTarget()).isEqualTo("await_reservation_code");
+            verifyNoInteractions(machineService);
+        }
+
+        @Test
+        void shouldRetryWhenReservationLookupHasNoMachineId() {
+            // given — defensive guard: a malformed/incomplete lookup response must not reach
+            // validateReservation(code, null)
+            FlowContext context = createContext();
+            context.set("userInput", "RES-ABC123");
+
+            Map<String, Object> reservation = new HashMap<>();
+            reservation.put("machineName", "Washer 1");
+            when(machineService.getReservationByCode("RES-ABC123")).thenReturn(Optional.of(reservation));
+
+            // when
+            plugin.handleAction("reservation.processRedeemCode", Map.of(), context);
+
+            // then
+            assertThat(context.getString("responseMessage")).isNotBlank();
+            assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_REDEEM_CODE);
+            assertThat(context.consumeGotoTarget()).isEqualTo("await_reservation_code");
+            verify(machineService, never()).validateReservation(any(), any());
+        }
+
+        @ParameterizedTest
+        @CsvSource({"USED", "CANCELLED", "NOT_ACTIVE", "OUT_OF_SLOT"})
+        void shouldRetryWithReasonMessageWhenCodeInvalid(String reason) {
+            // given
+            FlowContext context = createContext();
+            context.set("userInput", "RES-ABC123");
+
+            Map<String, Object> reservation = new HashMap<>();
+            reservation.put("machineId", "w1");
+            reservation.put("machineName", "Washer 1");
+            when(machineService.getReservationByCode("RES-ABC123")).thenReturn(Optional.of(reservation));
+
+            Map<String, Object> validation = new HashMap<>();
+            validation.put("valid", false);
+            validation.put("reason", reason);
+            when(machineService.validateReservation("RES-ABC123", "w1")).thenReturn(Optional.of(validation));
+
+            // when
+            plugin.handleAction("reservation.processRedeemCode", Map.of(), context);
+
+            // then
+            assertThat(context.getString("responseMessage")).isNotBlank();
+            assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_REDEEM_CODE);
+            assertThat(context.consumeGotoTarget()).isEqualTo("await_reservation_code");
+            assertThat(context.getString("selectedMachineId")).isNull();
+        }
+
+        @Test
+        void shouldRetryWhenValidationCallFails() {
+            // given
+            FlowContext context = createContext();
+            context.set("userInput", "RES-ABC123");
+
+            Map<String, Object> reservation = new HashMap<>();
+            reservation.put("machineId", "w1");
+            reservation.put("machineName", "Washer 1");
+            when(machineService.getReservationByCode("RES-ABC123")).thenReturn(Optional.of(reservation));
+            when(machineService.validateReservation("RES-ABC123", "w1")).thenReturn(Optional.empty());
+
+            // when
+            plugin.handleAction("reservation.processRedeemCode", Map.of(), context);
+
+            // then
+            assertThat(context.getString("responseMessage")).isNotBlank();
+            assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_REDEEM_CODE);
+        }
+
+        @Test
+        void shouldSetContextAndGoToCycleSelectionOnValidCode() {
+            // given
+            FlowContext context = createContext();
+            context.set("userInput", "res-abc123");
+
+            Map<String, Object> reservation = new HashMap<>();
+            reservation.put("machineId", "w1");
+            reservation.put("machineName", "Washer 1");
+            reservation.put("slotEnd", "2026-06-11T11:00:00");
+            when(machineService.getReservationByCode("RES-ABC123")).thenReturn(Optional.of(reservation));
+
+            Map<String, Object> validation = new HashMap<>();
+            validation.put("valid", true);
+            when(machineService.validateReservation("RES-ABC123", "w1")).thenReturn(Optional.of(validation));
+
+            // when
+            plugin.handleAction("reservation.processRedeemCode", Map.of(), context);
+
+            // then
+            assertThat(context.getString("selectedMachineId")).isEqualTo("w1");
+            assertThat(context.getString("selectedMachineName")).isEqualTo("Washer 1");
+            assertThat(context.getString("selectedMachineType")).isEqualTo("WASHER");
+            assertThat(context.getString("reservationCode")).isEqualTo("RES-ABC123");
+            assertThat(context.getString("reservationSlotEnd")).isEqualTo("11:00");
+            assertThat(context.consumeGotoTarget()).isEqualTo("cycle_selection");
         }
     }
 

@@ -246,6 +246,23 @@
           "id": "initiate_reservation",
           "type": "action",
           "action": "reservation.initiate"
+        },
+        "enter_reservation_code": {
+          "id": "enter_reservation_code",
+          "type": "action",
+          "action": "reservation.showRedeemPrompt",
+          "next": "await_reservation_code"
+        },
+        "await_reservation_code": {
+          "id": "await_reservation_code",
+          "type": "input",
+          "saveAs": "userInput",
+          "next": "process_reservation_code"
+        },
+        "process_reservation_code": {
+          "id": "process_reservation_code",
+          "type": "action",
+          "action": "reservation.processRedeemCode"
         }
       }
     }

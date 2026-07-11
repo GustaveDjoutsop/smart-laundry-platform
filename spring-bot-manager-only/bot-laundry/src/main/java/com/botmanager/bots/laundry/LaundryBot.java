@@ -197,7 +197,7 @@ public class LaundryBot extends BaseBot implements ProactiveNotifier {
         String machineId = (String) metadata.get("machineId");
         String reservationDate = (String) metadata.get("reservationDate");
         String reservationTime = (String) metadata.get("reservationTime");
-        String reservationCode = (String) metadata.get("reservationCode");
+        String reservationCode = (String) metadata.get("newReservationCode");
         String transactionReference = (String) metadata.get("reservationTransactionReference");
 
         log.info("Reservation payment confirmed for customer={}, machine={}, date={}, time={}",

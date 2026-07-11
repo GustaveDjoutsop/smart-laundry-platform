@@ -151,7 +151,7 @@ class LaundryBotTest {
             metadata.put("machineId", "w1");
             metadata.put("reservationDate", "2026-06-11");
             metadata.put("reservationTime", "10:00");
-            metadata.put("reservationCode", "ABC123");
+            metadata.put("newReservationCode", "ABC123");
             metadata.put("reservationTransactionReference", "ref-1");
             metadata.put("language", "EN");
 
@@ -186,7 +186,7 @@ class LaundryBotTest {
             metadata.put("machineId", "w1");
             metadata.put("reservationDate", "2026-06-11");
             metadata.put("reservationTime", "10:00");
-            metadata.put("reservationCode", "ABC123");
+            metadata.put("newReservationCode", "ABC123");
             metadata.put("reservationTransactionReference", "ref-1");
             metadata.put("language", "EN");
 

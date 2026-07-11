@@ -7,6 +7,7 @@ import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpEntity;
@@ -16,6 +17,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -86,6 +88,40 @@ class MachineStartServiceTest {
         assertThatThrownBy(() -> machineStartService.publish(validEvent))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("Connection refused");
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void shouldForwardReservationCodeWhenPresentInPayload() throws Exception {
+        OutboxEvent reservationEvent = OutboxEvent.builder()
+                .id(4L)
+                .aggregateType("Transaction")
+                .aggregateId("EXT-004")
+                .eventType("PaymentSucceeded")
+                .payload("{\"machineId\":\"MACH-01\",\"transactionReference\":\"EXT-004\","
+                        + "\"cycleType\":\"NORMAL\",\"durationMinutes\":30,\"pulseCount\":2,"
+                        + "\"reservationCode\":\"RES-ABC123\"}")
+                .build();
+
+        ArgumentCaptor<HttpEntity<Map<String, Object>>> captor = ArgumentCaptor.forClass(HttpEntity.class);
+        when(restTemplate.postForEntity(anyString(), captor.capture(), eq(Map.class)))
+                .thenReturn(ResponseEntity.ok(Map.of("status", "ok")));
+
+        machineStartService.publish(reservationEvent);
+
+        assertThat(captor.getValue().getBody()).containsEntry("reservationCode", "RES-ABC123");
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void shouldOmitReservationCodeWhenAbsentFromPayload() throws Exception {
+        ArgumentCaptor<HttpEntity<Map<String, Object>>> captor = ArgumentCaptor.forClass(HttpEntity.class);
+        when(restTemplate.postForEntity(anyString(), captor.capture(), eq(Map.class)))
+                .thenReturn(ResponseEntity.ok(Map.of("status", "ok")));
+
+        machineStartService.publish(validEvent);
+
+        assertThat(captor.getValue().getBody()).doesNotContainKey("reservationCode");
     }
 
     @Test

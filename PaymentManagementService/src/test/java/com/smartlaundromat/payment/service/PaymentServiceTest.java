@@ -11,6 +11,7 @@ import com.smartlaundromat.payment.model.enums.PaymentStatus;
 import com.smartlaundromat.payment.repository.OutboxEventRepository;
 import com.smartlaundromat.payment.repository.TransactionRepository;
 import com.smartlaundromat.payment.service.machine.MachineAvailabilityClient;
+import com.smartlaundromat.payment.service.machine.ReservationClient;
 import com.smartlaundromat.payment.service.provider.CampayService;
 import com.smartlaundromat.payment.service.provider.MtnMomoService;
 import com.smartlaundromat.payment.service.provider.OrangeMoneyService;
@@ -59,6 +60,9 @@ class PaymentServiceTest {
 
     @Mock
     MachineAvailabilityClient machineAvailabilityClient;
+
+    @Mock
+    ReservationClient reservationClient;
 
     @InjectMocks
     PaymentService paymentService;
@@ -134,6 +138,60 @@ class PaymentServiceTest {
             assertThatThrownBy(() -> paymentService.initiatePayment(request))
                     .isInstanceOf(PaymentException.class)
                     .hasMessageContaining("pending payment");
+        }
+
+        @Test
+        void shouldInitiatePaymentWhenReservationCodeValid() {
+            request.setReservationCode("RES-ABC123");
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(reservationClient.isValid("RES-ABC123", "MACH-01")).thenReturn(true);
+            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
+                    .thenReturn(Collections.emptyList());
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            PaymentResponse providerResponse = PaymentResponse.builder()
+                    .success(true)
+                    .providerReference("CAMP-REF-001")
+                    .build();
+            when(campayService.requestPayment(anyString(), any(), anyString(), anyString()))
+                    .thenReturn(providerResponse);
+
+            paymentService.initiatePayment(request);
+
+            verify(transactionRepository, times(2)).save(argThat(tx -> "RES-ABC123".equals(tx.getReservationCode())));
+        }
+
+        @Test
+        void shouldThrowWhenReservationCodeInvalid() {
+            request.setReservationCode("RES-ABC123");
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(reservationClient.isValid("RES-ABC123", "MACH-01")).thenReturn(false);
+
+            assertThatThrownBy(() -> paymentService.initiatePayment(request))
+                    .isInstanceOf(PaymentException.class)
+                    .hasMessageContaining("not valid");
+
+            verifyNoInteractions(campayService, mtnMomoService, orangeMoneyService);
+            verify(transactionRepository, never()).save(any());
+        }
+
+        @Test
+        void shouldSkipReservationValidationWhenNoCodeProvided() {
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
+                    .thenReturn(Collections.emptyList());
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            PaymentResponse providerResponse = PaymentResponse.builder()
+                    .success(true)
+                    .providerReference("CAMP-REF-001")
+                    .build();
+            when(campayService.requestPayment(anyString(), any(), anyString(), anyString()))
+                    .thenReturn(providerResponse);
+
+            paymentService.initiatePayment(request);
+
+            verifyNoInteractions(reservationClient);
         }
 
         @Test
@@ -240,6 +298,49 @@ class PaymentServiceTest {
                     "PaymentSucceeded".equals(event.getEventType())
                     && "EXT-001".equals(event.getAggregateId())
                     && event.getPayload().contains("MACH-01")
+            ));
+        }
+
+        @Test
+        void shouldIncludeReservationCodeInOutboxPayloadWhenPresent() {
+            Transaction transaction = Transaction.builder()
+                    .externalReference("EXT-004")
+                    .machineId("MACH-01")
+                    .pulseCount(2)
+                    .cycleDuration(60)
+                    .reservationCode("RES-ABC123")
+                    .status(PaymentStatus.PENDING)
+                    .build();
+            when(transactionRepository.findByExternalReference("EXT-004"))
+                    .thenReturn(Optional.of(transaction));
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            paymentService.processWebhook(PaymentProvider.CAMPAY, "EXT-004", "SUCCESSFUL", "PROV-004", null);
+
+            verify(outboxEventRepository).save(argThat(event ->
+                    event.getPayload().contains("RES-ABC123")
+            ));
+        }
+
+        @Test
+        void shouldOmitReservationCodeFromOutboxPayloadWhenAbsent() {
+            Transaction transaction = Transaction.builder()
+                    .externalReference("EXT-001")
+                    .machineId("MACH-01")
+                    .pulseCount(2)
+                    .cycleDuration(30)
+                    .status(PaymentStatus.PENDING)
+                    .build();
+            when(transactionRepository.findByExternalReference("EXT-001"))
+                    .thenReturn(Optional.of(transaction));
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            paymentService.processWebhook(PaymentProvider.CAMPAY, "EXT-001", "SUCCESSFUL", "PROV-001", null);
+
+            verify(outboxEventRepository).save(argThat(event ->
+                    !event.getPayload().contains("reservationCode")
             ));
         }
 

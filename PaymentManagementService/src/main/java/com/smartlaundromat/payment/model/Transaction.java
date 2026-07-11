@@ -65,6 +65,9 @@ public class Transaction {
     @Column(name = "rfid_card_uid", length = 50)
     private String rfidCardUid;
 
+    @Column(name = "reservation_code", length = 20)
+    private String reservationCode;
+
     @Column(name = "timeout_at")
     private LocalDateTime timeoutAt;
 

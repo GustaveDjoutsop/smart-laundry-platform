@@ -30,4 +30,10 @@ public class PaymentInitiationRequest {
     private PaymentProvider provider;
 
     private String description;
+
+    /**
+     * Reservation code being redeemed, if the customer is starting a machine held under
+     * an active reservation. Null for ordinary walk-in payments.
+     */
+    private String reservationCode;
 }

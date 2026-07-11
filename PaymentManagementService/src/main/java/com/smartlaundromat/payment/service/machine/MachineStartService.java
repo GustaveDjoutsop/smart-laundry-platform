@@ -17,6 +17,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -72,13 +73,16 @@ public class MachineStartService implements MachineEventPublisher {
             return;
         }
 
-        Map<String, Object> body = Map.of(
-                "machineId",            machineId,
-                "cycleType",            payload.getOrDefault("cycleType",       "NORMAL"),
-                "durationMinutes",      payload.getOrDefault("durationMinutes", 30),
-                "pulseCount",           payload.getOrDefault("pulseCount",      1),
-                "transactionReference", payload.getOrDefault("transactionReference", "")
-        );
+        Map<String, Object> body = new HashMap<>();
+        body.put("machineId", machineId);
+        body.put("cycleType", payload.getOrDefault("cycleType", "NORMAL"));
+        body.put("durationMinutes", payload.getOrDefault("durationMinutes", 30));
+        body.put("pulseCount", payload.getOrDefault("pulseCount", 1));
+        body.put("transactionReference", payload.getOrDefault("transactionReference", ""));
+        Object reservationCode = payload.get("reservationCode");
+        if (reservationCode != null) {
+            body.put("reservationCode", reservationCode);
+        }
 
         String url = machineStateServiceUrl + "/api/machines/start-cycle";
         HttpHeaders headers = new HttpHeaders();
