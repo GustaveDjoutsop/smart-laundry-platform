@@ -9,9 +9,12 @@ import com.smartlaundromat.machine.dto.ValidateReservationResponse;
 import com.smartlaundromat.machine.exception.MachineNotFoundException;
 import com.smartlaundromat.machine.exception.ReservationException;
 import com.smartlaundromat.machine.model.Machine;
+import com.smartlaundromat.machine.model.MachineCycle;
 import com.smartlaundromat.machine.model.Reservation;
+import com.smartlaundromat.machine.model.enums.CycleStatus;
 import com.smartlaundromat.machine.model.enums.MachineType;
 import com.smartlaundromat.machine.model.enums.ReservationStatus;
+import com.smartlaundromat.machine.repository.MachineCycleRepository;
 import com.smartlaundromat.machine.repository.MachineRepository;
 import com.smartlaundromat.machine.repository.ReservationRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,6 +45,9 @@ class ReservationServiceTest {
 
     @Mock
     MachineRepository machineRepository;
+
+    @Mock
+    MachineCycleRepository machineCycleRepository;
 
     @Mock
     FeatureProperties featureProperties;
@@ -174,6 +180,66 @@ class ReservationServiceTest {
             assertThatThrownBy(() -> reservationService.createReservation(request))
                     .isInstanceOf(ReservationException.class)
                     .hasMessageContaining("already reserved");
+        }
+
+        @Test
+        void shouldThrowWhenMachineIsCurrentlyRunningACycleThatWouldStillBeRunningAtSlotStart() {
+            // given
+            when(featureProperties.isReservationEnabled()).thenReturn(true);
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(testMachine));
+            when(reservationRepository.findOverlapping(eq("washer_01"), any(), any()))
+                    .thenReturn(Collections.emptyList());
+
+            LocalDateTime slotStart = LocalDateTime.now().plusMinutes(30);
+            MachineCycle runningCycle = MachineCycle.builder()
+                    .machineId("washer_01")
+                    .status(CycleStatus.IN_PROGRESS)
+                    .endsAt(slotStart.plusMinutes(20))
+                    .build();
+            when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
+                    .thenReturn(Optional.of(runningCycle));
+
+            CreateReservationRequest request = new CreateReservationRequest();
+            request.setMachineId("washer_01");
+            request.setSlotStart(slotStart);
+
+            // when / then
+            assertThatThrownBy(() -> reservationService.createReservation(request))
+                    .isInstanceOf(ReservationException.class)
+                    .hasMessageContaining("currently running a cycle");
+            verify(reservationRepository, never()).save(any());
+        }
+
+        @Test
+        void shouldProceedWhenRunningCycleEndsBeforeSlotStarts() {
+            // given — exact boundary: endsAt == slotStart must NOT conflict (half-open interval)
+            when(featureProperties.isReservationEnabled()).thenReturn(true);
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(testMachine));
+            when(reservationRepository.findOverlapping(eq("washer_01"), any(), any()))
+                    .thenReturn(Collections.emptyList());
+
+            LocalDateTime slotStart = LocalDateTime.now().plusMinutes(30);
+            MachineCycle runningCycle = MachineCycle.builder()
+                    .machineId("washer_01")
+                    .status(CycleStatus.IN_PROGRESS)
+                    .endsAt(slotStart)
+                    .build();
+            when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
+                    .thenReturn(Optional.of(runningCycle));
+            when(reservationRepository.existsByReservationCode(anyString())).thenReturn(false);
+            when(reservationProperties.getCodePrefix()).thenReturn("RES-");
+            when(reservationProperties.getCodeLength()).thenReturn(6);
+            when(pricingClient.getReservationFee()).thenReturn(1500);
+            when(reservationProperties.getCurrency()).thenReturn("XAF");
+            when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            CreateReservationRequest request = new CreateReservationRequest();
+            request.setMachineId("washer_01");
+            request.setSlotStart(slotStart);
+
+            // when / then — no exception
+            ReservationResponse response = reservationService.createReservation(request);
+            assertThat(response).isNotNull();
         }
 
         @Test
@@ -676,6 +742,110 @@ class ReservationServiceTest {
         // then
         assertThat(result).isPresent();
         assertThat(result.get().getReservationCode()).isEqualTo("RES-ABC");
+    }
+
+    // ── findConflicting ────────────────────────────────────────────────────────
+
+    @Nested
+    class FindConflicting {
+
+        @Test
+        void shouldReturnEmptyWhenFeatureDisabled() {
+            // given
+            when(featureProperties.isReservationEnabled()).thenReturn(false);
+
+            // when
+            Optional<Reservation> result = reservationService.findConflicting(
+                    "washer_01", LocalDateTime.now(), LocalDateTime.now().plusMinutes(30), null);
+
+            // then
+            assertThat(result).isEmpty();
+            verifyNoInteractions(reservationRepository);
+        }
+
+        @Test
+        void shouldReturnEmptyWhenNoOverlap() {
+            // given
+            when(featureProperties.isReservationEnabled()).thenReturn(true);
+            when(reservationRepository.findOverlapping(eq("washer_01"), any(), any()))
+                    .thenReturn(Collections.emptyList());
+
+            // when
+            Optional<Reservation> result = reservationService.findConflicting(
+                    "washer_01", LocalDateTime.now(), LocalDateTime.now().plusMinutes(30), null);
+
+            // then
+            assertThat(result).isEmpty();
+        }
+
+        @Test
+        void shouldReturnOverlappingReservation() {
+            // given
+            when(featureProperties.isReservationEnabled()).thenReturn(true);
+            Reservation reservation = Reservation.builder()
+                    .reservationCode("RES-ABC")
+                    .machineId("washer_01")
+                    .status(ReservationStatus.ACTIVE)
+                    .slotStart(LocalDateTime.now().plusMinutes(5))
+                    .build();
+            when(reservationRepository.findOverlapping(eq("washer_01"), any(), any()))
+                    .thenReturn(List.of(reservation));
+
+            // when
+            Optional<Reservation> result = reservationService.findConflicting(
+                    "washer_01", LocalDateTime.now(), LocalDateTime.now().plusMinutes(30), null);
+
+            // then
+            assertThat(result).contains(reservation);
+        }
+
+        @Test
+        void shouldExcludeReservationMatchingCodeCaseInsensitively() {
+            // given
+            when(featureProperties.isReservationEnabled()).thenReturn(true);
+            Reservation reservation = Reservation.builder()
+                    .reservationCode("RES-ABC")
+                    .machineId("washer_01")
+                    .status(ReservationStatus.ACTIVE)
+                    .slotStart(LocalDateTime.now().plusMinutes(5))
+                    .build();
+            when(reservationRepository.findOverlapping(eq("washer_01"), any(), any()))
+                    .thenReturn(List.of(reservation));
+
+            // when
+            Optional<Reservation> result = reservationService.findConflicting(
+                    "washer_01", LocalDateTime.now(), LocalDateTime.now().plusMinutes(30), "res-abc");
+
+            // then
+            assertThat(result).isEmpty();
+        }
+
+        @Test
+        void shouldReturnEarliestWhenMultipleOverlap() {
+            // given
+            when(featureProperties.isReservationEnabled()).thenReturn(true);
+            Reservation later = Reservation.builder()
+                    .reservationCode("RES-LATER")
+                    .machineId("washer_01")
+                    .status(ReservationStatus.ACTIVE)
+                    .slotStart(LocalDateTime.now().plusMinutes(20))
+                    .build();
+            Reservation earlier = Reservation.builder()
+                    .reservationCode("RES-EARLIER")
+                    .machineId("washer_01")
+                    .status(ReservationStatus.PENDING_PAYMENT)
+                    .slotStart(LocalDateTime.now().plusMinutes(5))
+                    .build();
+            when(reservationRepository.findOverlapping(eq("washer_01"), any(), any()))
+                    .thenReturn(List.of(later, earlier));
+
+            // when
+            Optional<Reservation> result = reservationService.findConflicting(
+                    "washer_01", LocalDateTime.now(), LocalDateTime.now().plusMinutes(30), null);
+
+            // then
+            assertThat(result).contains(earlier);
+        }
     }
 
     // ── getByCode ──────────────────────────────────────────────────────────────

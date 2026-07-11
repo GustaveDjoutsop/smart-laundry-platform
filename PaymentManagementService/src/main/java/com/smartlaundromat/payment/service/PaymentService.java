@@ -63,6 +63,16 @@ public class PaymentService {
             throw new PaymentException("RESERVATION_INVALID_CODE",
                     "Reservation code is not valid for machine " + request.getMachineId());
         }
+        // Duration-aware: blocks a walk-in whose chosen cycle would run into someone else's
+        // upcoming reservation, before charging. A supplied reservationCode is excluded from the
+        // conflict search so a legitimate redemption never self-conflicts.
+        reservationClient.checkConflict(request.getMachineId(), request.getCycleDuration(), request.getReservationCode())
+                .ifPresent(conflictingSlotStart -> {
+                    log.warn("Machine {} has a reservation starting at {}, rejecting new payment request",
+                            request.getMachineId(), conflictingSlotStart);
+                    throw new PaymentException("RESERVATION_SLOT_CONFLICT",
+                            "Machine " + request.getMachineId() + " is reserved starting at " + conflictingSlotStart);
+                });
         List<Transaction> pendingPayments = transactionRepository
                 .findByMachineIdAndStatus(request.getMachineId(), PaymentStatus.PENDING);
         if (!pendingPayments.isEmpty()) {

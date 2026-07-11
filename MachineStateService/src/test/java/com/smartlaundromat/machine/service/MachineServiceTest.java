@@ -341,6 +341,97 @@ class MachineServiceTest {
         }
 
         @Test
+        void shouldThrowWhenWalkInDurationWouldOverlapUpcomingReservation() {
+            // given — nothing covers "now", but the requested duration would run into a
+            // reservation starting soon (e.g. a 60-min walk-in wash at 9:55 for a 10:00 reservation)
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
+                    .thenReturn(Optional.empty());
+            when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());
+
+            var upcoming = com.smartlaundromat.machine.model.Reservation.builder()
+                    .reservationCode("RES-NEXT")
+                    .machineId("washer_01")
+                    .status(ReservationStatus.ACTIVE)
+                    .slotStart(LocalDateTime.now().plusMinutes(5))
+                    .feeAmount(1500)
+                    .build();
+            when(reservationService.findConflicting(eq("washer_01"), any(), any(), isNull()))
+                    .thenReturn(Optional.of(upcoming));
+
+            StartCycleRequest request = buildRequest();
+            request.setDurationMinutes(60);
+
+            // when / then
+            assertThatThrownBy(() -> machineService.startCycle(request))
+                    .isInstanceOf(MachineNotAvailableException.class)
+                    .hasMessageContaining("would run into that reservation");
+            verify(machineCycleRepository, never()).save(any());
+        }
+
+        @Test
+        void shouldStartWhenNoConflictInWindow() {
+            // given
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
+                    .thenReturn(Optional.empty());
+            when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());
+            when(reservationService.findConflicting(eq("washer_01"), any(), any(), isNull()))
+                    .thenReturn(Optional.empty());
+            when(machineCycleRepository.save(any(MachineCycle.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(machineRepository.save(any(Machine.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            StartCycleRequest request = buildRequest();
+
+            // when
+            MachineCycle cycle = machineService.startCycle(request);
+
+            // then
+            assertThat(cycle).isNotNull();
+        }
+
+        @Test
+        void shouldRejectWhenOwnRedeemedCycleWouldOverrunIntoNextReservation() {
+            // given — customer redeems their own code covering "now", but picks a duration long
+            // enough to bleed into a DIFFERENT, later reservation. Their own code must be excluded
+            // from the conflict search (it's the reservation just consumed), yet the next
+            // reservation must still be caught.
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
+                    .thenReturn(Optional.empty());
+
+            var ownReservation = com.smartlaundromat.machine.model.Reservation.builder()
+                    .reservationCode("RES-OWN")
+                    .machineId("washer_01")
+                    .status(ReservationStatus.ACTIVE)
+                    .feeAmount(1500)
+                    .build();
+            when(reservationService.activeReservationCovering("washer_01"))
+                    .thenReturn(Optional.of(ownReservation));
+            when(reservationService.validateAndConsume("RES-OWN", "washer_01")).thenReturn(ownReservation);
+
+            var nextReservation = com.smartlaundromat.machine.model.Reservation.builder()
+                    .reservationCode("RES-NEXT")
+                    .machineId("washer_01")
+                    .status(ReservationStatus.ACTIVE)
+                    .slotStart(LocalDateTime.now().plusMinutes(10))
+                    .feeAmount(1500)
+                    .build();
+            when(reservationService.findConflicting(eq("washer_01"), any(), any(), eq("RES-OWN")))
+                    .thenReturn(Optional.of(nextReservation));
+
+            StartCycleRequest request = buildRequest();
+            request.setReservationCode("RES-OWN");
+            request.setDurationMinutes(60);
+
+            // when / then
+            assertThatThrownBy(() -> machineService.startCycle(request))
+                    .isInstanceOf(MachineNotAvailableException.class)
+                    .hasMessageContaining("would run into that reservation");
+            verify(machineCycleRepository, never()).save(any());
+        }
+
+        @Test
         void shouldRejectAsNotAvailableWhenCycleSaveRacesConcurrentInsert() {
             // given
             when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));

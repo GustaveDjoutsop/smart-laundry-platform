@@ -184,11 +184,16 @@ public class MachineService {
                             "Machine " + request.getMachineId() + " already has an active cycle");
                 });
 
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime endsAt = now.plusMinutes(request.getDurationMinutes());
+
         // ── Reservation gating ────────────────────────────────────────────────
         // If the feature is on and this machine is currently held by an active reservation,
         // the start request MUST carry the matching reservation code (checked by code + machine,
         // not by user). A valid code is consumed (marked USED) here.
-        reservationService.activeReservationCovering(request.getMachineId()).ifPresent(reserved -> {
+        String consumedReservationCode = null;
+        Optional<Reservation> coveringNow = reservationService.activeReservationCovering(request.getMachineId());
+        if (coveringNow.isPresent()) {
             if (!StringUtils.hasText(request.getReservationCode())) {
                 throw new MachineNotAvailableException(
                         "Machine " + request.getMachineId()
@@ -196,12 +201,23 @@ public class MachineService {
             }
             Reservation consumed = reservationService.validateAndConsume(
                     request.getReservationCode().trim(), request.getMachineId());
+            consumedReservationCode = consumed.getReservationCode();
             log.info("Reservation {} redeemed to start machine {}",
-                    consumed.getReservationCode(), request.getMachineId());
-        });
+                    consumedReservationCode, request.getMachineId());
+        }
 
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime endsAt = now.plusMinutes(request.getDurationMinutes());
+        // Duration-aware lookahead: even if nothing covers "now", the requested cycle might run
+        // into a reservation starting soon (e.g. a 60-min walk-in wash at 9:55 for a 10:00
+        // reservation). Excluding the code just consumed above means a customer running late into
+        // their OWN redeemed slot is still correctly blocked if their cycle would bleed into the
+        // NEXT customer's reservation.
+        reservationService.findConflicting(request.getMachineId(), now, endsAt, consumedReservationCode)
+                .ifPresent(conflict -> {
+                    throw new MachineNotAvailableException(
+                            "Machine " + request.getMachineId() + " is reserved starting at " + conflict.getSlotStart()
+                                    + " — the requested " + request.getDurationMinutes()
+                                    + "-minute cycle would run into that reservation");
+                });
 
         CycleType cycleType;
         try {

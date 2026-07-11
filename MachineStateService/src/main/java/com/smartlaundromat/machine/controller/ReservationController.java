@@ -9,7 +9,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Reservation endpoints (active only when {@code features.reservation-enabled=true}).
@@ -58,6 +60,17 @@ public class ReservationController {
                 request.getReservationCode(), request.getMachineId());
         return ResponseEntity.ok(
                 reservationService.validate(request.getReservationCode(), request.getMachineId()));
+    }
+
+    @GetMapping("/conflicts")
+    public ResponseEntity<ReservationConflictResponse> checkConflict(
+            @RequestParam String machineId,
+            @RequestParam int durationMinutes,
+            @RequestParam(required = false) String reservationCode) {
+        LocalDateTime now = LocalDateTime.now();
+        Optional<Reservation> conflicting = reservationService.findConflicting(
+                machineId, now, now.plusMinutes(durationMinutes), reservationCode);
+        return ResponseEntity.ok(ReservationConflictResponse.from(conflicting));
     }
 
     @GetMapping("/{code}")

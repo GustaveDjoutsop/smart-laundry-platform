@@ -21,6 +21,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -163,6 +165,61 @@ class ReservationControllerTest {
         mockMvc.perform(get("/api/reservations/RES-ABC123"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.reservationCode").value("RES-ABC123"));
+    }
+
+    @Test
+    @WithMockUser(authorities = "SCOPE_sls-reservation-read")
+    void shouldReturnNoConflictWhenNoOverlap() throws Exception {
+        // given
+        when(reservationService.findConflicting(eq("washer_01"), any(), any(), isNull()))
+                .thenReturn(java.util.Optional.empty());
+
+        // when / then
+        mockMvc.perform(get("/api/reservations/conflicts")
+                        .param("machineId", "washer_01")
+                        .param("durationMinutes", "30"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.conflict").value(false));
+    }
+
+    @Test
+    @WithMockUser(authorities = "SCOPE_sls-reservation-read")
+    void shouldReturnConflictWhenOverlapExists() throws Exception {
+        // given
+        Reservation conflicting = Reservation.builder()
+                .reservationCode("RES-NEXT")
+                .machineId("washer_01")
+                .status(ReservationStatus.ACTIVE)
+                .slotStart(LocalDateTime.now().plusMinutes(5))
+                .slotEnd(LocalDateTime.now().plusMinutes(65))
+                .feeAmount(1500)
+                .build();
+        when(reservationService.findConflicting(eq("washer_01"), any(), any(), isNull()))
+                .thenReturn(java.util.Optional.of(conflicting));
+
+        // when / then
+        mockMvc.perform(get("/api/reservations/conflicts")
+                        .param("machineId", "washer_01")
+                        .param("durationMinutes", "60"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.conflict").value(true))
+                .andExpect(jsonPath("$.conflictingReservationCode").value("RES-NEXT"));
+    }
+
+    @Test
+    @WithMockUser(authorities = "SCOPE_sls-reservation-read")
+    void shouldExcludeConflictWhenCodeMatchesTheOnlyOverlap() throws Exception {
+        // given
+        when(reservationService.findConflicting(eq("washer_01"), any(), any(), eq("RES-OWN")))
+                .thenReturn(java.util.Optional.empty());
+
+        // when / then
+        mockMvc.perform(get("/api/reservations/conflicts")
+                        .param("machineId", "washer_01")
+                        .param("durationMinutes", "60")
+                        .param("reservationCode", "RES-OWN"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.conflict").value(false));
     }
 
     @Test

@@ -1327,6 +1327,8 @@ public class LaundryFlowPlugin extends FlowPlugin {
                     return translationService.translate("campay_err_unavailable", lang);
                 case "RESERVATION_INVALID_CODE":
                     return translationService.translate("err_invalid_reservation_code", lang);
+                case "RESERVATION_SLOT_CONFLICT":
+                    return translationService.translate("err_reservation_conflict", lang);
                 default:
                     break;
             }

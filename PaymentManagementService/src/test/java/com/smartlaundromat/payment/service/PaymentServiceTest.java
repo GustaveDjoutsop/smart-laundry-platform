@@ -176,8 +176,10 @@ class PaymentServiceTest {
         }
 
         @Test
-        void shouldSkipReservationValidationWhenNoCodeProvided() {
+        void shouldSkipReservationCodeValidationWhenNoCodeProvided() {
             when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(reservationClient.checkConflict("MACH-01", request.getCycleDuration(), null))
+                    .thenReturn(Optional.empty());
             when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
                     .thenReturn(Collections.emptyList());
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -191,7 +193,43 @@ class PaymentServiceTest {
 
             paymentService.initiatePayment(request);
 
-            verifyNoInteractions(reservationClient);
+            verify(reservationClient, never()).isValid(any(), any());
+        }
+
+        @Test
+        void shouldThrowWhenReservationConflictExists() {
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            LocalDateTime conflictStart = LocalDateTime.now().plusMinutes(5);
+            when(reservationClient.checkConflict("MACH-01", request.getCycleDuration(), null))
+                    .thenReturn(Optional.of(conflictStart));
+
+            assertThatThrownBy(() -> paymentService.initiatePayment(request))
+                    .isInstanceOf(PaymentException.class)
+                    .hasMessageContaining("reserved starting at");
+
+            verifyNoInteractions(campayService, mtnMomoService, orangeMoneyService);
+            verify(transactionRepository, never()).save(any());
+        }
+
+        @Test
+        void shouldProceedWhenNoReservationConflict() {
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(reservationClient.checkConflict("MACH-01", request.getCycleDuration(), null))
+                    .thenReturn(Optional.empty());
+            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
+                    .thenReturn(Collections.emptyList());
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            PaymentResponse providerResponse = PaymentResponse.builder()
+                    .success(true)
+                    .providerReference("CAMP-REF-001")
+                    .build();
+            when(campayService.requestPayment(anyString(), any(), anyString(), anyString()))
+                    .thenReturn(providerResponse);
+
+            PaymentResponse result = paymentService.initiatePayment(request);
+
+            assertThat(result.getProviderReference()).isEqualTo("CAMP-REF-001");
         }
 
         @Test
