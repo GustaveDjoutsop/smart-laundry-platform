@@ -57,18 +57,22 @@ public class PaymentService {
             throw new PaymentException("MACHINE_BUSY",
                     "Machine " + request.getMachineId() + " is not available");
         }
-        if (StringUtils.hasText(request.getReservationCode())
-                && !reservationClient.isValid(request.getReservationCode(), request.getMachineId())) {
-            log.warn("Reservation code invalid for machine {}, rejecting new payment request", request.getMachineId());
-            throw new PaymentException("RESERVATION_INVALID_CODE",
-                    "Reservation code is not valid for machine " + request.getMachineId());
-        }
+        // Checked before the reservation-code validation below (a remote call): a machine
+        // already mid-checkout should be rejected as PENDING_PAYMENT from local state alone,
+        // without spending a round-trip (and risking a fail-closed error) on a request that's
+        // going to be rejected regardless of whether the code is valid.
         List<Transaction> pendingPayments = transactionRepository
                 .findByMachineIdAndStatus(request.getMachineId(), PaymentStatus.PENDING);
         if (!pendingPayments.isEmpty()) {
             log.warn("Machine {} has a pending payment, rejecting new payment request", request.getMachineId());
             throw new PaymentException("PENDING_PAYMENT",
                     "Machine " + request.getMachineId() + " has a pending payment");
+        }
+        if (StringUtils.hasText(request.getReservationCode())
+                && !reservationClient.isValid(request.getReservationCode(), request.getMachineId())) {
+            log.warn("Reservation code invalid for machine {}, rejecting new payment request", request.getMachineId());
+            throw new PaymentException("RESERVATION_INVALID_CODE",
+                    "Reservation code is not valid for machine " + request.getMachineId());
         }
 
         String externalReference = UUID.randomUUID().toString();

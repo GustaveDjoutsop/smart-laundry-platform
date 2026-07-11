@@ -1709,8 +1709,8 @@ class LaundryFlowPluginTest {
 
         @Test
         void shouldRetryWithoutCallingServiceWhenCodeHasInvalidFormat() {
-            // given — a raw WhatsApp message could contain '/', '?', etc., which must never
-            // reach the URL path segment in machineService.getReservationByCode unsanitized.
+            // given — fail fast on garbage input (e.g. a pasted URL fragment) rather than
+            // spending a round trip on a code that can't possibly match the alphabet.
             FlowContext context = createContext();
             context.set("userInput", "../../api/machines");
 
@@ -1722,6 +1722,27 @@ class LaundryFlowPluginTest {
             assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_REDEEM_CODE);
             assertThat(context.consumeGotoTarget()).isEqualTo("await_reservation_code");
             verifyNoInteractions(machineService);
+        }
+
+        @Test
+        void shouldRetryWhenReservationLookupHasNoMachineId() {
+            // given — defensive guard: a malformed/incomplete lookup response must not reach
+            // validateReservation(code, null)
+            FlowContext context = createContext();
+            context.set("userInput", "RES-ABC123");
+
+            Map<String, Object> reservation = new HashMap<>();
+            reservation.put("machineName", "Washer 1");
+            when(machineService.getReservationByCode("RES-ABC123")).thenReturn(Optional.of(reservation));
+
+            // when
+            plugin.handleAction("reservation.processRedeemCode", Map.of(), context);
+
+            // then
+            assertThat(context.getString("responseMessage")).isNotBlank();
+            assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_REDEEM_CODE);
+            assertThat(context.consumeGotoTarget()).isEqualTo("await_reservation_code");
+            verify(machineService, never()).validateReservation(any(), any());
         }
 
         @ParameterizedTest

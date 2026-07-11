@@ -18,8 +18,7 @@ import java.util.function.Supplier;
 /**
  * Talks to MachineStateService's reservation endpoints for the checks PaymentService
  * needs before charging a customer: whether a supplied reservation code is valid for
- * a machine, and (see the duration-aware overlap enforcement fix) whether the requested
- * cycle duration would run into someone else's upcoming reservation.
+ * a machine.
  *
  * <p>Fails closed, same rationale as {@link MachineAvailabilityClient}: if
  * MachineStateService can't be reached, reject rather than risk an unauthorized start
