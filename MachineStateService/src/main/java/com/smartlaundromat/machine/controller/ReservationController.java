@@ -9,7 +9,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Reservation endpoints (active only when {@code features.reservation-enabled=true}).
@@ -20,6 +22,7 @@ import java.util.List;
  *   <tr><td>POST</td><td>/api/reservations/activate</td><td>Activate after fee payment confirmed</td><td>sls-reservation-write</td></tr>
  *   <tr><td>POST</td><td>/api/reservations/cancel</td><td>Release a PENDING_PAYMENT hold (payment failed/abandoned)</td><td>sls-reservation-write</td></tr>
  *   <tr><td>POST</td><td>/api/reservations/validate</td><td>Cross-check code + machine</td><td>sls-reservation-read</td></tr>
+ *   <tr><td>GET</td><td>/api/reservations/conflicts</td><td>Duration-aware overlap check for a machine</td><td>sls-reservation-read</td></tr>
  *   <tr><td>GET</td><td>/api/reservations/{code}</td><td>Fetch a reservation by code</td><td>sls-reservation-read</td></tr>
  *   <tr><td>GET</td><td>/api/reservations/machine/{machineId}</td><td>List a machine's reservations</td><td>sls-reservation-read</td></tr>
  * </table>
@@ -58,6 +61,26 @@ public class ReservationController {
                 request.getReservationCode(), request.getMachineId());
         return ResponseEntity.ok(
                 reservationService.validate(request.getReservationCode(), request.getMachineId()));
+    }
+
+    /**
+     * Checks whether a machine has a reservation (PENDING_PAYMENT or ACTIVE) overlapping the
+     * half-open window {@code [now, now + durationMinutes)}, other than {@code reservationCode}
+     * if supplied. Used by PaymentManagementService to reject a walk-in whose chosen cycle
+     * duration would run into an upcoming reservation, before charging.
+     */
+    @GetMapping("/conflicts")
+    public ResponseEntity<ReservationConflictResponse> checkConflict(
+            @RequestParam String machineId,
+            @RequestParam int durationMinutes,
+            @RequestParam(required = false) String reservationCode) {
+        if (durationMinutes <= 0) {
+            throw new IllegalArgumentException("durationMinutes must be positive: " + durationMinutes);
+        }
+        LocalDateTime now = LocalDateTime.now();
+        Optional<Reservation> conflicting = reservationService.findConflicting(
+                machineId, now, now.plusMinutes(durationMinutes), reservationCode);
+        return ResponseEntity.ok(ReservationConflictResponse.from(conflicting));
     }
 
     @GetMapping("/{code}")

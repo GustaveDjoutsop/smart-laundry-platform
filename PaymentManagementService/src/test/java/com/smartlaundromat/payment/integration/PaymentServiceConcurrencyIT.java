@@ -8,6 +8,7 @@ import com.smartlaundromat.payment.model.enums.PaymentStatus;
 import com.smartlaundromat.payment.repository.TransactionRepository;
 import com.smartlaundromat.payment.service.PaymentService;
 import com.smartlaundromat.payment.service.machine.MachineAvailabilityClient;
+import com.smartlaundromat.payment.service.machine.ReservationClient;
 import com.smartlaundromat.payment.service.provider.CampayService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +17,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -24,6 +26,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
@@ -47,6 +51,9 @@ class PaymentServiceConcurrencyIT extends BaseIntegrationTest {
     private MachineAvailabilityClient machineAvailabilityClient;
 
     @MockBean
+    private ReservationClient reservationClient;
+
+    @MockBean
     private CampayService campayService;
 
     @Test
@@ -54,6 +61,7 @@ class PaymentServiceConcurrencyIT extends BaseIntegrationTest {
         // machine_id column is VARCHAR(30) — keep this short, unique per run.
         String machineId = "conc_" + (System.nanoTime() % 1_000_000_000L);
         when(machineAvailabilityClient.isAvailable(machineId)).thenReturn(true);
+        when(reservationClient.checkConflict(anyString(), anyInt(), any())).thenReturn(Optional.empty());
         when(campayService.requestPayment(anyString(), org.mockito.ArgumentMatchers.any(BigDecimal.class), anyString(), anyString()))
                 .thenReturn(PaymentResponse.builder().success(true).providerReference("CAMP-CONCURRENCY").build());
 

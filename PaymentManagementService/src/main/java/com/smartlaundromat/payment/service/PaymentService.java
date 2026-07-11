@@ -57,10 +57,10 @@ public class PaymentService {
             throw new PaymentException("MACHINE_BUSY",
                     "Machine " + request.getMachineId() + " is not available");
         }
-        // Checked before the reservation-code validation below (a remote call): a machine
-        // already mid-checkout should be rejected as PENDING_PAYMENT from local state alone,
-        // without spending a round-trip (and risking a fail-closed error) on a request that's
-        // going to be rejected regardless of whether the code is valid.
+        // Checked before the reservation-code/conflict validation below (both remote calls): a
+        // machine already mid-checkout should be rejected as PENDING_PAYMENT from local state
+        // alone, without spending a round-trip (and risking a fail-closed error) on a request
+        // that's going to be rejected regardless of reservation state.
         List<Transaction> pendingPayments = transactionRepository
                 .findByMachineIdAndStatus(request.getMachineId(), PaymentStatus.PENDING);
         if (!pendingPayments.isEmpty()) {
@@ -74,6 +74,16 @@ public class PaymentService {
             throw new PaymentException("RESERVATION_INVALID_CODE",
                     "Reservation code is not valid for machine " + request.getMachineId());
         }
+        // Duration-aware: blocks a walk-in whose chosen cycle would run into someone else's
+        // upcoming reservation, before charging. A supplied reservationCode is excluded from the
+        // conflict search so a legitimate redemption never self-conflicts.
+        reservationClient.checkConflict(request.getMachineId(), request.getCycleDuration(), request.getReservationCode())
+                .ifPresent(conflictingSlotStart -> {
+                    log.warn("Machine {} has a reservation starting at {}, rejecting new payment request",
+                            request.getMachineId(), conflictingSlotStart);
+                    throw new PaymentException("RESERVATION_SLOT_CONFLICT",
+                            "Machine " + request.getMachineId() + " is reserved starting at " + conflictingSlotStart);
+                });
 
         String externalReference = UUID.randomUUID().toString();
 

@@ -8,7 +8,9 @@ import com.smartlaundromat.machine.exception.MachineNotFoundException;
 import com.smartlaundromat.machine.exception.ReservationException;
 import com.smartlaundromat.machine.model.Machine;
 import com.smartlaundromat.machine.model.Reservation;
+import com.smartlaundromat.machine.model.enums.CycleStatus;
 import com.smartlaundromat.machine.model.enums.ReservationStatus;
+import com.smartlaundromat.machine.repository.MachineCycleRepository;
 import com.smartlaundromat.machine.repository.MachineRepository;
 import com.smartlaundromat.machine.repository.ReservationRepository;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
@@ -48,6 +51,7 @@ public class ReservationService {
 
     private final ReservationRepository reservationRepository;
     private final MachineRepository machineRepository;
+    private final MachineCycleRepository machineCycleRepository;
     private final FeatureProperties featureProperties;
     private final ReservationProperties reservationProperties;
     private final PricingClient pricingClient;
@@ -95,6 +99,18 @@ public class ReservationService {
             throw new ReservationException(
                     "Machine " + request.getMachineId() + " is already reserved for that time slot");
         }
+
+        // Mirror image of the overlap check above: a machine currently mid-cycle (started by a
+        // walk-in) must not be reservable for a slot it will still be physically running in.
+        // A running cycle's startedAt is always <= now <= start (slotStart can't be in the past,
+        // checked above), so full interval overlap reduces to this one condition: endsAt > start.
+        machineCycleRepository.findByMachineIdAndStatus(request.getMachineId(), CycleStatus.IN_PROGRESS)
+                .filter(cycle -> cycle.getEndsAt() != null && cycle.getEndsAt().isAfter(start))
+                .ifPresent(cycle -> {
+                    throw new ReservationException(
+                            "Machine " + request.getMachineId() + " is currently running a cycle until "
+                                    + cycle.getEndsAt() + " — choose a later slot");
+                });
 
         String code = generateUniqueCode();
         String reference = "RESV-" + request.getMachineId() + "-" + System.currentTimeMillis();
@@ -263,6 +279,22 @@ public class ReservationService {
     public Optional<Reservation> activeReservationCovering(String machineId) {
         if (!isEnabled()) return Optional.empty();
         return reservationRepository.findActiveCovering(machineId, LocalDateTime.now());
+    }
+
+    /**
+     * Earliest reservation (PENDING_PAYMENT or ACTIVE) overlapping {@code [windowStart, windowEnd)}
+     * on this machine, other than {@code excludeReservationCode} — used both to block a walk-in
+     * whose chosen cycle duration would run into an upcoming reservation, and as the final
+     * defense-in-depth check in {@code MachineService.startCycle}.
+     */
+    @Transactional(readOnly = true)
+    public Optional<Reservation> findConflicting(String machineId, LocalDateTime windowStart,
+                                                  LocalDateTime windowEnd, String excludeReservationCode) {
+        if (!isEnabled()) return Optional.empty();
+        return reservationRepository.findOverlapping(machineId, windowStart, windowEnd).stream()
+                .filter(r -> excludeReservationCode == null
+                        || !r.getReservationCode().equalsIgnoreCase(excludeReservationCode.trim()))
+                .min(Comparator.comparing(Reservation::getSlotStart));
     }
 
     // ── Queries ─────────────────────────────────────────────────────────────────

@@ -358,6 +358,9 @@ public class TranslationService {
         addTranslation("err_invalid_reservation_code",
                 "❌ That reservation code isn't valid for this machine right now.",
                 "❌ Ce code de réservation n'est pas valable pour cette machine en ce moment.");
+        addTranslation("err_reservation_conflict",
+                "❌ This machine has an upcoming reservation and your chosen cycle would run into it.\n\nPlease pick a shorter cycle or a different machine.",
+                "❌ Cette machine a une réservation à venir et votre cycle choisi empiéterait dessus.\n\nVeuillez choisir un cycle plus court ou une autre machine.");
 
         // Staff alert
         addTranslation("staff_alert_low_rating",
