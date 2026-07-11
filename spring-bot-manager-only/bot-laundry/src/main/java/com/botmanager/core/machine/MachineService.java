@@ -124,6 +124,11 @@ public class MachineService {
     }
 
     public void startMachine(String botId, String machineId, String program, String transactionId) {
+        startMachine(botId, machineId, program, transactionId, null);
+    }
+
+    public void startMachine(String botId, String machineId, String program, String transactionId,
+                              String reservationCode) {
         try {
             Map<String, Object> body = new HashMap<>();
             body.put("machineId", machineId);
@@ -131,6 +136,9 @@ public class MachineService {
             body.put("durationMinutes", resolveDuration(botId, program));
             body.put("pulseCount", resolvePulseCount(botId, program));
             body.put("transactionReference", transactionId);
+            if (reservationCode != null) {
+                body.put("reservationCode", reservationCode);
+            }
 
             callMachineService(() -> webClient.post()
                     .uri(machineStateServiceUrl + "/api/machines/start-cycle")
@@ -261,6 +269,58 @@ public class MachineService {
         }
     }
 
+    /**
+     * Looks up a reservation by its redemption code. This is the only endpoint that maps
+     * code → machine without already knowing the machine, so it's the first call in the
+     * bot's "I have a reservation code" redemption flow.
+     *
+     * @return the reservation response map (including {@code machineId}/{@code machineName}/
+     *         {@code slotEnd}), or empty if the code doesn't exist / the service is unreachable.
+     */
+    public Optional<Map<String, Object>> getReservationByCode(String code) {
+        try {
+            Map<String, Object> response = callMachineServiceRead(() -> webClient.get()
+                    .uri(machineStateServiceUrl + "/api/reservations/" + code)
+                    .retrieve()
+                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                    .block());
+
+            return Optional.ofNullable(response);
+        } catch (Exception exception) {
+            log.warn("Failed to fetch reservation by code {}: {}", code, exception.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Authoritative code + machine validity check (valid/reason), used both to confirm a
+     * redemption before showing cycle selection and to pre-check before charging.
+     *
+     * @return the validation response map ({@code valid}, {@code reason}), or empty if the
+     *         service is unreachable.
+     */
+    public Optional<Map<String, Object>> validateReservation(String reservationCode, String machineId) {
+        try {
+            Map<String, Object> body = new HashMap<>();
+            body.put("reservationCode", reservationCode);
+            body.put("machineId", machineId);
+
+            Map<String, Object> response = callMachineServiceRead(() -> webClient.post()
+                    .uri(machineStateServiceUrl + "/api/reservations/validate")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                    .block());
+
+            return Optional.ofNullable(response);
+        } catch (Exception exception) {
+            log.warn("Failed to validate reservation code {} for machine {}: {}",
+                    reservationCode, machineId, exception.getMessage());
+            return Optional.empty();
+        }
+    }
+
     @EventListener
     public void onPaymentCompleted(PaymentEventPublisher.PaymentCompletedEvent event) {
         PaymentRecord record = event.getRecord();
@@ -274,10 +334,12 @@ public class MachineService {
         }
         String machineId = (String) record.getMetadata().get("machineId");
         String program = (String) record.getMetadata().get("program");
+        String reservationCode = (String) record.getMetadata().get("reservationCode");
         if (machineId != null) {
             startMachine(record.getBotId(), machineId,
                     program != null ? program : "NORMAL",
-                    record.getTransactionId());
+                    record.getTransactionId(),
+                    reservationCode);
         }
     }
 

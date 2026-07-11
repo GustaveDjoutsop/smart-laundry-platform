@@ -13,6 +13,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -514,6 +515,161 @@ class MachineServiceTest {
 
             // then
             verify(webClient, never()).post();
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldForwardReservationCodeWhenPresentInMetadata() {
+            // given
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("machineId", "w1");
+            metadata.put("program", "NORMAL");
+            metadata.put("reservationCode", "RES-ABC123");
+
+            PaymentRecord record = PaymentRecord.builder()
+                    .botId("test-bot")
+                    .transactionId("txn-1")
+                    .metadata(metadata)
+                    .build();
+
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            ArgumentCaptor<Map> bodyCaptor = ArgumentCaptor.forClass(Map.class);
+            when(requestBodySpec.bodyValue(bodyCaptor.capture())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.toBodilessEntity()).thenReturn(Mono.empty());
+
+            PaymentEventPublisher.PaymentCompletedEvent event =
+                    new PaymentEventPublisher.PaymentCompletedEvent(record);
+
+            // when
+            machineService.onPaymentCompleted(event);
+
+            // then
+            assertThat(bodyCaptor.getValue()).containsEntry("reservationCode", "RES-ABC123");
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldOmitReservationCodeWhenAbsentFromMetadata() {
+            // given
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("machineId", "w1");
+            metadata.put("program", "NORMAL");
+
+            PaymentRecord record = PaymentRecord.builder()
+                    .botId("test-bot")
+                    .transactionId("txn-1")
+                    .metadata(metadata)
+                    .build();
+
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            ArgumentCaptor<Map> bodyCaptor = ArgumentCaptor.forClass(Map.class);
+            when(requestBodySpec.bodyValue(bodyCaptor.capture())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.toBodilessEntity()).thenReturn(Mono.empty());
+
+            PaymentEventPublisher.PaymentCompletedEvent event =
+                    new PaymentEventPublisher.PaymentCompletedEvent(record);
+
+            // when
+            machineService.onPaymentCompleted(event);
+
+            // then
+            assertThat(bodyCaptor.getValue()).doesNotContainKey("reservationCode");
+        }
+    }
+
+    @Nested
+    class GetReservationByCode {
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnReservationOnSuccess() {
+            // given
+            Map<String, Object> response = new HashMap<>();
+            response.put("machineId", "w1");
+            response.put("machineName", "Washer 1");
+            response.put("slotEnd", "2026-06-11T11:00:00");
+
+            when(webClient.get()).thenReturn(requestHeadersUriSpec);
+            when(requestHeadersUriSpec.uri(anyString())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.just(response));
+
+            // when
+            Optional<Map<String, Object>> result = machineService.getReservationByCode("RES-ABC123");
+
+            // then
+            assertThat(result).contains(response);
+            verify(requestHeadersUriSpec).uri("http://localhost:8082/api/reservations/RES-ABC123");
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnEmptyWhenCallFails() {
+            // given
+            when(webClient.get()).thenReturn(requestHeadersUriSpec);
+            when(requestHeadersUriSpec.uri(anyString())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.error(new RuntimeException("404 Not Found")));
+
+            // when
+            Optional<Map<String, Object>> result = machineService.getReservationByCode("RES-UNKNOWN");
+
+            // then
+            assertThat(result).isEmpty();
+        }
+    }
+
+    @Nested
+    class ValidateReservation {
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnValidationResponseOnSuccess() {
+            // given
+            Map<String, Object> response = new HashMap<>();
+            response.put("valid", true);
+
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.just(response));
+
+            // when
+            Optional<Map<String, Object>> result = machineService.validateReservation("RES-ABC123", "w1");
+
+            // then
+            assertThat(result).contains(response);
+            verify(requestBodyUriSpec).uri("http://localhost:8082/api/reservations/validate");
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnEmptyWhenCallFails() {
+            // given
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.error(new RuntimeException("Connection refused")));
+
+            // when
+            Optional<Map<String, Object>> result = machineService.validateReservation("RES-ABC123", "w1");
+
+            // then
+            assertThat(result).isEmpty();
         }
     }
 

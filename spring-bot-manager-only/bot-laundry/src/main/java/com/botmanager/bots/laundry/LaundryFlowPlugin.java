@@ -18,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -26,7 +27,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -36,6 +39,8 @@ public class LaundryFlowPlugin extends FlowPlugin {
     private static final Set<String> RESET_COMMANDS = Set.of("hi", "hello", "reset", "cancel", "stop", "action_cancel", "start");
 
     private static final int MAX_BUTTONS_DISPLAY = 2;
+
+    private static final Pattern RESERVATION_CODE_PATTERN = Pattern.compile("^[A-Z0-9-]{1,20}$");
 
     private final PaymentGateway paymentGateway;
 
@@ -98,6 +103,8 @@ public class LaundryFlowPlugin extends FlowPlugin {
             case "reservation.confirm" -> handleShowReservationConfirm(context);
             case "reservation.processConfirm" -> handleProcessReservationConfirm(context);
             case "reservation.initiate" -> handleInitiateReservation(context);
+            case "reservation.showRedeemPrompt" -> handleShowRedeemCodePrompt(context);
+            case "reservation.processRedeemCode" -> handleProcessRedeemCode(context);
 
             // Status
             case "status.showUserCycle" -> handleShowUserCycleStatus(context);
@@ -204,6 +211,7 @@ public class LaundryFlowPlugin extends FlowPlugin {
             case "action_wash" -> handleStartCycleFlow(context, MachineType.WASHER);
             case "action_dry" -> handleStartCycleFlow(context, MachineType.DRYER);
             case "action_reservation" -> handleStartReservationFlow(context);
+            case "action_redeem" -> handleStartRedeemFlow(context);
             case "action_my_status" -> goTo(context, "show_user_status");
             case "action_availability" -> goTo(context, "show_availability");
             case "action_cancel" -> goTo(context, "main_menu");
@@ -233,6 +241,7 @@ public class LaundryFlowPlugin extends FlowPlugin {
         rows.add(new MessageSender.ListRow("action_dry", t("btn_start_dry", context), null));
         if (laundryConfig.getFeatures().isReservationEnabled()) {
             rows.add(new MessageSender.ListRow("action_reservation", t("btn_reserve", context), null));
+            rows.add(new MessageSender.ListRow("action_redeem", t("btn_redeem_code", context), null));
         } else {
             rows.add(new MessageSender.ListRow("action_availability", t("btn_availability", context), null));
         }
@@ -349,6 +358,122 @@ public class LaundryFlowPlugin extends FlowPlugin {
         // Skip machine selection — go directly to date selection.
         // The machine will be auto-assigned after the user picks date + time.
         goTo(context, "reservation_date");
+    }
+
+    // ========== Reservation Redemption Flow ==========
+
+    private void handleStartRedeemFlow(FlowContext context) {
+        if (!laundryConfig.getFeatures().isReservationEnabled()) {
+            log.debug("Reservation feature is disabled, botId={}", laundryConfig.getBotId());
+            String message = t("reservation_disabled", context);
+            List<FlowState.ButtonOption> buttons = new ArrayList<>();
+            buttons.add(createButton("action_availability", t("btn_availability", context)));
+            buttons.add(createButton("action_cancel", t("btn_main_menu", context)));
+            context.set("responseMessage", message);
+            context.set("responseButtons", buttons);
+            context.set("step", LaundryStep.AWAITING_MENU_CHOICE);
+            goTo(context, "await_menu");
+            return;
+        }
+
+        log.info("Starting reservation redemption flow for customerPhone={}", context.getString("customerPhone"));
+        // Reservations are washer-only, so the redeemed machine will always be a washer.
+        context.set("selectedMachineType", MachineType.WASHER.name());
+        goTo(context, "enter_reservation_code");
+    }
+
+    private void handleShowRedeemCodePrompt(FlowContext context) {
+        List<FlowState.ButtonOption> buttons = new ArrayList<>();
+        buttons.add(createButton("action_cancel", t("btn_cancel", context)));
+
+        context.set("responseMessage", t("redeem_code_prompt", context));
+        context.set("responseButtons", buttons);
+        context.set("step", LaundryStep.AWAITING_REDEEM_CODE);
+    }
+
+    private void handleProcessRedeemCode(FlowContext context) {
+        String input = context.getString("userInput");
+        String inputLower = input != null ? input.toLowerCase().trim() : "";
+
+        if (input == null || input.isBlank() || "action_cancel".equals(inputLower) || "cancel".equals(inputLower)) {
+            context.set("isReservation", null);
+            goTo(context, "main_menu");
+            return;
+        }
+
+        String code = input.trim().toUpperCase();
+
+        // Reject anything outside the reservation code's own alphabet before it ever reaches a
+        // URL path segment (getReservationByCode appends it directly, unencoded) — a raw WhatsApp
+        // message could otherwise contain '/', '?', or other characters that corrupt or hijack
+        // the request path.
+        if (!RESERVATION_CODE_PATTERN.matcher(code).matches()) {
+            showRedeemRetry(context, t("redeem_code_not_found", context));
+            return;
+        }
+
+        Optional<Map<String, Object>> reservationOpt = machineService.getReservationByCode(code);
+        if (reservationOpt.isEmpty()) {
+            showRedeemRetry(context, t("redeem_code_not_found", context));
+            return;
+        }
+
+        String machineId = (String) reservationOpt.get().get("machineId");
+
+        Optional<Map<String, Object>> validationOpt = machineService.validateReservation(code, machineId);
+        boolean valid = validationOpt.isPresent() && Boolean.TRUE.equals(validationOpt.get().get("valid"));
+
+        if (!valid) {
+            String reason = validationOpt.map(v -> (String) v.get("reason")).orElse("NOT_FOUND");
+            showRedeemRetry(context, translateRedeemFailure(reason, context));
+            return;
+        }
+
+        String machineName = (String) reservationOpt.get().getOrDefault("machineName", machineId);
+        String slotEndStr = formatSlotEnd(reservationOpt.get().get("slotEnd"));
+
+        log.info("Reservation code {} validated for machine {}, customerPhone={}",
+                code, machineId, context.getString("customerPhone"));
+
+        context.set("selectedMachineId", machineId);
+        context.set("selectedMachineName", machineName);
+        context.set("selectedMachineType", MachineType.WASHER.name());
+        context.set("reservationCode", code);
+        context.set("reservationSlotEnd", slotEndStr);
+
+        goTo(context, "cycle_selection");
+    }
+
+    private void showRedeemRetry(FlowContext context, String message) {
+        List<FlowState.ButtonOption> buttons = new ArrayList<>();
+        buttons.add(createButton("action_cancel", t("btn_cancel", context)));
+
+        context.set("responseMessage", message);
+        context.set("responseButtons", buttons);
+        context.set("step", LaundryStep.AWAITING_REDEEM_CODE);
+
+        goTo(context, "await_reservation_code");
+    }
+
+    private String translateRedeemFailure(String reason, FlowContext context) {
+        return switch (reason) {
+            case "USED" -> t("redeem_code_used", context);
+            case "CANCELLED" -> t("redeem_code_cancelled", context);
+            case "NOT_ACTIVE" -> t("redeem_code_not_active", context);
+            case "OUT_OF_SLOT" -> t("redeem_code_out_of_slot", context);
+            default -> t("redeem_code_not_found", context);
+        };
+    }
+
+    private String formatSlotEnd(Object slotEndRaw) {
+        if (!(slotEndRaw instanceof String slotEndStr) || slotEndStr.isBlank()) {
+            return "";
+        }
+        try {
+            return LocalDateTime.parse(slotEndStr).format(DateTimeFormatter.ofPattern("HH:mm"));
+        } catch (Exception e) {
+            return slotEndStr;
+        }
     }
 
     private void handleShowDateSelection(FlowContext context) {
@@ -550,7 +675,12 @@ public class LaundryFlowPlugin extends FlowPlugin {
         metadata.put("isReservation", true);
         metadata.put("customerPhone", customerPhone);
         metadata.put("language", getLang(context).name());
-        metadata.put("reservationCode", reservationCode);
+        // Named distinctly from "reservationCode" (used by the redemption flow, see
+        // handleProcessRedeemCode/handleInitiatePayment): this is the code just generated for
+        // THIS new reservation, carried only for the post-payment confirmation message
+        // (LaundryBot.handleReservationPaymentCompleted) — it must never be forwarded to
+        // PaymentManagementService as a redemption code, since the reservation isn't ACTIVE yet.
+        metadata.put("newReservationCode", reservationCode);
         metadata.put("reservationTransactionReference", reservationTransactionReference);
 
         PaymentRequest request = PaymentRequest.builder()
@@ -825,7 +955,12 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
     private void handleShowCycleSelection(FlowContext context) {
         String machineName = context.getString("selectedMachineName");
-        String message = t("machine_selected", context, Map.of("machine", machineName));
+        String reservationCode = context.getString("reservationCode");
+        String message = reservationCode != null
+                ? t("redeem_code_confirmed", context, Map.of(
+                        "machine", machineName,
+                        "slotEnd", context.getString("reservationSlotEnd")))
+                : t("machine_selected", context, Map.of("machine", machineName));
 
         CycleConfig shortCycle = laundryConfig.getShortCycle();
         CycleConfig longCycle = laundryConfig.getLongCycle();
@@ -922,6 +1057,7 @@ public class LaundryFlowPlugin extends FlowPlugin {
         int duration = durationObj instanceof Number ? ((Number) durationObj).intValue() : 30;
         int amount = priceObj instanceof Number ? ((Number) priceObj).intValue() : 1000;
         int pulseCount = pulseCountObj instanceof Number ? ((Number) pulseCountObj).intValue() : 1;
+        String reservationCode = context.getString("reservationCode");
 
         // We'll return a single user-facing message based on whether the payment request
         // was initiated successfully.
@@ -937,6 +1073,9 @@ public class LaundryFlowPlugin extends FlowPlugin {
         metadata.put("pulseCount", pulseCount);
         metadata.put("customerPhone", customerPhone);
         metadata.put("language", getLang(context).name());
+        if (reservationCode != null) {
+            metadata.put("reservationCode", reservationCode);
+        }
 
         String description = (machineType == MachineType.DRYER ? "Dry" : "Wash") + " cycle for " + machineId;
 
@@ -972,6 +1111,8 @@ public class LaundryFlowPlugin extends FlowPlugin {
         context.set("step", LaundryStep.MAIN_MENU);
         context.set("selectedMachineId", null);
         context.set("selectedMachineName", null);
+        context.set("reservationCode", null);
+        context.set("reservationSlotEnd", null);
 
         goTo(context, "await_menu");
     }
@@ -1182,7 +1323,10 @@ public class LaundryFlowPlugin extends FlowPlugin {
                 case "PENDING_PAYMENT":
                     return translationService.translate("err_pending_payment", lang);
                 case "MACHINE_STATUS_UNKNOWN":
+                case "RESERVATION_STATUS_UNKNOWN":
                     return translationService.translate("campay_err_unavailable", lang);
+                case "RESERVATION_INVALID_CODE":
+                    return translationService.translate("err_invalid_reservation_code", lang);
                 default:
                     break;
             }

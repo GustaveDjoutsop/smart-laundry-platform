@@ -12,6 +12,7 @@ import com.smartlaundromat.payment.model.enums.PaymentStatus;
 import com.smartlaundromat.payment.repository.OutboxEventRepository;
 import com.smartlaundromat.payment.repository.TransactionRepository;
 import com.smartlaundromat.payment.service.machine.MachineAvailabilityClient;
+import com.smartlaundromat.payment.service.machine.ReservationClient;
 import com.smartlaundromat.payment.service.provider.CampayService;
 import com.smartlaundromat.payment.service.provider.MtnMomoService;
 import com.smartlaundromat.payment.service.provider.OrangeMoneyService;
@@ -21,8 +22,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -37,6 +40,7 @@ public class PaymentService {
     private final OutboxEventRepository outboxEventRepository;
     private final ObjectMapper objectMapper;
     private final MachineAvailabilityClient machineAvailabilityClient;
+    private final ReservationClient reservationClient;
 
     private final CampayService campayService;
     private final MtnMomoService mtnMomoService;
@@ -52,6 +56,12 @@ public class PaymentService {
             log.warn("Machine {} is not available, rejecting new payment request", request.getMachineId());
             throw new PaymentException("MACHINE_BUSY",
                     "Machine " + request.getMachineId() + " is not available");
+        }
+        if (StringUtils.hasText(request.getReservationCode())
+                && !reservationClient.isValid(request.getReservationCode(), request.getMachineId())) {
+            log.warn("Reservation code invalid for machine {}, rejecting new payment request", request.getMachineId());
+            throw new PaymentException("RESERVATION_INVALID_CODE",
+                    "Reservation code is not valid for machine " + request.getMachineId());
         }
         List<Transaction> pendingPayments = transactionRepository
                 .findByMachineIdAndStatus(request.getMachineId(), PaymentStatus.PENDING);
@@ -72,6 +82,7 @@ public class PaymentService {
                 .cycleDuration(request.getCycleDuration())
                 .description(request.getDescription())
                 .paymentProvider(request.getProvider())
+                .reservationCode(request.getReservationCode())
                 .build();
 
         log.info("save new transaction with external reference: {}", externalReference);
@@ -194,13 +205,15 @@ public class PaymentService {
     // ── Private ───────────────────────────────────────────────────────────────
 
     private OutboxEvent buildPaymentSucceededEvent(Transaction tx) {
-        Map<String, Object> payloadMap = Map.of(
-                "machineId",            tx.getMachineId(),
-                "transactionReference", tx.getExternalReference(),
-                "cycleType",            "NORMAL",
-                "durationMinutes",      tx.getCycleDuration() != null ? tx.getCycleDuration() : 30,
-                "pulseCount",           tx.getPulseCount()    != null ? tx.getPulseCount()    : 1
-        );
+        Map<String, Object> payloadMap = new HashMap<>();
+        payloadMap.put("machineId", tx.getMachineId());
+        payloadMap.put("transactionReference", tx.getExternalReference());
+        payloadMap.put("cycleType", "NORMAL");
+        payloadMap.put("durationMinutes", tx.getCycleDuration() != null ? tx.getCycleDuration() : 30);
+        payloadMap.put("pulseCount", tx.getPulseCount() != null ? tx.getPulseCount() : 1);
+        if (tx.getReservationCode() != null) {
+            payloadMap.put("reservationCode", tx.getReservationCode());
+        }
         try {
             return OutboxEvent.builder()
                     .aggregateType("Transaction")
