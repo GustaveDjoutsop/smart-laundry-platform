@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
@@ -33,6 +34,8 @@ import java.util.List;
 @Slf4j
 @RequiredArgsConstructor
 public class ReservationReminderService {
+
+    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
 
     private final ReservationRepository reservationRepository;
     private final ReservationProperties reservationProperties;
@@ -58,7 +61,8 @@ public class ReservationReminderService {
 
             try {
                 int minutesBefore = (int) Duration.between(now, reservation.getSlotStart()).toMinutes();
-                botNotificationClient.sendReservationUpcoming(reservation, minutesBefore);
+                String slotEndStr = reservation.getSlotEnd().format(TIME_FMT);
+                botNotificationClient.sendReservationUpcoming(reservation, minutesBefore, slotEndStr);
 
                 try {
                     reservation.setReminderSentAt(now);
