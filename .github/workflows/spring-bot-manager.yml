@@ -93,11 +93,14 @@ jobs:
           while [ "$ELAPSED" -lt "$MAX_WAIT" ]; do
             sleep "$INTERVAL"
             ELAPSED=$((ELAPSED + INTERVAL))
-            LOGS=$(railway logs --service "$SERVICE_ID" --tail 300 2>&1 \
+            NEW_LOGS=$(railway logs --service "$SERVICE_ID" --tail 300 2>&1 \
                    || railway logs --tail 300 2>&1 \
                    || echo "")
+            # A transient railway logs failure must not wipe out the last good snapshot —
+            # keep it so the final diagnostic output still shows something useful.
+            [ -n "$NEW_LOGS" ] && LOGS="$NEW_LOGS"
 
-            if echo "$LOGS" | grep -qE "Started .+ in [0-9]"; then
+            if echo "$LOGS" | grep -qE "Started [^ ]+ in [0-9]+(\.[0-9]+)? seconds"; then
               STATUS="success"; break
             fi
             if echo "$LOGS" | grep -qE "APPLICATION FAILED TO START|Exception encountered during context initialization|BeanCreationException"; then
