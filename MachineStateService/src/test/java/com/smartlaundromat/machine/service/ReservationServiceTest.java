@@ -1000,4 +1000,37 @@ class ReservationServiceTest {
         // then — no exception, no further interaction needed beyond the call itself
         verify(reservationRepository).cancelStalePendingHolds(any());
     }
+
+    // ── listHeldForCustomer ────────────────────────────────────────────────────
+
+    @Test
+    void shouldListHeldReservationsForCustomer() {
+        // given
+        when(featureProperties.isReservationEnabled()).thenReturn(true);
+        Reservation held = Reservation.builder()
+                .reservationCode("RES-ABC123").machineId("washer_02")
+                .customerPhone("237612345678").status(ReservationStatus.ACTIVE)
+                .build();
+        when(reservationRepository.findHeldByCustomerPhone("237612345678"))
+                .thenReturn(List.of(held));
+
+        // when
+        List<Reservation> result = reservationService.listHeldForCustomer("237612345678");
+
+        // then
+        assertThat(result).containsExactly(held);
+    }
+
+    @Test
+    void shouldReturnEmptyHeldReservationsWhenFeatureDisabled() {
+        // given
+        when(featureProperties.isReservationEnabled()).thenReturn(false);
+
+        // when
+        List<Reservation> result = reservationService.listHeldForCustomer("237612345678");
+
+        // then
+        assertThat(result).isEmpty();
+        verify(reservationRepository, never()).findHeldByCustomerPhone(any());
+    }
 }

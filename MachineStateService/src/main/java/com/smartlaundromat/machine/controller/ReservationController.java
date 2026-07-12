@@ -25,6 +25,7 @@ import java.util.Optional;
  *   <tr><td>GET</td><td>/api/reservations/conflicts</td><td>Duration-aware overlap check for a machine</td><td>sls-reservation-read</td></tr>
  *   <tr><td>GET</td><td>/api/reservations/{code}</td><td>Fetch a reservation by code</td><td>sls-reservation-read</td></tr>
  *   <tr><td>GET</td><td>/api/reservations/machine/{machineId}</td><td>List a machine's reservations</td><td>sls-reservation-read</td></tr>
+ *   <tr><td>GET</td><td>/api/reservations/customer/{phone}</td><td>List a customer's held reservations</td><td>sls-reservation-read</td></tr>
  * </table>
  */
 @Slf4j
@@ -93,5 +94,11 @@ public class ReservationController {
     public ResponseEntity<List<Reservation>> listForMachine(@PathVariable String machineId) {
         log.info("Received request to list reservations for machineId={}", machineId);
         return ResponseEntity.ok(reservationService.listForMachine(machineId));
+    }
+
+    @GetMapping("/customer/{phone}")
+    public ResponseEntity<List<Reservation>> listHeldForCustomer(@PathVariable String phone) {
+        log.info("Received request to list held reservations for customerPhone={}", phone);
+        return ResponseEntity.ok(reservationService.listHeldForCustomer(phone));
     }
 }

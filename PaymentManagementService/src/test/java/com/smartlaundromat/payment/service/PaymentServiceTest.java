@@ -107,6 +107,21 @@ class PaymentServiceTest {
         }
 
         @Test
+        void shouldCarryReservationHoldFlagOntoTransaction() {
+            request.setReservationHold(true);
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
+                    .thenReturn(Collections.emptyList());
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(campayService.requestPayment(anyString(), any(), anyString(), anyString()))
+                    .thenReturn(PaymentResponse.builder().success(true).providerReference("CAMP-REF-002").build());
+
+            paymentService.initiatePayment(request);
+
+            verify(transactionRepository, atLeastOnce()).save(argThat(Transaction::isReservationHold));
+        }
+
+        @Test
         void shouldThrowWhenMachineIsNotAvailable() {
             when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(false);
 
@@ -332,11 +347,34 @@ class PaymentServiceTest {
 
             assertThat(result.getStatus()).isEqualTo(PaymentStatus.SUCCESSFUL);
             assertThat(result.getProviderReference()).isEqualTo("PROV-001");
+            assertThat(result.getCycleStartedAt()).isNotNull();
             verify(outboxEventRepository).save(argThat(event ->
                     "PaymentSucceeded".equals(event.getEventType())
                     && "EXT-001".equals(event.getAggregateId())
                     && event.getPayload().contains("MACH-01")
             ));
+        }
+
+        @Test
+        void shouldSkipMachineStartAndCycleStartedAtForReservationHold() {
+            Transaction transaction = Transaction.builder()
+                    .externalReference("EXT-HOLD-01")
+                    .machineId("washer_02")
+                    .pulseCount(1)
+                    .cycleDuration(60)
+                    .reservationHold(true)
+                    .status(PaymentStatus.PENDING)
+                    .build();
+            when(transactionRepository.findByExternalReference("EXT-HOLD-01"))
+                    .thenReturn(Optional.of(transaction));
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            Transaction result = paymentService.processWebhook(
+                    PaymentProvider.CAMPAY, "EXT-HOLD-01", "SUCCESSFUL", "PROV-HOLD-01", null);
+
+            assertThat(result.getStatus()).isEqualTo(PaymentStatus.SUCCESSFUL);
+            assertThat(result.getCycleStartedAt()).isNull();
+            verify(outboxEventRepository, never()).save(any());
         }
 
         @Test
@@ -474,12 +512,12 @@ class PaymentServiceTest {
         Transaction washer = Transaction.builder()
                 .machineId("washer_01").phoneNumber("237612345678")
                 .status(PaymentStatus.SUCCESSFUL)
-                .cycleDuration(60).createdAt(LocalDateTime.now().minusMinutes(10))
+                .cycleDuration(60).cycleStartedAt(LocalDateTime.now().minusMinutes(10))
                 .build();
         Transaction dryer = Transaction.builder()
                 .machineId("dryer_02").phoneNumber("237612345678")
                 .status(PaymentStatus.SUCCESSFUL)
-                .cycleDuration(30).createdAt(LocalDateTime.now().minusMinutes(5))
+                .cycleDuration(30).cycleStartedAt(LocalDateTime.now().minusMinutes(5))
                 .build();
         when(transactionRepository.findByPhoneNumberAndStatusOrderByCreatedAtDesc("237612345678", PaymentStatus.SUCCESSFUL))
                 .thenReturn(List.of(washer, dryer));
@@ -495,12 +533,12 @@ class PaymentServiceTest {
         Transaction finished = Transaction.builder()
                 .machineId("washer_01").phoneNumber("237612345678")
                 .status(PaymentStatus.SUCCESSFUL)
-                .cycleDuration(30).createdAt(LocalDateTime.now().minusMinutes(45))
+                .cycleDuration(30).cycleStartedAt(LocalDateTime.now().minusMinutes(45))
                 .build();
         Transaction stillRunning = Transaction.builder()
                 .machineId("dryer_02").phoneNumber("237612345678")
                 .status(PaymentStatus.SUCCESSFUL)
-                .cycleDuration(60).createdAt(LocalDateTime.now().minusMinutes(5))
+                .cycleDuration(60).cycleStartedAt(LocalDateTime.now().minusMinutes(5))
                 .build();
         when(transactionRepository.findByPhoneNumberAndStatusOrderByCreatedAtDesc("237612345678", PaymentStatus.SUCCESSFUL))
                 .thenReturn(List.of(finished, stillRunning));
@@ -508,6 +546,26 @@ class PaymentServiceTest {
         List<Transaction> result = paymentService.getActiveCyclesByPhone("237612345678");
 
         assertThat(result).extracting(Transaction::getMachineId).containsExactly("dryer_02");
+    }
+
+    @Test
+    void shouldExcludeReservationHoldFeeFromActiveCyclesByPhone() {
+        // A reservation-fee payment's createdAt is "now" and its cycleDuration is the
+        // reserved slot's length — without the cycleStartedAt gate this would look
+        // identical to a real, currently-running cycle even though nothing has started.
+        Transaction reservationHold = Transaction.builder()
+                .machineId("washer_02").phoneNumber("237612345678")
+                .status(PaymentStatus.SUCCESSFUL)
+                .cycleDuration(60).createdAt(LocalDateTime.now())
+                .reservationHold(true)
+                .cycleStartedAt(null)
+                .build();
+        when(transactionRepository.findByPhoneNumberAndStatusOrderByCreatedAtDesc("237612345678", PaymentStatus.SUCCESSFUL))
+                .thenReturn(List.of(reservationHold));
+
+        List<Transaction> result = paymentService.getActiveCyclesByPhone("237612345678");
+
+        assertThat(result).isEmpty();
     }
 
     @Test

@@ -629,6 +629,50 @@ class MachineServiceTest {
     }
 
     @Nested
+    class GetHeldReservations {
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnHeldReservationsOnSuccess() {
+            // given
+            Map<String, Object> reservation = new HashMap<>();
+            reservation.put("machineId", "w1");
+            reservation.put("slotStart", "2026-06-11T16:00:00");
+            List<Map<String, Object>> response = List.of(reservation);
+
+            when(webClient.get()).thenReturn(requestHeadersUriSpec);
+            when(requestHeadersUriSpec.uri(anyString(), any(Object.class))).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.just(response));
+
+            // when
+            List<Map<String, Object>> result = machineService.getHeldReservations("+237690000000");
+
+            // then
+            assertThat(result).isEqualTo(response);
+            verify(requestHeadersUriSpec).uri("http://localhost:8082/api/reservations/customer/{phone}", "+237690000000");
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnEmptyListWhenCallFails() {
+            // given
+            when(webClient.get()).thenReturn(requestHeadersUriSpec);
+            when(requestHeadersUriSpec.uri(anyString(), any(Object.class))).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.error(new RuntimeException("Connection refused")));
+
+            // when
+            List<Map<String, Object>> result = machineService.getHeldReservations("+237690000000");
+
+            // then
+            assertThat(result).isEmpty();
+        }
+    }
+
+    @Nested
     class ValidateReservation {
 
         @SuppressWarnings("unchecked")

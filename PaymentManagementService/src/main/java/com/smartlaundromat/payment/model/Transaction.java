@@ -68,6 +68,16 @@ public class Transaction {
     @Column(name = "reservation_code", length = 20)
     private String reservationCode;
 
+    /**
+     * True for the fee payment that confirms/holds a future reservation slot.
+     * These must never trigger a machine start or set {@link #cycleStartedAt} —
+     * the machine only actually starts later, at redemption, via a separate
+     * transaction carrying {@link #reservationCode}.
+     */
+    @Column(name = "reservation_hold", nullable = false)
+    @Builder.Default
+    private boolean reservationHold = false;
+
     @Column(name = "timeout_at")
     private LocalDateTime timeoutAt;
 
