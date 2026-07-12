@@ -333,7 +333,7 @@ public class TranslationService {
                 "⏰ *Votre créneau commence bientôt!*\n\n🖥️ Machine: {machine}\n🕐 Commence dans environ {minutes} minute(s), jusqu'à {slotEnd}.\n🔑 Code: {code}\n\nVeuillez présenter ce code à la machine pour la démarrer. S'il n'est pas utilisé avant la fin du créneau, la réservation sera libérée.");
 
         // Reservation redemption
-        addTranslation("btn_redeem_code", "🔑 I Have a Reservation Code", "🔑 J'ai un Code de Réservation");
+        addTranslation("btn_redeem_code", "🔑 Have a Code", "🔑 J'ai un Code");
         addTranslation("redeem_code_prompt",
                 "🔑 Please enter your reservation code (e.g. RES-AB12CD):\n\n_Type 'cancel' to go back._",
                 "🔑 Veuillez entrer votre code de réservation (ex: RES-AB12CD):\n\n_Tapez 'cancel' pour revenir._");

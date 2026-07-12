@@ -372,6 +372,24 @@ class LaundryFlowPluginTest {
         }
 
         @Test
+        void shouldKeepAllServiceRowTitlesWithinWhatsAppListLimit() {
+            // given — WhatsApp rejects the whole interactive list (error 131009) if any
+            // row title exceeds 24 characters, so every row must stay under that limit.
+            FlowContext context = createContext();
+            laundryConfig.getFeatures().setReservationEnabled(true);
+
+            // when
+            plugin.handleAction("services.show", Map.of(), context);
+
+            // then
+            com.botmanager.core.flow.MessageSender.ListMessage listMessage = getResponseList(context);
+            assertThat(listMessage.sections().getFirst().rows())
+                    .allSatisfy(row -> assertThat(row.title().length())
+                            .as("row '%s' title '%s'", row.id(), row.title())
+                            .isLessThanOrEqualTo(24));
+        }
+
+        @Test
         void shouldShowServicesWithAvailabilityRowWhenReservationDisabled() {
             // given
             FlowContext context = createContext();
