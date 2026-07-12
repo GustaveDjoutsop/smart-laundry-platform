@@ -173,8 +173,10 @@ public class PaymentService {
 
             if (transaction.isReservationHold()) {
                 // This fee only confirms/holds a future slot — the machine must not start
-                // now. Activation (PENDING_PAYMENT -> ACTIVE) happens separately via
-                // MachineService.activateReservation, called by the bot on this same event.
+                // now, so no outbox event is written here. Reservation activation
+                // (PENDING_PAYMENT -> ACTIVE) happens entirely outside this service: the
+                // bot detects this payment success on its own (polling PaymentStatusWorker)
+                // and calls MachineStateService's /api/reservations/activate directly.
                 transactionRepository.save(transaction);
                 log.info("Reservation hold fee confirmed — skipping machine-start dispatch: tx={}, machine={}",
                         externalReference, transaction.getMachineId());
