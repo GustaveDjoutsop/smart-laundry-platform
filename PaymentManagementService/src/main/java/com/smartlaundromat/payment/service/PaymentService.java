@@ -97,6 +97,7 @@ public class PaymentService {
                 .description(request.getDescription())
                 .paymentProvider(request.getProvider())
                 .reservationCode(request.getReservationCode())
+                .reservationHold(request.isReservationHold())
                 .build();
 
         log.info("save new transaction with external reference: {}", externalReference);
@@ -166,13 +167,24 @@ public class PaymentService {
         if ("SUCCESSFUL".equalsIgnoreCase(status)) {
             transaction.setStatus(PaymentStatus.SUCCESSFUL);
             transaction.setProviderReference(providerReference);
-            transaction.setCycleStartedAt(LocalDateTime.now());
-            transactionRepository.save(transaction);
 
             log.info("Payment SUCCESSFUL — tx={}, machine={}, provider={}",
                     externalReference, transaction.getMachineId(), provider);
 
-            outboxEventRepository.save(buildPaymentSucceededEvent(transaction));
+            if (transaction.isReservationHold()) {
+                // This fee only confirms/holds a future slot — the machine must not start
+                // now, so no outbox event is written here. Reservation activation
+                // (PENDING_PAYMENT -> ACTIVE) happens entirely outside this service: the
+                // bot detects this payment success on its own (polling PaymentStatusWorker)
+                // and calls MachineStateService's /api/reservations/activate directly.
+                transactionRepository.save(transaction);
+                log.info("Reservation hold fee confirmed — skipping machine-start dispatch: tx={}, machine={}",
+                        externalReference, transaction.getMachineId());
+            } else {
+                transaction.setCycleStartedAt(LocalDateTime.now());
+                transactionRepository.save(transaction);
+                outboxEventRepository.save(buildPaymentSucceededEvent(transaction));
+            }
 
         } else {
             transaction.setStatus(PaymentStatus.FAILED);
@@ -204,7 +216,12 @@ public class PaymentService {
         return transactionRepository
                 .findByPhoneNumberAndStatusOrderByCreatedAtDesc(phone, PaymentStatus.SUCCESSFUL)
                 .stream()
-                .filter(tx -> tx.getCreatedAt().plusMinutes(tx.getCycleDuration()).isAfter(now))
+                // cycleStartedAt is only set for transactions that actually started a
+                // machine (see processWebhook) — reservation-hold fee payments never set
+                // it, so they're correctly excluded here rather than being mistaken for
+                // an active cycle based on their own createdAt.
+                .filter(tx -> tx.getCycleStartedAt() != null
+                        && tx.getCycleStartedAt().plusMinutes(tx.getCycleDuration()).isAfter(now))
                 .toList();
     }
 

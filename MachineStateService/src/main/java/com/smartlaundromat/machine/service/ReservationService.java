@@ -312,6 +312,17 @@ public class ReservationService {
         return reservationRepository.findByMachineIdOrderBySlotStartDesc(machineId);
     }
 
+    /**
+     * A customer's currently-held reservations (PENDING_PAYMENT or ACTIVE), soonest
+     * first — feature-flagged like everything else here, so a disabled feature
+     * reports no held reservations rather than stale ones.
+     */
+    @Transactional(readOnly = true)
+    public List<Reservation> listHeldForCustomer(String customerPhone) {
+        if (!isEnabled()) return List.of();
+        return reservationRepository.findHeldByCustomerPhone(customerPhone);
+    }
+
     // ── Scheduled expiry ──────────────────────────────────────────────────────────
 
     /** Expires reservations whose 1-hour slot has elapsed without redemption. */

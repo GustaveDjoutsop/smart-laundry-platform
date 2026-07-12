@@ -176,6 +176,9 @@ public class TranslationService {
         addTranslation("status_active_cycle",
                 "✅ You have an active wash cycle on machine *{machine}*.\n\nYour laundry is in progress!",
                 "✅ Vous avez un cycle de lavage actif sur la machine *{machine}*.\n\nVotre linge est en cours!");
+        addTranslation("status_reservation_held",
+                "📅 You have a reservation request for: *{reservations}*.\n\nThe machine hasn't started. If payment isn't confirmed yet, complete it to secure your slot; once confirmed, present your code at the reserved time to start the machine.",
+                "📅 Vous avez une demande de réservation pour: *{reservations}*.\n\nLa machine n'a pas démarré. Si le paiement n'est pas encore confirmé, finalisez-le pour garantir votre créneau; une fois confirmé, présentez votre code à l'heure réservée pour démarrer la machine.");
 
         // Availability
         addTranslation("availability_title", "\uD83D\uDCCA Machine Availability:", "\uD83D\uDCCA Disponibilité des Machines:");

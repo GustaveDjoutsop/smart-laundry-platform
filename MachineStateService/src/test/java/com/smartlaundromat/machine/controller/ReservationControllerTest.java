@@ -255,6 +255,28 @@ class ReservationControllerTest {
     }
 
     @Test
+    @WithMockUser(authorities = "SCOPE_sls-reservation-read")
+    void shouldListHeldReservationsForCustomer() throws Exception {
+        // given
+        Reservation reservation = Reservation.builder()
+                .reservationCode("RES-ABC")
+                .machineId("washer_02")
+                .customerPhone("237612345678")
+                .status(ReservationStatus.ACTIVE)
+                .slotStart(LocalDateTime.now())
+                .slotEnd(LocalDateTime.now().plusHours(1))
+                .feeAmount(1500)
+                .currency("XAF")
+                .build();
+        when(reservationService.listHeldForCustomer("237612345678")).thenReturn(List.of(reservation));
+
+        // when / then
+        mockMvc.perform(get("/api/reservations/customer/237612345678"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].reservationCode").value("RES-ABC"));
+    }
+
+    @Test
     void shouldReturn401WhenNoAuth() throws Exception {
         // when / then
         mockMvc.perform(get("/api/reservations/RES-ABC"))

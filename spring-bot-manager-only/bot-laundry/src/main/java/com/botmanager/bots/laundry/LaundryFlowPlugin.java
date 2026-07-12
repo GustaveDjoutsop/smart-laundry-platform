@@ -1132,20 +1132,35 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
     // ========== Status ==========
 
+    private static final DateTimeFormatter RESERVATION_SLOT_FMT = DateTimeFormatter.ofPattern("dd/MM HH:mm");
+
     private void handleShowUserCycleStatus(FlowContext context) {
         String customerPhone = context.getString("customerPhone");
 
         List<Map<String, Object>> activeCycles = transactionClient != null
                 ? transactionClient.getActiveCycles(customerPhone) : List.of();
+        List<Map<String, Object>> heldReservations = machineService.getHeldReservations(customerPhone);
 
-        String message;
-        List<FlowState.ButtonOption> buttons = new ArrayList<>();
+        List<String> messageParts = new ArrayList<>();
 
         if (!activeCycles.isEmpty()) {
             String machines = activeCycles.stream()
                     .map(cycle -> String.valueOf(cycle.getOrDefault("machineId", "")))
                     .collect(Collectors.joining(", "));
-            message = t("status_active_cycle", context, Map.of("machine", machines));
+            messageParts.add(t("status_active_cycle", context, Map.of("machine", machines)));
+        }
+
+        if (!heldReservations.isEmpty()) {
+            String reservations = heldReservations.stream()
+                    .map(this::formatHeldReservation)
+                    .collect(Collectors.joining(", "));
+            messageParts.add(t("status_reservation_held", context, Map.of("reservations", reservations)));
+        }
+
+        List<FlowState.ButtonOption> buttons = new ArrayList<>();
+        String message;
+        if (!messageParts.isEmpty()) {
+            message = String.join("\n\n", messageParts);
             buttons.add(createButton("action_availability", t("btn_availability", context)));
             buttons.add(createButton("action_cancel", t("btn_main_menu", context)));
         } else {
@@ -1160,6 +1175,20 @@ public class LaundryFlowPlugin extends FlowPlugin {
         context.set("step", LaundryStep.AWAITING_MENU_CHOICE);
 
         goTo(context, "await_menu");
+    }
+
+    private String formatHeldReservation(Map<String, Object> reservation) {
+        String machineId = String.valueOf(reservation.getOrDefault("machineId", ""));
+        Object slotStartObj = reservation.get("slotStart");
+        if (slotStartObj == null) {
+            return machineId;
+        }
+        try {
+            String slot = LocalDateTime.parse(String.valueOf(slotStartObj)).format(RESERVATION_SLOT_FMT);
+            return machineId + " (" + slot + ")";
+        } catch (Exception e) {
+            return machineId;
+        }
     }
 
     private void handleShowMachineAvailability(FlowContext context) {

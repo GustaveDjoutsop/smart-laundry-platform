@@ -43,6 +43,20 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     List<Reservation> findByMachineIdOrderBySlotStartDesc(String machineId);
 
     /**
+     * A customer's currently-held reservations (paid-and-confirmed or awaiting fee
+     * payment), soonest slot first — used to show upcoming/held reservations
+     * distinctly from an active wash cycle in the bot's status check.
+     */
+    @Query("""
+           SELECT r FROM Reservation r
+           WHERE r.customerPhone = :customerPhone
+             AND r.status IN (com.smartlaundromat.machine.model.enums.ReservationStatus.PENDING_PAYMENT,
+                              com.smartlaundromat.machine.model.enums.ReservationStatus.ACTIVE)
+           ORDER BY r.slotStart ASC
+           """)
+    List<Reservation> findHeldByCustomerPhone(@Param("customerPhone") String customerPhone);
+
+    /**
      * Finds reservations for a machine that overlap the half-open interval
      * {@code [start, end)} and are still holding the slot (PENDING_PAYMENT or ACTIVE).
      * Two intervals overlap when {@code existingStart < end AND existingEnd > start}.

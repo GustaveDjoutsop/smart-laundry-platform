@@ -340,6 +340,30 @@ public class MachineService {
         }
     }
 
+    /**
+     * A customer's currently-held reservations (paid-and-confirmed or awaiting fee
+     * payment), soonest slot first — used by the status check so a held reservation
+     * is never mistaken for a machine actually running right now.
+     *
+     * @return the held reservations, or an empty list if the service is unreachable
+     */
+    @SuppressWarnings("unchecked")
+    public List<Map<String, Object>> getHeldReservations(String customerPhone) {
+        try {
+            List<Map<String, Object>> response = callMachineServiceRead(() -> webClient.get()
+                    .uri(machineStateServiceUrl + "/api/reservations/customer/{phone}", customerPhone)
+                    .retrieve()
+                    .bodyToMono(new ParameterizedTypeReference<List<Map<String, Object>>>() {})
+                    .block());
+
+            return response != null ? response : List.of();
+        } catch (Exception exception) {
+            log.warn("Failed to fetch held reservations for customerPhone={}: {}",
+                    customerPhone, exception.getMessage());
+            return List.of();
+        }
+    }
+
     @EventListener
     public void onPaymentCompleted(PaymentEventPublisher.PaymentCompletedEvent event) {
         PaymentRecord record = event.getRecord();

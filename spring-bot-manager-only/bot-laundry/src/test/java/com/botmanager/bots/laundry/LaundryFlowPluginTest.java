@@ -1920,6 +1920,55 @@ class LaundryFlowPluginTest {
         }
 
         @Test
+        void shouldShowHeldReservationSeparatelyFromActiveCycle() {
+            // given — customer paid a reservation-fee hold for a future/current slot, but
+            // no machine is actually running for them. This must never read as "active
+            // wash cycle" (see the getActiveCyclesByPhone / reservationHold fix).
+            FlowContext context = createContext();
+            when(machineService.getHeldReservations("+237690000000")).thenReturn(List.of(
+                    Map.of("machineId", "washer_02", "slotStart", "2026-06-11T16:00:00")
+            ));
+
+            // when
+            plugin.handleAction("status.showUserCycle", Map.of(), context);
+
+            // then
+            String message = context.getString("responseMessage");
+            assertThat(message).contains("washer_02");
+            assertThat(message).doesNotContain("active wash cycle");
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        void shouldShowBothActiveCycleAndHeldReservationTogether() {
+            // given
+            RestTemplate restTemplate = mock(RestTemplate.class);
+            when(restTemplate.getForEntity(anyString(), eq(Map.class), any(Map.class)))
+                    .thenReturn(ResponseEntity.ok(Map.of(
+                            "hasCycle", true,
+                            "cycles", List.of(Map.of("machineId", "dryer_02", "amount", 500))
+                    )));
+            TransactionClient client = new TransactionClient(restTemplate, "http://localhost:8081");
+            PricingClient pricingClient = new PricingClient(null, "http://localhost:8081",
+                    laundryConfig.getShortCycle().getPrice(), laundryConfig.getLongCycle().getPrice(),
+                    laundryConfig.getReservation().getPrice());
+            LaundryFlowPlugin pluginWithCycles = new LaundryFlowPlugin(
+                    paymentGateway, machineService, translationService, laundryConfig, pricingClient, client,
+                    feedbackService);
+            FlowContext context = createContext();
+            when(machineService.getHeldReservations("+237690000000")).thenReturn(List.of(
+                    Map.of("machineId", "washer_02", "slotStart", "2026-06-11T16:00:00")
+            ));
+
+            // when
+            pluginWithCycles.handleAction("status.showUserCycle", Map.of(), context);
+
+            // then — both the running dryer and the held washer reservation are mentioned
+            String message = context.getString("responseMessage");
+            assertThat(message).contains("dryer_02").contains("washer_02");
+        }
+
+        @Test
         void shouldShowMachineAvailabilityWithBothAvailableAndInUse() {
             // given
             FlowContext context = createContext();
