@@ -371,12 +371,15 @@ class LaundryFlowPluginTest {
             assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_MENU_CHOICE);
         }
 
-        @Test
-        void shouldKeepAllServiceRowTitlesWithinWhatsAppListLimit() {
+        @ParameterizedTest
+        @CsvSource({"en, true", "en, false", "fr, true", "fr, false"})
+        void shouldKeepAllServiceRowTitlesWithinWhatsAppListLimit(String language, boolean reservationEnabled) {
             // given — WhatsApp rejects the whole interactive list (error 131009) if any
-            // row title exceeds 24 characters, so every row must stay under that limit.
+            // row title exceeds 24 characters, so every row must stay under that limit,
+            // in every language and feature-flag combination that changes which rows appear.
             FlowContext context = createContext();
-            laundryConfig.getFeatures().setReservationEnabled(true);
+            context.set("language", language);
+            laundryConfig.getFeatures().setReservationEnabled(reservationEnabled);
 
             // when
             plugin.handleAction("services.show", Map.of(), context);
@@ -384,7 +387,7 @@ class LaundryFlowPluginTest {
             // then
             com.botmanager.core.flow.MessageSender.ListMessage listMessage = getResponseList(context);
             assertThat(listMessage.sections().getFirst().rows())
-                    .allSatisfy(row -> assertThat(row.title().length())
+                    .allSatisfy(row -> assertThat(row.title().codePointCount(0, row.title().length()))
                             .as("row '%s' title '%s'", row.id(), row.title())
                             .isLessThanOrEqualTo(24));
         }
