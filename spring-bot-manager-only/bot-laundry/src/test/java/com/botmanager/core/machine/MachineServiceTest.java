@@ -18,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
 import java.util.HashMap;
@@ -716,6 +717,90 @@ class MachineServiceTest {
 
             // then
             assertThat(result).isNull();
+        }
+    }
+
+    @Nested
+    class CreateReservation {
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnResponseOnSuccessfulCreate() {
+            // given
+            Map<String, Object> response = new HashMap<>();
+            response.put("reservationCode", "RES-ABC123");
+
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.just(response));
+
+            // when
+            Map<String, Object> result = machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00");
+
+            // then
+            assertThat(result).isEqualTo(response);
+            verify(requestBodyUriSpec).uri("http://localhost:8082/api/reservations");
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnNullOnGenuineSlotConflict() {
+            // given — MachineStateService returns 409 Conflict for an actual overlapping
+            // reservation/cycle; this is the one failure mode that should NOT be escalated.
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.error(WebClientResponseException.create(
+                            409, "Conflict", org.springframework.http.HttpHeaders.EMPTY, new byte[0], null)));
+
+            // when
+            Map<String, Object> result = machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00");
+
+            // then
+            assertThat(result).isNull();
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldThrowServiceUnavailableOnForbidden() {
+            // given — e.g. the bot's M2M client is missing the required OAuth2 scope. This is
+            // NOT a slot conflict and must not be silently treated as one.
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.error(WebClientResponseException.create(
+                            403, "Forbidden", org.springframework.http.HttpHeaders.EMPTY, new byte[0], null)));
+
+            // when / then
+            assertThatThrownBy(() -> machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00"))
+                    .isInstanceOf(MachineServiceUnavailableException.class);
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldThrowServiceUnavailableOnGenericFailure() {
+            // given — e.g. connection refused, timeout
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.error(new RuntimeException("Connection refused")));
+
+            // when / then
+            assertThatThrownBy(() -> machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00"))
+                    .isInstanceOf(MachineServiceUnavailableException.class);
         }
     }
 

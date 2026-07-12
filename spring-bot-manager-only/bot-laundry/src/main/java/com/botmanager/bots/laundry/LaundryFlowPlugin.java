@@ -651,8 +651,14 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
         // Create the hold FIRST — if the slot is already taken, we reject here and
         // never touch payment, instead of charging the customer and finding out later.
-        Map<String, Object> reservationResponse = machineService.createReservation(
-                machineId, customerPhone, slotStartIso);
+        Map<String, Object> reservationResponse;
+        try {
+            reservationResponse = machineService.createReservation(machineId, customerPhone, slotStartIso);
+        } catch (MachineServiceUnavailableException e) {
+            clearReservationSelection(context);
+            showMachineServiceUnavailable(context);
+            return;
+        }
 
         if (reservationResponse == null) {
             context.set("responseMessage", t("reservation_slot_unavailable", context, Map.of("machine", machineName)));
@@ -720,12 +726,16 @@ public class LaundryFlowPlugin extends FlowPlugin {
         resetReservationSelectionAndReturnToMenu(context);
     }
 
-    private void resetReservationSelectionAndReturnToMenu(FlowContext context) {
+    private void clearReservationSelection(FlowContext context) {
         context.set("isReservation", null);
         context.set("selectedMachineId", null);
         context.set("selectedMachineName", null);
         context.set("reservationDate", null);
         context.set("reservationTime", null);
+    }
+
+    private void resetReservationSelectionAndReturnToMenu(FlowContext context) {
+        clearReservationSelection(context);
         context.set("step", LaundryStep.MAIN_MENU);
         goTo(context, "await_menu");
     }

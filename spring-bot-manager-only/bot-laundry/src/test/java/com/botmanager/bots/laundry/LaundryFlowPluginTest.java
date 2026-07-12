@@ -1605,6 +1605,34 @@ class LaundryFlowPluginTest {
         }
 
         @Test
+        void shouldShowServiceUnavailableAndNeverPayWhenHoldCreationThrows() {
+            // given — MachineStateService itself is unreachable/erroring (e.g. auth
+            // misconfiguration, 5xx, timeout) — this is NOT a genuine slot conflict, so the
+            // customer must not be told "someone else took your slot."
+            FlowContext context = createContext();
+            context.set("selectedMachineId", "w1");
+            context.set("selectedMachineName", "Washer 1");
+            context.set("reservationDate", "2026-06-11");
+            context.set("reservationTime", "10:00");
+
+            when(machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00"))
+                    .thenThrow(new MachineServiceUnavailableException("403 Forbidden"));
+
+            // when
+            plugin.handleAction("reservation.initiate", Map.of(), context);
+
+            // then
+            assertThat(context.getString("responseMessage")).doesNotContain("Washer 1");
+            assertThat(context.getString("step")).isEqualTo(LaundryStep.AWAITING_MENU_CHOICE);
+            assertThat(context.get("isReservation")).isNull();
+            assertThat(context.get("selectedMachineId")).isNull();
+            assertThat(context.get("selectedMachineName")).isNull();
+            assertThat(context.get("reservationDate")).isNull();
+            assertThat(context.get("reservationTime")).isNull();
+            verify(paymentGateway, never()).initiatePayment(any());
+        }
+
+        @Test
         void shouldCancelHoldWhenPaymentInitiationFailsAfterHoldCreated() {
             // given — hold succeeds, but the payment gateway rejects synchronously;
             // the hold must be released immediately rather than left for the timeout sweep.

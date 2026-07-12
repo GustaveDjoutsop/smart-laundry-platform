@@ -20,6 +20,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.time.Instant;
 import java.util.*;
@@ -183,7 +184,11 @@ public class MachineService {
      * Creates a reservation via MachineStateService and returns the response containing
      * the reservation code and details.
      *
-     * @return the reservation response map, or null if the call failed
+     * @return the reservation response map, or null if the slot is genuinely already taken
+     *         (MachineStateService returns 409 Conflict for this)
+     * @throws MachineServiceUnavailableException on any other failure (auth, 5xx, timeout,
+     *         connection refused, ...) — these are not slot conflicts and must not be reported
+     *         to the customer as "someone else took your slot"
      */
     public Map<String, Object> createReservation(String machineId, String customerPhone,
                                                   String slotStart) {
@@ -205,9 +210,12 @@ public class MachineService {
 
             log.info("Reservation created successfully: {}", response);
             return response;
-        } catch (Exception exception) {
-            log.error("Failed to create reservation for machine {}: {}", machineId, exception.getMessage());
+        } catch (WebClientResponseException.Conflict conflict) {
+            log.info("Reservation slot conflict for machine {}: {}", machineId, conflict.getMessage());
             return null;
+        } catch (Exception exception) {
+            throw new MachineServiceUnavailableException(
+                    "Failed to create reservation for machine " + machineId, exception);
         }
     }
 
