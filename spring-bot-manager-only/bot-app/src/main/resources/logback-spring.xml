@@ -28,11 +28,11 @@
             <then>
                 <appender name="LOKI" class="com.github.loki4j.logback.Loki4jAppender">
                     <http>
-                        <url>${LOKI_URL}/loki/v1/push</url>
-                        <basicAuth>
+                        <url>${LOKI_URL}/loki/api/v1/push</url>
+                        <auth>
                             <username>${GRAFANA_CLOUD_LOKI_USERNAME:-0}</username>
                             <password>${GRAFANA_CLOUD_API_KEY:-}</password>
-                        </basicAuth>
+                        </auth>
                     </http>
                     <format>
                         <label>
