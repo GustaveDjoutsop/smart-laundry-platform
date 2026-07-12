@@ -36,85 +36,10 @@ jobs:
       - name: Build and run unit tests
         run: mvn -B verify -DskipITs=true
 
-  # ── 2. Deploy to Railway (dev) — only on push/dispatch to master/develop ─────
-  deploy-dev:
-    name: Deploy → Railway (dev)
-    needs: test
-    runs-on: ubuntu-latest
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop')
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Sync Doppler secrets → Railway
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
-          SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID_MACHINE }}
-        run: |
-          curl -Ls https://cli.doppler.com/install.sh | sudo sh
-          VARS=()
-          while IFS= read -r pair; do
-            VARS+=("$pair")
-          done < <(doppler secrets download \
-            --no-file --format json \
-            --project machine-state-service \
-            --config dev \
-            --token "$DOPPLER_TOKEN" \
-            | jq -r 'to_entries[] | "\(.key)=\(.value)"')
-          echo "Syncing ${#VARS[@]} variables to Railway service $SERVICE_ID..."
-          [ ${#VARS[@]} -eq 0 ] && echo "No Doppler variables to sync, skipping." && exit 0
-          railway variables set --service "$SERVICE_ID" "${VARS[@]}"
-          echo "Sync complete."
-
-      - name: Deploy to Railway and verify health
-        working-directory: MachineStateService
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID_MACHINE }}
-        run: |
-          echo "Deploying to Railway..."
-          railway up --service "$SERVICE_ID"
-
-          # Fixed 90s sleep + single log snapshot was too flaky: Flyway migrations + DB pool
-          # init can push Spring Boot startup past 90s, and a stale-but-fine app would show
-          # neither the success nor failure marker in one snapshot. Poll instead, exiting as
-          # soon as either marker appears, capped at 240s total.
-          MAX_WAIT=240
-          INTERVAL=15
-          ELAPSED=0
-          STATUS="timeout"
-          LOGS=""
-
-          echo "Polling for startup confirmation (up to ${MAX_WAIT}s)..."
-          while [ "$ELAPSED" -lt "$MAX_WAIT" ]; do
-            sleep "$INTERVAL"
-            ELAPSED=$((ELAPSED + INTERVAL))
-            NEW_LOGS=$(railway logs --service "$SERVICE_ID" --tail 100 2>&1 \
-                   || railway logs --tail 100 2>&1 \
-                   || echo "")
-            # A transient railway logs failure must not wipe out the last good snapshot —
-            # keep it so the final diagnostic output still shows something useful.
-            [ -n "$NEW_LOGS" ] && LOGS="$NEW_LOGS"
-
-            if echo "$LOGS" | grep -qE "Started [^ ]+ in [0-9]+(\.[0-9]+)? seconds"; then
-              STATUS="success"; break
-            fi
-            if echo "$LOGS" | grep -qE "APPLICATION FAILED TO START|Exception encountered during context initialization|BeanCreationException"; then
-              STATUS="failed"; break
-            fi
-            echo "  ...${ELAPSED}s elapsed, not started yet, checking again..."
-          done
-
-          echo "--- Last 40 log lines ---"
-          echo "$LOGS" | tail -40
-          echo "-------------------------"
-
-          case "$STATUS" in
-            success) echo "✓ Spring Boot started successfully"; exit 0 ;;
-            failed)  echo "✗ Application startup failed — check logs above"; exit 1 ;;
-            *)       echo "✗ Could not confirm startup within ${MAX_WAIT}s — check logs above"; exit 1 ;;
-          esac
+  # Deployment to Railway (dev) is handled by Railway's native GitHub integration
+  # (auto-deploys on push to master/develop). A previous custom "railway up" CLI
+  # deploy step here was redundant with that integration and consistently failed
+  # its build (working-directory mismatch: it uploaded MachineStateService/ itself
+  # as the archive root, while Railway's service is configured expecting
+  # MachineStateService/Dockerfile inside a repo-root-rooted archive) — removed
+  # rather than fixed, since the native integration already deploys reliably.
