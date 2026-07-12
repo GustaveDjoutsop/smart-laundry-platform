@@ -20,7 +20,18 @@ class LogbackConfigTest {
             doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(in);
         }
 
-        NodeList httpNodes = doc.getElementsByTagName("http");
+        NodeList appenders = doc.getElementsByTagName("appender");
+        Element lokiAppender = null;
+        for (int i = 0; i < appenders.getLength(); i++) {
+            Element candidate = (Element) appenders.item(i);
+            if ("com.github.loki4j.logback.Loki4jAppender".equals(candidate.getAttribute("class"))) {
+                lokiAppender = candidate;
+                break;
+            }
+        }
+        assertThat(lokiAppender).as("<appender class=\"com.github.loki4j.logback.Loki4jAppender\">").isNotNull();
+
+        NodeList httpNodes = lokiAppender.getElementsByTagName("http");
         assertThat(httpNodes.getLength()).as("Loki4jAppender <http> block").isEqualTo(1);
         Element http = (Element) httpNodes.item(0);
 
