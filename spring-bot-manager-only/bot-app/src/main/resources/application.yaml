@@ -56,7 +56,7 @@ spring:
             client-id: ${AUTH0_CLIENT_ID:6UGj1BFYTVTUdSC2AklgNsGoXqbCWlGZ}
             client-secret: ${AUTH0_CLIENT_SECRET:}
             authorization-grant-type: client_credentials
-            scope: sls-machine-read, sls-machine-write, sls-payment-write, sls-rfid-read, sls-rfid-manage, sls-rfid-debit, sls-payment-read, sls-payment-initiate, sls-topup-manage, sls-machine-start, sls-machine-command, sls-telemetry-write, sls-reservation-read, sls-bot-admin
+            scope: sls-machine-read, sls-machine-write, sls-payment-write, sls-rfid-read, sls-rfid-manage, sls-rfid-debit, sls-payment-read, sls-payment-initiate, sls-topup-manage, sls-machine-start, sls-machine-command, sls-telemetry-write, sls-reservation-read, sls-reservation-write, sls-bot-admin
             #scope: sls-machine-read,sls-machine-write,sls-payment-write,sls-payment-read,sls-payment-initiate,sls-machine-start,sls-machine-command,sls-telemetry-write,sls-bot-admin
 
 management:
