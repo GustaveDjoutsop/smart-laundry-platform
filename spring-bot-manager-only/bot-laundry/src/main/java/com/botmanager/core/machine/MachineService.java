@@ -208,12 +208,21 @@ public class MachineService {
                     .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                     .block());
 
+            if (response == null) {
+                // An empty 2xx body is not a genuine conflict — never conflate it with one.
+                throw new MachineServiceUnavailableException(
+                        "MachineStateService returned empty response for reservation on machine " + machineId);
+            }
+
             log.info("Reservation created successfully: {}", response);
             return response;
+        } catch (MachineServiceUnavailableException e) {
+            throw e;
         } catch (WebClientResponseException.Conflict conflict) {
             log.info("Reservation slot conflict for machine {}: {}", machineId, conflict.getMessage());
             return null;
         } catch (Exception exception) {
+            log.warn("Failed to create reservation for machine {}: {}", machineId, exception.getMessage());
             throw new MachineServiceUnavailableException(
                     "Failed to create reservation for machine " + machineId, exception);
         }

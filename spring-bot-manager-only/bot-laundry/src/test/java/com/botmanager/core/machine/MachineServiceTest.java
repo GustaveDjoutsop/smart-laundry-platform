@@ -748,6 +748,24 @@ class MachineServiceTest {
 
         @SuppressWarnings("unchecked")
         @Test
+        void shouldThrowServiceUnavailableOnEmptySuccessBody() {
+            // given — an empty 2xx body is not a genuine conflict; it must not be conflated
+            // with the null-means-conflict signal used elsewhere in this method.
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.empty());
+
+            // when / then
+            assertThatThrownBy(() -> machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00"))
+                    .isInstanceOf(MachineServiceUnavailableException.class);
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
         void shouldReturnNullOnGenuineSlotConflict() {
             // given — MachineStateService returns 409 Conflict for an actual overlapping
             // reservation/cycle; this is the one failure mode that should NOT be escalated.
