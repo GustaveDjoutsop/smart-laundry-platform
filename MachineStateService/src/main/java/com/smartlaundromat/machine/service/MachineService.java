@@ -173,6 +173,24 @@ public class MachineService {
         Machine machine = machineRepository.findByMachineIdForUpdate(request.getMachineId())
                 .orElseThrow(() -> new MachineNotFoundException("Machine not found: " + request.getMachineId()));
 
+        // Re-check idempotency now that the machine row is locked: the check above ran
+        // before the lock, so two truly concurrent duplicate deliveries of the same
+        // transactionReference could both pass it. The first to acquire the lock wins and
+        // commits a cycle; the second, on unblocking, would otherwise see that cycle via
+        // the "already has an active cycle" check below and be rejected instead of getting
+        // the idempotent response this transactionReference is entitled to.
+        if (StringUtils.hasText(request.getTransactionReference())) {
+            Optional<MachineCycle> existingAfterLock =
+                    machineCycleRepository.findByTransactionReference(request.getTransactionReference());
+            if (existingAfterLock.isPresent()) {
+                log.info("Idempotent start (post-lock) — returning existing cycle for tx={}",
+                        request.getTransactionReference());
+                meterRegistry.counter("machine.cycle.idempotent.total",
+                        "machine_id", request.getMachineId()).increment();
+                return existingAfterLock.get();
+            }
+        }
+
         if (!machine.isAvailable()) {
             throw new MachineNotAvailableException(
                     "Machine " + request.getMachineId() + " is not available (status: " + machine.getStatus() + ")");
@@ -241,13 +259,28 @@ public class MachineService {
         try {
             machineCycleRepository.save(cycle);
         } catch (DataIntegrityViolationException exception) {
+            String cause = String.valueOf(exception.getMostSpecificCause().getMessage());
             // Backstop for the locked-fetch guard above, in case some future caller
             // bypasses it: the partial unique index on machine_cycles(machine_id)
             // WHERE status='IN_PROGRESS' is the last line of defense.
-            String cause = String.valueOf(exception.getMostSpecificCause().getMessage());
             if (cause.contains("idx_machine_cycles_machine_in_progress")) {
                 throw new MachineNotAvailableException(
                         "Machine " + request.getMachineId() + " already has an active cycle");
+            }
+            // Backstop for the post-lock idempotency re-check above: only reachable when
+            // two racing calls for the same transactionReference target DIFFERENT
+            // machines (so neither shares the other's row lock) and both still slip
+            // past their own pre/post-lock checks. We deliberately do NOT try to read
+            // back the winning row here: Postgres poisons the whole transaction after
+            // any failed statement until it's rolled back, so a same-transaction SELECT
+            // at this point would itself fail ("current transaction is aborted"), not
+            // return the winner. Throw instead — the caller's own retry (e.g.
+            // OutboxRelayService's exponential backoff) re-invokes startCycle in a
+            // fresh transaction, where the pre-lock idempotency check above already
+            // correctly returns the existing cycle.
+            if (cause.contains("idx_machine_cycles_tx_ref")) {
+                throw new MachineNotAvailableException(
+                        "Duplicate start request for transaction " + request.getTransactionReference());
             }
             throw exception;
         }
