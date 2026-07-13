@@ -267,13 +267,20 @@ public class MachineService {
                 throw new MachineNotAvailableException(
                         "Machine " + request.getMachineId() + " already has an active cycle");
             }
-            // Backstop for the post-lock idempotency re-check above: if a duplicate
-            // transactionReference somehow still reaches this save (e.g. the re-check
-            // and this save raced against a third caller), return the row the other
-            // caller just committed instead of surfacing a raw constraint violation.
-            if (cause.contains("idx_machine_cycles_tx_ref") && StringUtils.hasText(request.getTransactionReference())) {
-                return machineCycleRepository.findByTransactionReference(request.getTransactionReference())
-                        .orElseThrow(() -> exception);
+            // Backstop for the post-lock idempotency re-check above: only reachable when
+            // two racing calls for the same transactionReference target DIFFERENT
+            // machines (so neither shares the other's row lock) and both still slip
+            // past their own pre/post-lock checks. We deliberately do NOT try to read
+            // back the winning row here: Postgres poisons the whole transaction after
+            // any failed statement until it's rolled back, so a same-transaction SELECT
+            // at this point would itself fail ("current transaction is aborted"), not
+            // return the winner. Throw instead — the caller's own retry (e.g.
+            // OutboxRelayService's exponential backoff) re-invokes startCycle in a
+            // fresh transaction, where the pre-lock idempotency check above already
+            // correctly returns the existing cycle.
+            if (cause.contains("idx_machine_cycles_tx_ref")) {
+                throw new MachineNotAvailableException(
+                        "Duplicate start request for transaction " + request.getTransactionReference());
             }
             throw exception;
         }

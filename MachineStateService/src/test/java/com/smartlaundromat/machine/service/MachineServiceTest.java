@@ -503,24 +503,22 @@ class MachineServiceTest {
         }
 
         @Test
-        void shouldReturnExistingCycleWhenSaveRacesOnTransactionReferenceConstraint() {
-            // given — defense-in-depth backstop for the post-lock re-check above: if a
-            // duplicate transactionReference somehow still reaches save() (e.g. a third
-            // concurrent caller), the tx-ref unique-constraint violation must resolve to
-            // the winning row, not a raw DataIntegrityViolationException.
-            MachineCycle winnerCycle = MachineCycle.builder()
-                    .machineId("washer_01")
-                    .transactionReference("TXN-001")
-                    .status(CycleStatus.IN_PROGRESS)
-                    .build();
+        void shouldThrowNotAvailableWhenSaveRacesOnTransactionReferenceConstraint() {
+            // given — defense-in-depth backstop for the post-lock re-check above: only
+            // reachable when two racing calls for the same transactionReference target
+            // DIFFERENT machines, so neither shares the other's row lock, and both still
+            // slip past their own pre/post-lock checks. We must NOT try to read back the
+            // winning row inside this same transaction: Postgres poisons the whole
+            // transaction after a failed statement until it's rolled back, so a
+            // same-transaction SELECT here would itself fail rather than return the
+            // winner. The correct behavior is to throw and let the caller's own retry
+            // (fresh transaction) resolve it via the pre-lock idempotency check.
             when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
             when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
                     .thenReturn(Optional.empty());
             when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());
             when(machineCycleRepository.findByTransactionReference("TXN-001"))
-                    .thenReturn(Optional.empty())   // pre-lock and post-lock checks: nothing yet
-                    .thenReturn(Optional.empty())
-                    .thenReturn(Optional.of(winnerCycle));  // after the save() race, the winner is visible
+                    .thenReturn(Optional.empty());  // pre-lock and post-lock checks: nothing yet
             when(machineCycleRepository.save(any(MachineCycle.class)))
                     .thenThrow(new org.springframework.dao.DataIntegrityViolationException(
                             "duplicate key value violates unique constraint idx_machine_cycles_tx_ref",
@@ -528,11 +526,10 @@ class MachineServiceTest {
 
             StartCycleRequest request = buildRequest();
 
-            // when
-            MachineCycle result = machineService.startCycle(request);
-
-            // then
-            assertThat(result).isSameAs(winnerCycle);
+            // when / then
+            assertThatThrownBy(() -> machineService.startCycle(request))
+                    .isInstanceOf(MachineNotAvailableException.class)
+                    .hasMessageContaining("Duplicate start request");
             verify(commandDispatcher, never()).dispatch(any(), any(), any());
         }
     }
