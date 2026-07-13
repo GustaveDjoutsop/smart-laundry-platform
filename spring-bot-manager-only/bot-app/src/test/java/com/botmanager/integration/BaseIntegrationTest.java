@@ -53,8 +53,20 @@ public abstract class BaseIntegrationTest {
     @BeforeEach
     void resetDatabase() {
         jdbcTemplate.execute("TRUNCATE TABLE pharmacy_reservations, pharmacy_products, payments, messages, businesses RESTART IDENTITY CASCADE");
-        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V4__seed_existing_bots.sql"))
-                .execute(jdbcTemplate.getDataSource());
+        // V4 seeds the base laundry flow; V5-V7 patch its `businesses.config` with states
+        // added after the seed (reservation, then redemption) via idempotent jsonb UPDATEs.
+        // Replaying all of them keeps this reset in sync with what production's stored
+        // flow actually contains post-migration, instead of silently reverting to V4's
+        // stale subset every test run.
+        for (String script : new String[]{
+                "db/migration/V4__seed_existing_bots.sql",
+                "db/migration/V5__add_laundry_reservation_date_time_states.sql",
+                "db/migration/V6__add_laundry_full_reservation_states.sql",
+                "db/migration/V7__add_laundry_redemption_states.sql"
+        }) {
+            new ResourceDatabasePopulator(new ClassPathResource(script))
+                    .execute(jdbcTemplate.getDataSource());
+        }
         eventPublisher.publishEvent(new BotRegistryRefreshEvent(this));
     }
 
