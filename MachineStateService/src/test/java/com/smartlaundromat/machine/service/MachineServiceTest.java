@@ -471,6 +471,70 @@ class MachineServiceTest {
                     .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class)
                     .isNotInstanceOf(MachineNotAvailableException.class);
         }
+
+        @Test
+        void shouldReturnExistingCycleWhenIdempotencyRaceLosesAfterLockAcquired() {
+            // given — simulates two genuinely concurrent duplicate deliveries of the same
+            // transactionReference (e.g. two OutboxRelayService instances): the pre-lock
+            // idempotency check (first stub, empty) already ran and found nothing, but by
+            // the time THIS call acquires the machine row lock, the other caller has already
+            // committed a cycle for this exact transactionReference. The post-lock re-check
+            // must return that cycle instead of falling through to the generic
+            // "already has an active cycle" rejection.
+            MachineCycle winnerCycle = MachineCycle.builder()
+                    .machineId("washer_01")
+                    .transactionReference("TXN-001")
+                    .status(CycleStatus.IN_PROGRESS)
+                    .build();
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineCycleRepository.findByTransactionReference("TXN-001"))
+                    .thenReturn(Optional.empty())   // pre-lock check: nothing yet
+                    .thenReturn(Optional.of(winnerCycle));  // post-lock re-check: other caller won
+
+            StartCycleRequest request = buildRequest();
+
+            // when
+            MachineCycle result = machineService.startCycle(request);
+
+            // then
+            assertThat(result).isSameAs(winnerCycle);
+            verify(machineCycleRepository, never()).save(any());
+            verify(commandDispatcher, never()).dispatch(any(), any(), any());
+        }
+
+        @Test
+        void shouldReturnExistingCycleWhenSaveRacesOnTransactionReferenceConstraint() {
+            // given — defense-in-depth backstop for the post-lock re-check above: if a
+            // duplicate transactionReference somehow still reaches save() (e.g. a third
+            // concurrent caller), the tx-ref unique-constraint violation must resolve to
+            // the winning row, not a raw DataIntegrityViolationException.
+            MachineCycle winnerCycle = MachineCycle.builder()
+                    .machineId("washer_01")
+                    .transactionReference("TXN-001")
+                    .status(CycleStatus.IN_PROGRESS)
+                    .build();
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
+                    .thenReturn(Optional.empty());
+            when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());
+            when(machineCycleRepository.findByTransactionReference("TXN-001"))
+                    .thenReturn(Optional.empty())   // pre-lock and post-lock checks: nothing yet
+                    .thenReturn(Optional.empty())
+                    .thenReturn(Optional.of(winnerCycle));  // after the save() race, the winner is visible
+            when(machineCycleRepository.save(any(MachineCycle.class)))
+                    .thenThrow(new org.springframework.dao.DataIntegrityViolationException(
+                            "duplicate key value violates unique constraint idx_machine_cycles_tx_ref",
+                            new RuntimeException("duplicate key value violates unique constraint \"idx_machine_cycles_tx_ref\"")));
+
+            StartCycleRequest request = buildRequest();
+
+            // when
+            MachineCycle result = machineService.startCycle(request);
+
+            // then
+            assertThat(result).isSameAs(winnerCycle);
+            verify(commandDispatcher, never()).dispatch(any(), any(), any());
+        }
     }
 
     // ── getMachineStatus ───────────────────────────────────────────────────────

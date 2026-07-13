@@ -337,7 +337,7 @@ class PaymentServiceTest {
                     .cycleDuration(30)
                     .status(PaymentStatus.PENDING)
                     .build();
-            when(transactionRepository.findByExternalReference("EXT-001"))
+            when(transactionRepository.findByExternalReferenceForUpdate("EXT-001"))
                     .thenReturn(Optional.of(transaction));
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
             when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -365,7 +365,7 @@ class PaymentServiceTest {
                     .reservationHold(true)
                     .status(PaymentStatus.PENDING)
                     .build();
-            when(transactionRepository.findByExternalReference("EXT-HOLD-01"))
+            when(transactionRepository.findByExternalReferenceForUpdate("EXT-HOLD-01"))
                     .thenReturn(Optional.of(transaction));
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -387,7 +387,7 @@ class PaymentServiceTest {
                     .reservationCode("RES-ABC123")
                     .status(PaymentStatus.PENDING)
                     .build();
-            when(transactionRepository.findByExternalReference("EXT-004"))
+            when(transactionRepository.findByExternalReferenceForUpdate("EXT-004"))
                     .thenReturn(Optional.of(transaction));
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
             when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -408,7 +408,7 @@ class PaymentServiceTest {
                     .cycleDuration(30)
                     .status(PaymentStatus.PENDING)
                     .build();
-            when(transactionRepository.findByExternalReference("EXT-001"))
+            when(transactionRepository.findByExternalReferenceForUpdate("EXT-001"))
                     .thenReturn(Optional.of(transaction));
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
             when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -426,7 +426,7 @@ class PaymentServiceTest {
                     .externalReference("EXT-001")
                     .status(PaymentStatus.PENDING)
                     .build();
-            when(transactionRepository.findByExternalReference("EXT-001"))
+            when(transactionRepository.findByExternalReferenceForUpdate("EXT-001"))
                     .thenReturn(Optional.of(transaction));
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -444,7 +444,7 @@ class PaymentServiceTest {
                     .externalReference("EXT-001")
                     .status(PaymentStatus.SUCCESSFUL)
                     .build();
-            when(transactionRepository.findByExternalReference("EXT-001"))
+            when(transactionRepository.findByExternalReferenceForUpdate("EXT-001"))
                     .thenReturn(Optional.of(transaction));
 
             Transaction result = paymentService.processWebhook(
@@ -457,13 +457,38 @@ class PaymentServiceTest {
 
         @Test
         void shouldThrowWhenTransactionNotFound() {
-            when(transactionRepository.findByExternalReference("INVALID"))
+            when(transactionRepository.findByExternalReferenceForUpdate("INVALID"))
                     .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> paymentService.processWebhook(
                     PaymentProvider.CAMPAY, "INVALID", "SUCCESSFUL", null, null))
                     .isInstanceOf(PaymentException.class)
                     .hasMessageContaining("Transaction not found");
+        }
+
+        @Test
+        void shouldUseLockedFetchNotPlainReadForWebhookProcessing() {
+            // given — payment providers retry webhook delivery on timeout, so two genuinely
+            // concurrent calls for the same externalReference are a real possibility. This
+            // asserts processWebhook goes through the row-locking repository method, not the
+            // plain findByExternalReference used by read-only lookups (getTransactionByReference),
+            // which would leave the status-check-then-write open to a race.
+            Transaction transaction = Transaction.builder()
+                    .externalReference("EXT-001")
+                    .machineId("MACH-01")
+                    .pulseCount(2)
+                    .cycleDuration(30)
+                    .status(PaymentStatus.PENDING)
+                    .build();
+            when(transactionRepository.findByExternalReferenceForUpdate("EXT-001"))
+                    .thenReturn(Optional.of(transaction));
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            paymentService.processWebhook(PaymentProvider.CAMPAY, "EXT-001", "SUCCESSFUL", "PROV-001", null);
+
+            verify(transactionRepository).findByExternalReferenceForUpdate("EXT-001");
+            verify(transactionRepository, never()).findByExternalReference(anyString());
         }
     }
 

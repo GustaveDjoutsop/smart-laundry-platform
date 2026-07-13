@@ -147,6 +147,12 @@ public class PaymentService {
      * Postgres transaction (ACID). The {@link OutboxRelayService} picks it up
      * asynchronously and dispatches to MachineStateService — decoupling the
      * payment commit from the machine-start HTTP call (P4, W5/W10).
+     *
+     * <p>Locked fetch: payment providers retry webhook delivery on timeout, so two
+     * genuinely concurrent calls for the same externalReference are a real
+     * possibility, not just sequential retries. Without the lock, both could read
+     * PENDING before either commits, both pass the already-successful check below,
+     * and both write a SUCCESSFUL update / outbox event.
      */
     @Transactional
     public Transaction processWebhook(PaymentProvider provider,
@@ -155,7 +161,7 @@ public class PaymentService {
                                       String providerReference,
                                       String failureReason) {
 
-        Transaction transaction = transactionRepository.findByExternalReference(externalReference)
+        Transaction transaction = transactionRepository.findByExternalReferenceForUpdate(externalReference)
                 .orElseThrow(() -> new PaymentException("TRANSACTION_NOT_FOUND",
                         "Transaction not found: " + externalReference));
 
