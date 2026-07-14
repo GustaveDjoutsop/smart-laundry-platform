@@ -21,6 +21,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,6 +58,11 @@ public class MachineService {
     private final MachineCommandDispatcher commandDispatcher;
 
     private final MeterRegistry meterRegistry;
+
+    /** Gates the stale-simulator-heartbeat guard in {@link #processTelemetry}: real hardware
+     *  telemetry (simulator disabled) must never have a status transition suppressed. */
+    @Value("${simulator.enabled:false}")
+    private boolean simulatorEnabled;
 
     @PostConstruct
     public void init() {
@@ -114,14 +120,17 @@ public class MachineService {
             return;
         }
 
-        // Guards a race where a generic idle-heartbeat snapshot was built (e.g. by the simulator's
-        // batched heartbeat) before a concurrent startCycle() committed RUNNING for this machine.
-        // Scoped narrowly to that exact shape - bare IDLE with no cycle or error data at all - so
-        // real RUNNING->ERROR/PAUSED/FINISHED transitions from actual hardware telemetry still
-        // apply; this system already treats CycleMonitorService's timer as authoritative for
-        // ending a cycle, not a bare IDLE ping, so suppressing this shape here doesn't lose any
-        // real signal.
-        if (machine.getStatus() == MachineStatus.RUNNING
+        // Guards a race, possible only when the simulator is active, where a generic idle-heartbeat
+        // snapshot was built by the batched heartbeat before a concurrent startCycle() committed
+        // RUNNING for this machine. Gated behind simulatorEnabled so real hardware telemetry (no
+        // simulator running, so this race can't occur) is never affected - a real device reporting
+        // bare IDLE while the DB says RUNNING must still be applied. Also scoped narrowly to that
+        // exact bare-IDLE shape (no cycleType/cycleProgress/errorCode/errorMessage) so it only ever
+        // suppresses the status/cycle-clearing fields the simulator's idle payload sets, not other
+        // telemetry (temperature/doorLocked/etc. are still part of that payload but are harmless
+        // sensor noise, not authoritative signal).
+        if (simulatorEnabled
+                && machine.getStatus() == MachineStatus.RUNNING
                 && "IDLE".equalsIgnoreCase(telemetry.getStatus())
                 && telemetry.getCycleType() == null
                 && telemetry.getCycleProgress() == null

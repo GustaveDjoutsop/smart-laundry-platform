@@ -29,6 +29,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -167,9 +168,10 @@ class MachineServiceTest {
         }
 
         @Test
-        void shouldNotDowngradeRunningMachineFromStaleIdleTelemetry() {
-            // given: machine is live-RUNNING (e.g. startCycle() committed after this telemetry
-            // snapshot was built by the simulator's batched heartbeat)
+        void shouldNotDowngradeRunningMachineFromStaleIdleTelemetryWhenSimulatorEnabled() {
+            // given: simulator active, machine is live-RUNNING (e.g. startCycle() committed after
+            // this telemetry snapshot was built by the simulator's batched heartbeat)
+            ReflectionTestUtils.setField(machineService, "simulatorEnabled", true);
             idleMachine.setStatus(MachineStatus.RUNNING);
             idleMachine.setCurrentCycleType(CycleType.HEAVY);
             idleMachine.setCycleProgress(40);
@@ -195,6 +197,33 @@ class MachineServiceTest {
             assertThat(idleMachine.getLastHeartbeat()).isNotNull();
             verify(machineRepository).save(idleMachine);
             verify(machineEventRepository, never()).save(any());
+        }
+
+        @Test
+        void shouldApplyBareIdleTelemetryWhileRunningWhenSimulatorDisabled() {
+            // given: simulator OFF (real hardware profile) - a real device reporting bare IDLE
+            // while the DB still says RUNNING must still be applied, since the batched-heartbeat
+            // race this guard protects against can't happen without the simulator running
+            idleMachine.setStatus(MachineStatus.RUNNING);
+            idleMachine.setCurrentCycleType(CycleType.HEAVY);
+            idleMachine.setCycleProgress(40);
+            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            TelemetryPayload payload = new TelemetryPayload();
+            payload.setMachineId("washer_01");
+            payload.setStatus("IDLE");
+            payload.setDoorLocked(false);
+            payload.setSpinSpeed(0);
+
+            // when
+            machineService.processTelemetry(payload);
+
+            // then
+            assertThat(idleMachine.getStatus()).isEqualTo(MachineStatus.IDLE);
+            verify(machineRepository).save(idleMachine);
+            // Status changed from RUNNING to IDLE, so an event should be recorded
+            verify(machineEventRepository).save(any(MachineEvent.class));
         }
 
         @Test
