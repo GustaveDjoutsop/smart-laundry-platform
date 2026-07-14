@@ -33,6 +33,8 @@ public interface MachineRepository extends JpaRepository<Machine, Long> {
 
     List<Machine> findByStatus(MachineStatus status);
 
+    List<Machine> findByStatusNot(MachineStatus status);
+
     List<Machine> findByIsOnline(boolean isOnline);
 
     List<Machine> findByLastHeartbeatBefore(LocalDateTime before);

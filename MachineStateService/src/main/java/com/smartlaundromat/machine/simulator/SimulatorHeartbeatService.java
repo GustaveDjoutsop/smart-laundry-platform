@@ -43,14 +43,18 @@ public class SimulatorHeartbeatService {
 
     @Scheduled(fixedDelayString = "${simulator.heartbeat-interval-ms:5000}")
     void sendHeartbeats() {
-        for (String machineId : machineConfig.getAvailableIds()) {
-            machineRepository.findByMachineId(machineId).ifPresent(machine -> {
-                if (machine.getStatus() != MachineStatus.RUNNING) {
-                    machineService.processTelemetry(buildIdleTelemetry(machine));
-                }
-            });
+        // Single batched lookup instead of one findByMachineId() per configured machine —
+        // processTelemetry() below already re-fetches by id to mutate+save, so a per-machine
+        // lookup here just doubled read volume for no benefit (each was a full 30-column row).
+        List<Machine> idle = machineRepository.findByStatusNot(MachineStatus.RUNNING);
+        int sent = 0;
+        for (Machine machine : idle) {
+            if (machineConfig.getAvailableIds().contains(machine.getMachineId())) {
+                machineService.processTelemetry(buildIdleTelemetry(machine));
+                sent++;
+            }
         }
-        log.debug("[SIMULATOR] Heartbeat sent to {} machines", machineConfig.getAvailableIds().size());
+        log.debug("[SIMULATOR] Heartbeat sent to {} machines", sent);
     }
 
     @Scheduled(fixedDelayString = "${simulator.telemetry-update-interval-ms:10000}")

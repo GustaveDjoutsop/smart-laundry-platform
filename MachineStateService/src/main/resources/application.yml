@@ -115,8 +115,8 @@ modbus:
 # via synthetic telemetry. Enable via spring.profiles.active=dev or SIMULATOR_ENABLED=true.
 simulator:
   enabled: ${SIMULATOR_ENABLED:false}
-  heartbeat-interval-ms: ${SIMULATOR_HEARTBEAT_MS:5000}
-  telemetry-update-interval-ms: ${SIMULATOR_TELEMETRY_MS:10000}
+  heartbeat-interval-ms: ${SIMULATOR_HEARTBEAT_MS:30000}
+  telemetry-update-interval-ms: ${SIMULATOR_TELEMETRY_MS:30000}
 
 # ── Feature flags ─────────────────────────────────────────────────────────────
 # Both default DISABLED. The wash-flow flag is enforced in the bot (spring-bot-manager);
