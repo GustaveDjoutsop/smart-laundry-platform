@@ -118,7 +118,8 @@ class SimulatorHeartbeatServiceTest {
             washer.setStatus(MachineStatus.RUNNING);
             washer.setCycleStartedAt(LocalDateTime.now().minusMinutes(15));
             washer.setCycleEndsAt(LocalDateTime.now().plusMinutes(15));
-            when(machineRepository.findByStatus(MachineStatus.RUNNING)).thenReturn(List.of(washer));
+            when(machineRepository.findByMachineIdInAndStatus(List.of("washer_01", "dryer_01"), MachineStatus.RUNNING))
+                    .thenReturn(List.of(washer));
 
             service.updateRunningMachines();
 
@@ -133,7 +134,8 @@ class SimulatorHeartbeatServiceTest {
 
         @Test
         void shouldSkipWhenNoRunningMachines() {
-            when(machineRepository.findByStatus(MachineStatus.RUNNING)).thenReturn(List.of());
+            when(machineRepository.findByMachineIdInAndStatus(List.of("washer_01", "dryer_01"), MachineStatus.RUNNING))
+                    .thenReturn(List.of());
 
             service.updateRunningMachines();
 

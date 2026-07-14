@@ -114,6 +114,19 @@ public class MachineService {
             return;
         }
 
+        // Guards a race where this telemetry snapshot was built (e.g. by the simulator's batched
+        // heartbeat) before a concurrent startCycle() committed RUNNING for this machine. Without
+        // this check, a now-stale non-RUNNING status would land after the fresh re-fetch above and
+        // clobber the in-progress cycle back to IDLE/FINISHED.
+        if (machine.getStatus() == MachineStatus.RUNNING
+                && telemetry.getStatus() != null
+                && !MachineStatus.RUNNING.name().equalsIgnoreCase(telemetry.getStatus())) {
+            machine.setIsOnline(true);
+            machine.setLastHeartbeat(LocalDateTime.now());
+            machineRepository.save(machine);
+            return;
+        }
+
         String previousStatus = machine.getStatus().name();
 
         if (telemetry.getStatus() != null) {

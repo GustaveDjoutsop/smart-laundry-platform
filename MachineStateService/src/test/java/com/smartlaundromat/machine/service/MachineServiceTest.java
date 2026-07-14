@@ -167,6 +167,37 @@ class MachineServiceTest {
         }
 
         @Test
+        void shouldNotDowngradeRunningMachineFromStaleIdleTelemetry() {
+            // given: machine is live-RUNNING (e.g. startCycle() committed after this telemetry
+            // snapshot was built by the simulator's batched heartbeat)
+            idleMachine.setStatus(MachineStatus.RUNNING);
+            idleMachine.setCurrentCycleType(CycleType.HEAVY);
+            idleMachine.setCycleProgress(40);
+            idleMachine.setDoorLocked(true);
+            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            TelemetryPayload payload = new TelemetryPayload();
+            payload.setMachineId("washer_01");
+            payload.setStatus("IDLE");
+            payload.setDoorLocked(false);
+            payload.setSpinSpeed(0);
+
+            // when
+            machineService.processTelemetry(payload);
+
+            // then: RUNNING and its cycle fields are preserved; only heartbeat bookkeeping updates
+            assertThat(idleMachine.getStatus()).isEqualTo(MachineStatus.RUNNING);
+            assertThat(idleMachine.getCurrentCycleType()).isEqualTo(CycleType.HEAVY);
+            assertThat(idleMachine.getCycleProgress()).isEqualTo(40);
+            assertThat(idleMachine.getDoorLocked()).isTrue();
+            assertThat(idleMachine.getIsOnline()).isTrue();
+            assertThat(idleMachine.getLastHeartbeat()).isNotNull();
+            verify(machineRepository).save(idleMachine);
+            verify(machineEventRepository, never()).save(any());
+        }
+
+        @Test
         void shouldHandleNullFieldsInTelemetry() {
             // given
             when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));

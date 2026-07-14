@@ -58,7 +58,8 @@ public class SimulatorHeartbeatService {
 
     @Scheduled(fixedDelayString = "${simulator.telemetry-update-interval-ms:30000}")
     void updateRunningMachines() {
-        List<Machine> running = machineRepository.findByStatus(MachineStatus.RUNNING);
+        List<Machine> running = machineRepository.findByMachineIdInAndStatus(
+                machineConfig.getAvailableIds(), MachineStatus.RUNNING);
         for (Machine machine : running) {
             machineService.processTelemetry(buildRunningTelemetry(machine));
         }
