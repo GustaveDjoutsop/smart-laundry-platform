@@ -33,7 +33,7 @@ public interface MachineRepository extends JpaRepository<Machine, Long> {
 
     List<Machine> findByStatus(MachineStatus status);
 
-    List<Machine> findByStatusNot(MachineStatus status);
+    List<Machine> findByMachineIdInAndStatusNot(List<String> machineIds, MachineStatus status);
 
     List<Machine> findByIsOnline(boolean isOnline);
 
