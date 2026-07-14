@@ -116,14 +116,17 @@ public class MachineService {
 
         // Guards a race where a generic idle-heartbeat snapshot was built (e.g. by the simulator's
         // batched heartbeat) before a concurrent startCycle() committed RUNNING for this machine.
-        // Scoped narrowly to that exact shape - bare IDLE with no cycle/error data - so real
-        // RUNNING->ERROR/PAUSED/FINISHED transitions from actual hardware telemetry still apply;
-        // this system already treats CycleMonitorService's timer as authoritative for ending a
-        // cycle, not a bare IDLE ping, so suppressing this shape here doesn't lose any real signal.
+        // Scoped narrowly to that exact shape - bare IDLE with no cycle or error data at all - so
+        // real RUNNING->ERROR/PAUSED/FINISHED transitions from actual hardware telemetry still
+        // apply; this system already treats CycleMonitorService's timer as authoritative for
+        // ending a cycle, not a bare IDLE ping, so suppressing this shape here doesn't lose any
+        // real signal.
         if (machine.getStatus() == MachineStatus.RUNNING
                 && "IDLE".equalsIgnoreCase(telemetry.getStatus())
+                && telemetry.getCycleType() == null
                 && telemetry.getCycleProgress() == null
-                && telemetry.getErrorCode() == null) {
+                && telemetry.getErrorCode() == null
+                && telemetry.getErrorMessage() == null) {
             machine.setIsOnline(true);
             machine.setLastHeartbeat(LocalDateTime.now());
             machineRepository.save(machine);
