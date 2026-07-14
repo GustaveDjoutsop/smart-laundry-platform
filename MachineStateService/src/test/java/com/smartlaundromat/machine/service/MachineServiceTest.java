@@ -198,6 +198,32 @@ class MachineServiceTest {
         }
 
         @Test
+        void shouldApplyRealErrorTransitionWhileRunning() {
+            // given: a real hardware fault reported mid-cycle - must NOT be swallowed by the
+            // stale-idle-heartbeat guard, which is scoped only to bare IDLE with no error data
+            idleMachine.setStatus(MachineStatus.RUNNING);
+            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            TelemetryPayload payload = new TelemetryPayload();
+            payload.setMachineId("washer_01");
+            payload.setStatus("ERROR");
+            payload.setErrorCode("E99");
+            payload.setErrorMessage("Door open mid-cycle");
+
+            // when
+            machineService.processTelemetry(payload);
+
+            // then
+            assertThat(idleMachine.getStatus()).isEqualTo(MachineStatus.ERROR);
+            assertThat(idleMachine.getErrorCode()).isEqualTo("E99");
+            assertThat(idleMachine.getErrorMessage()).isEqualTo("Door open mid-cycle");
+            verify(machineRepository).save(idleMachine);
+            // Status changed from RUNNING to ERROR, so an event should be recorded
+            verify(machineEventRepository).save(any(MachineEvent.class));
+        }
+
+        @Test
         void shouldHandleNullFieldsInTelemetry() {
             // given
             when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
