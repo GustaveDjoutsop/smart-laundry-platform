@@ -21,6 +21,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,6 +58,11 @@ public class MachineService {
     private final MachineCommandDispatcher commandDispatcher;
 
     private final MeterRegistry meterRegistry;
+
+    /** Gates the stale-simulator-heartbeat guard in {@link #processTelemetry}: real hardware
+     *  telemetry (simulator disabled) must never have a status transition suppressed. */
+    @Value("${simulator.enabled:false}")
+    private boolean simulatorEnabled;
 
     @PostConstruct
     public void init() {
@@ -111,6 +117,29 @@ public class MachineService {
 
         if (machine == null) {
             log.warn("Unknown machine telemetry received: {}", telemetry.getMachineId());
+            return;
+        }
+
+        // Guards a race, possible only when the simulator is active, where a generic idle-heartbeat
+        // snapshot was built by the batched heartbeat before a concurrent startCycle() committed
+        // RUNNING for this machine. Gated behind simulatorEnabled so real hardware telemetry (no
+        // simulator running, so this race can't occur) is never affected - a real device reporting
+        // bare IDLE while the DB says RUNNING must still be applied. Scoped narrowly to that exact
+        // bare-IDLE shape (no cycleType/cycleProgress/errorCode/errorMessage), which is the only
+        // shape the simulator's idle heartbeat ever produces. When this fires, the ENTIRE payload
+        // is discarded except isOnline/lastHeartbeat - including its temperature/doorLocked/etc.
+        // fields, which are just simulated sensor jitter, not authoritative signal worth persisting
+        // over a live-RUNNING machine's real state.
+        if (simulatorEnabled
+                && machine.getStatus() == MachineStatus.RUNNING
+                && "IDLE".equalsIgnoreCase(telemetry.getStatus())
+                && telemetry.getCycleType() == null
+                && telemetry.getCycleProgress() == null
+                && telemetry.getErrorCode() == null
+                && telemetry.getErrorMessage() == null) {
+            machine.setIsOnline(true);
+            machine.setLastHeartbeat(LocalDateTime.now());
+            machineRepository.save(machine);
             return;
         }
 

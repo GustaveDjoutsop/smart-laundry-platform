@@ -13,8 +13,8 @@
 
 simulator:
   enabled: true
-  heartbeat-interval-ms: 5000
-  telemetry-update-interval-ms: 10000
+  heartbeat-interval-ms: 30000
+  telemetry-update-interval-ms: 30000
 
 machine:
   available-ids:
