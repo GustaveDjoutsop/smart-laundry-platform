@@ -24,14 +24,22 @@ Recipes (8): Jollof Rice, Egusi Soup, Suya Skewers (West), Injera with Tibs,
 Ugali & Sukuma Wiki (East), Chicken Tagine, Shakshuka (North), Fufu with Ndolé
 (Central). Images are direct `upload.wikimedia.org` links (verified reachable).
 
-## Meta setup (one-time, manual)
+## Meta setup
+
+Created 2026-07-19: app **AfroMarket-Bot** (App ID `1515363753048080`) under the
+**BoT Management Service** portfolio, WhatsApp messaging use case.
+Test number `+1 (555) 637-5864`, Phone Number ID `1089648187567384` (already in
+`configs/bots/afromarket.bot.json`), WABA ID `4464369590494418`.
+
+Remaining/recurring steps:
 
 1. [developers.facebook.com/apps](https://developers.facebook.com/apps/) → **Create App**
-   → type **Business** → name `AfroMarket-Bot` → add product **WhatsApp**.
+   → type **Business** → name `AfroMarket-Bot` → add product **WhatsApp**. *(done)*
 2. **WhatsApp → API Setup**: note the **Phone Number ID** and WABA ID; add your own
    WhatsApp number as a test recipient (OTP verification).
-3. Replace `phoneNumberId` (`REPLACE_ME_AFROMARKET_PHONE_NUMBER_ID`) in
-   `configs/bots/afromarket.bot.json` with the real Phone Number ID.
+3. Replace `phoneNumberId` in `configs/bots/afromarket.bot.json` with the real
+   Phone Number ID. *(done — test number; swap again when a real Cameroonian
+   number is registered in Schritt 2/Produktionseinrichtung)*
 4. Set `WHATSAPP_ACCESS_TOKEN_AFROMARKET` (temporary token for testing; for
    production create a System User in Business Manager with
    `whatsapp_business_messaging` + `whatsapp_business_management` scopes) and

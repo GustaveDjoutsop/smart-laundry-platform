@@ -2,7 +2,7 @@
   "botId": "afromarket",
   "botType": "afromarket",
   "botName": "AfroMarket",
-  "phoneNumberId": "REPLACE_ME_AFROMARKET_PHONE_NUMBER_ID",
+  "phoneNumberId": "1089648187567384",
   "verifyToken": "${META_VERIFY_TOKEN_AFROMARKET}",
 
   "defaultFlowId": "main_menu",
