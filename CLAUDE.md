@@ -97,7 +97,6 @@ sand until this is confirmed.
 - `smart-laundry-dashboard/` — Next.js operator UI. See its `CLAUDE.md`.
 - `architecture-review/` — `01-CURRENT-ARCHITECTURE.md`,
   `02-TARGET-ARCHITECTURE.md` (ADR-001), `03-MIGRATION-TODO.md`.
-- `spring-bot-manager/` (legacy, no `-only`) — predecessor monolith, archive.
 - `SmartLaundromatControlSystem/` — legacy Node/Express/MongoDB monolith,
   currently the real backend for the dashboard. **Scheduled for
   decommissioning in P5** — don't delete yet, it's load-bearing until then.
