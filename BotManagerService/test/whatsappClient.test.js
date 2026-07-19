@@ -87,3 +87,49 @@ test('WhatsAppCloudClient sendButtons calls fetch with interactive button payloa
   assert.equal(payload.interactive.action.buttons[0].reply.id, '1');
   assert.equal(payload.interactive.action.buttons[0].reply.title, 'One');
 });
+
+test('WhatsAppCloudClient sendImage calls fetch with image payload and truncates long captions', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ messages: [{ id: 'wamid.3' }] })
+    };
+  };
+
+  const client = new WhatsAppCloudClient({
+    accessToken: 'token',
+    phoneNumberId: '123',
+    apiVersion: 'v20.0',
+    apiBase: 'https://graph.facebook.com',
+    fetchImpl
+  });
+
+  const longCaption = 'x'.repeat(2000);
+  const result = await client.sendImage({
+    to: '237670000000',
+    link: 'https://example.com/dish.jpg',
+    caption: longCaption
+  });
+
+  assert.deepEqual(result, { messages: [{ id: 'wamid.3' }] });
+  assert.equal(calls.length, 1);
+
+  const payload = JSON.parse(calls[0].init.body);
+  assert.equal(payload.messaging_product, 'whatsapp');
+  assert.equal(payload.type, 'image');
+  assert.equal(payload.image.link, 'https://example.com/dish.jpg');
+  assert.equal(payload.image.caption.length, 1024);
+});
+
+test('WhatsAppCloudClient sendImage rejects missing link', async () => {
+  const client = new WhatsAppCloudClient({
+    accessToken: 'token',
+    phoneNumberId: '123',
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) })
+  });
+
+  await assert.rejects(() => client.sendImage({ to: '237670000000', caption: 'no link' }), /non-empty link/);
+});

@@ -171,6 +171,38 @@ class WhatsAppCloudClient {
     return this._postWithRetry(url, payload);
   }
 
+  async sendImage({ to, link, caption } = {}) {
+    if (!this.isConfigured()) {
+      throw new Error('WhatsApp client not configured (missing accessToken/phoneNumberId)');
+    }
+
+    const imageLink = String(link || '').trim();
+    if (!imageLink) {
+      throw new Error('sendImage requires a non-empty link');
+    }
+
+    const url = buildMessagesUrl({
+      apiBase: this.apiBase,
+      apiVersion: this.apiVersion,
+      phoneNumberId: this.phoneNumberId
+    });
+
+    // WhatsApp caps media captions at 1024 characters.
+    const safeCaption = utf16SliceSafe(String(caption || ''), 1024).trim();
+
+    const payload = {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'image',
+      image: {
+        link: imageLink,
+        ...(safeCaption ? { caption: safeCaption } : {})
+      }
+    };
+
+    return this._postWithRetry(url, payload);
+  }
+
   async _postWithRetry(url, payload) {
     const maxAttempts = 3;
 

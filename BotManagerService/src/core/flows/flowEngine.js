@@ -54,6 +54,21 @@ function validateFlowConfig(botConfig) {
     if (stateIds.has(undefined) || stateIds.has(null) || stateIds.has('')) {
       throw new Error(`flow ${flowId} has a state with missing id`);
     }
+
+    for (const state of flow.states) {
+      if (state.type !== 'action' || state.action !== 'route') continue;
+
+      const params = state.params || {};
+      if (typeof params.from !== 'string' || !params.from.trim()) {
+        throw new Error(`flow ${flowId} state ${state.id}: route action requires params.from`);
+      }
+
+      // Without a default or a next, an unmatched input would leave the
+      // conversation stuck on the action state forever.
+      if (!params.default && !state.next) {
+        throw new Error(`flow ${flowId} state ${state.id}: route action requires params.default or next`);
+      }
+    }
   }
 }
 
@@ -126,6 +141,7 @@ class FlowEngine {
     // (e.g., "hi", "menu") to be treated as the first menu selection.
     let hasConsumedInboundText = didEnterOrSwitchFlow && inboundMessage.type === 'text';
     const outboundIntents = [];
+    const sentImageStateIds = new Set();
 
     const flowContext = {
       from,
@@ -194,6 +210,49 @@ class FlowEngine {
         }
 
         // Stop after sending a message.
+        break;
+      }
+
+      if (stateDefinition.type === 'image') {
+        // Image states continue the chain, so guard against config cycles that
+        // would otherwise fire real media sends until the safety cap.
+        if (sentImageStateIds.has(stateDefinition.id)) {
+          break;
+        }
+        sentImageStateIds.add(stateDefinition.id);
+
+        const templateContext = {
+          ...flowContext.context,
+          user: { phone: from },
+          bot: { name: this.botConfig.botName }
+        };
+        const link = renderTemplate(stateDefinition.link || '', templateContext);
+        const caption = renderTemplate(stateDefinition.caption || '', templateContext);
+
+        const outboundIntent = { type: 'image', to: from, link, caption };
+        outboundIntents.push(outboundIntent);
+        if (typeof send === 'function') {
+          await send(outboundIntent);
+        }
+
+        // Unlike 'message', an image state with a next continues the chain so a
+        // follow-up menu (buttons/list) can be rendered in the same turn.
+        let didAdvance = false;
+        if (stateDefinition.next) {
+          if (this.plugin && this.plugin.beforeTransition) {
+            await this.plugin.beforeTransition(flowContext, { to: stateDefinition.next });
+          }
+          conversationState.currentStateId = stateDefinition.next;
+          didAdvance = true;
+        }
+
+        if (this.plugin && this.plugin.afterState) {
+          await this.plugin.afterState(flowContext);
+        }
+
+        if (didAdvance) {
+          continue;
+        }
         break;
       }
 
@@ -354,6 +413,28 @@ class FlowEngine {
             }
             handled = true;
           }
+
+          if (action === 'route') {
+            const routeValue = String(flowContext.get(params.from) ?? '').trim().toLowerCase();
+            const routeMap = params.map && typeof params.map === 'object' && !Array.isArray(params.map) ? params.map : {};
+
+            let targetStateId = null;
+            for (const [candidate, stateId] of Object.entries(routeMap)) {
+              if (String(candidate).trim().toLowerCase() === routeValue) {
+                targetStateId = stateId;
+                break;
+              }
+            }
+
+            if (!targetStateId && params.default) {
+              targetStateId = params.default;
+            }
+
+            if (targetStateId) {
+              flowContext.goto(targetStateId);
+            }
+            handled = true;
+          }
         }
 
         if (!handled) {
@@ -376,6 +457,12 @@ class FlowEngine {
 
         if (this.plugin && this.plugin.afterState) {
           await this.plugin.afterState(flowContext);
+        }
+
+        // An action that neither transitioned nor has a next would loop on
+        // itself until the safety cap; stop the turn instead.
+        if (!flowContext._didGoto && !stateDefinition.next) {
+          break;
         }
 
         continue;

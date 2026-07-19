@@ -2,10 +2,10 @@ const path = require('path');
 const fs = require('fs');
 
 const { loadBotConfig } = require('./configLoader');
+const { ConfigBot } = require('../bots/base/ConfigBot');
 const { LaundryBot } = require('../bots/laundry/LaundryBot');
 const { ThomasNetworkBot } = require('../bots/thomasNetwork/ThomasNetworkBot');
 const { validateFlowConfig } = require('./flows/flowEngine');
-const { logger } = require('../utils/logger');
 
 function validateBotConfig(botConfig, { configPath } = {}) {
   const errors = [];
@@ -35,18 +35,18 @@ function validateBotConfig(botConfig, { configPath } = {}) {
     errors.push(`botName must be a non-empty string when provided${context}`);
   }
 
-  if (botConfig.flows) {
+  const flows = botConfig.flows;
+  if (!flows || typeof flows !== 'object' || Array.isArray(flows) || Object.keys(flows).length === 0) {
+    errors.push(`flows is required and must be a non-empty object${context}`);
+  } else {
     try {
       validateFlowConfig(botConfig);
     } catch (err) {
       errors.push(`Invalid flows configuration${context}: ${err && err.message ? err.message : String(err)}`);
     }
 
-    if (botConfig.defaultFlowId) {
-      const flows = botConfig.flows && typeof botConfig.flows === 'object' ? botConfig.flows : {};
-      if (!flows[botConfig.defaultFlowId]) {
-        errors.push(`defaultFlowId '${botConfig.defaultFlowId}' does not exist in flows${context}`);
-      }
+    if (botConfig.defaultFlowId && !flows[botConfig.defaultFlowId]) {
+      errors.push(`defaultFlowId '${botConfig.defaultFlowId}' does not exist in flows${context}`);
     }
   }
 
@@ -65,7 +65,11 @@ function createBotInstanceForConfig(botConfig) {
   if (botTypeKey === 'thomas_network' || botTypeKey === 'thomasnetwork' || botTypeKey === 'thomas-network') {
     return new ThomasNetworkBot(botConfig);
   }
-  return null;
+
+  // Any other botType runs as a pure configuration-driven bot: adding a new
+  // business only requires a configs/bots/<name>.bot.json file plus its
+  // WHATSAPP_ACCESS_TOKEN_<BOTID> env var — no code changes.
+  return new ConfigBot(botConfig);
 }
 
 class BotRegistry {
@@ -131,13 +135,6 @@ class BotRegistry {
       }
 
       const botInstance = createBotInstanceForConfig(botConfig);
-      if (!botInstance) {
-        logger.warn(`Bot implementation not available for botType='${getBotTypeKey(botConfig)}'; skipping registration`, {
-          botId: botConfig.botId,
-          configPath
-        });
-        continue;
-      }
 
       this.registerBot(botConfig.botId, botInstance, {
         phoneNumberId: botConfig.phoneNumberId,
