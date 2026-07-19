@@ -56,6 +56,10 @@ function validateFlowConfig(botConfig) {
     }
 
     for (const state of flow.states) {
+      if (state.type === 'image' && (typeof state.link !== 'string' || !state.link.trim())) {
+        throw new Error(`flow ${flowId} state ${state.id}: image state requires a non-empty link`);
+      }
+
       if (state.type !== 'action' || state.action !== 'route') continue;
 
       const params = state.params || {};

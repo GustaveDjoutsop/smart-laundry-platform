@@ -6,6 +6,7 @@ const { ConfigBot } = require('../bots/base/ConfigBot');
 const { LaundryBot } = require('../bots/laundry/LaundryBot');
 const { ThomasNetworkBot } = require('../bots/thomasNetwork/ThomasNetworkBot');
 const { validateFlowConfig } = require('./flows/flowEngine');
+const { logger } = require('../utils/logger');
 
 function validateBotConfig(botConfig, { configPath } = {}) {
   const errors = [];
@@ -132,6 +133,13 @@ class BotRegistry {
       const validationErrors = validateBotConfig(botConfig, { configPath });
       if (validationErrors.length) {
         throw new Error(`Invalid bot config (${configPath}): ${validationErrors.join('; ')}`);
+      }
+
+      if (/\$\{[A-Z0-9_]+\}/.test(botConfig.verifyToken)) {
+        logger.warn(
+          `Bot '${botConfig.botId}' has an unresolved \${VAR} verifyToken placeholder; ` +
+            'webhook verification will not work until the environment variable is set'
+        );
       }
 
       const botInstance = createBotInstanceForConfig(botConfig);

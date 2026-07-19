@@ -137,6 +137,21 @@ test('FlowEngine rejects route action without params.default or next at construc
   assert.throws(() => new FlowEngine({ botConfig }), /route action requires params\.default or next/);
 });
 
+test('FlowEngine rejects image state without a link at construction', () => {
+  const botConfig = {
+    botId: 't',
+    botName: 'TestBot',
+    defaultFlowId: 'main_menu',
+    flows: {
+      main_menu: {
+        states: [{ id: 'pic', type: 'image', caption: 'no link here' }]
+      }
+    }
+  };
+
+  assert.throws(() => new FlowEngine({ botConfig }), /image state requires a non-empty link/);
+});
+
 test('FlowEngine image cycle sends each image at most once per turn', async () => {
   const botConfig = {
     botId: 't',
