@@ -79,6 +79,10 @@ public class Reservation {
     @Column(name = "used_at")
     private LocalDateTime usedAt;
 
+    /** When the pre-slot "reservation starts soon" reminder was sent; null = not yet sent. */
+    @Column(name = "reminder_sent_at")
+    private LocalDateTime reminderSentAt;
+
     /** {@code true} when {@code now} falls within the reserved slot. */
     public boolean coversNow() {
         LocalDateTime now = LocalDateTime.now();

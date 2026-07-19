@@ -33,13 +33,34 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         default_schema: machine
 
-  # ── Security: Auth0 Resource Server ──────────────────────────────────────────
+  # ── Security: Auth0 Resource Server + M2M client ───────────────────────────
   security:
     oauth2:
       resourceserver:
         jwt:
           issuer-uri: ${AUTH0_ISSUER_URI:https://dev-iuo6si32jobgnmod.eu.auth0.com/}
           audience: ${AUTH0_AUDIENCE:https://smartlaundry.api}
+      client:
+        provider:
+          auth0:
+            token-uri: https://dev-iuo6si32jobgnmod.eu.auth0.com/oauth/token
+        registration:
+          # M2M client used to call spring-bot-manager-only's
+          # POST /api/notifications/send (reservation-upcoming reminder). Reuses
+          # the same Auth0 M2M application as PaymentManagementService's and
+          # spring-bot-manager-only's smartlaundry-m2m registration — needs the
+          # sls-bot-admin scope granted to this client for reminders to send;
+          # until then, calls fail closed (logged, not fatal).
+          smartlaundry-m2m:
+            provider: auth0
+            client-id: ${AUTH0_CLIENT_ID:6UGj1BFYTVTUdSC2AklgNsGoXqbCWlGZ}
+            client-secret: ${AUTH0_CLIENT_SECRET:}
+            authorization-grant-type: client_credentials
+            scope: sls-bot-admin
+
+bot-manager-service:
+  base-url: ${BOT_MANAGER_SERVICE_URL:http://localhost:8090}
+  bot-id: ${BOT_MANAGER_BOT_ID:laundry}
 
 mqtt:
   broker-url: ${MQTT_BROKER_URL:tcp://localhost:1883}
@@ -94,8 +115,8 @@ modbus:
 # via synthetic telemetry. Enable via spring.profiles.active=dev or SIMULATOR_ENABLED=true.
 simulator:
   enabled: ${SIMULATOR_ENABLED:false}
-  heartbeat-interval-ms: ${SIMULATOR_HEARTBEAT_MS:5000}
-  telemetry-update-interval-ms: ${SIMULATOR_TELEMETRY_MS:10000}
+  heartbeat-interval-ms: ${SIMULATOR_HEARTBEAT_MS:30000}
+  telemetry-update-interval-ms: ${SIMULATOR_TELEMETRY_MS:30000}
 
 # ── Feature flags ─────────────────────────────────────────────────────────────
 # Both default DISABLED. The wash-flow flag is enforced in the bot (spring-bot-manager);
@@ -177,6 +198,26 @@ auth0:
 
 cors:
   allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
+# ── Resilience4j — outbound call to spring-bot-manager-only for the
+# reservation-upcoming reminder. Not idempotent-critical (a resend is harmless
+# for a customer-facing reminder), so circuit breaker + bulkhead only, no retry.
+resilience4j:
+  circuitbreaker:
+    instances:
+      botManagerService:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+  bulkhead:
+    instances:
+      botManagerService:
+        max-concurrent-calls: 10
+        max-wait-duration: 0
 
 # ── Springdoc / Swagger UI ────────────────────────────────────────────────────
 springdoc:

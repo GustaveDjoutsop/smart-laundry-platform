@@ -138,3 +138,15 @@ sand until this is confirmed.
   BFF while P0 is open), say so.
 - Terse confirms are fine (e.g. "Weiter" = continue).
 - Notion tasks created progressively, not all upfront.
+
+## Git & PR Workflow (always follow)
+- **Never push directly to `master`/`develop`.** All work goes on its own
+  branch (`bugfix/...` or `feature/...` per the bug-vs-feature convention
+  below) and gets its own pull request for review — no exceptions.
+- **Before every commit, have a subagent do a code review of the diff first**
+  (spawn a review subagent / use the code-review skill), and address what it
+  finds before committing.
+- **After pushing any new commit to an open PR, always check that PR for new
+  review comments** (e.g. Copilot's automated review, human reviewers) —
+  `gh api repos/<owner>/<repo>/pulls/<n>/reviews` and `.../comments` — and
+  address them before considering that push done. Don't wait to be asked.

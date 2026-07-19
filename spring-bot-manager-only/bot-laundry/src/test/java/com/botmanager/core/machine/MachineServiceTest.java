@@ -13,10 +13,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
 import java.util.HashMap;
@@ -514,6 +516,353 @@ class MachineServiceTest {
 
             // then
             verify(webClient, never()).post();
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldForwardReservationCodeWhenPresentInMetadata() {
+            // given
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("machineId", "w1");
+            metadata.put("program", "NORMAL");
+            metadata.put("reservationCode", "RES-ABC123");
+
+            PaymentRecord record = PaymentRecord.builder()
+                    .botId("test-bot")
+                    .transactionId("txn-1")
+                    .metadata(metadata)
+                    .build();
+
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            ArgumentCaptor<Map> bodyCaptor = ArgumentCaptor.forClass(Map.class);
+            when(requestBodySpec.bodyValue(bodyCaptor.capture())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.toBodilessEntity()).thenReturn(Mono.empty());
+
+            PaymentEventPublisher.PaymentCompletedEvent event =
+                    new PaymentEventPublisher.PaymentCompletedEvent(record);
+
+            // when
+            machineService.onPaymentCompleted(event);
+
+            // then
+            assertThat(bodyCaptor.getValue()).containsEntry("reservationCode", "RES-ABC123");
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldOmitReservationCodeWhenAbsentFromMetadata() {
+            // given
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("machineId", "w1");
+            metadata.put("program", "NORMAL");
+
+            PaymentRecord record = PaymentRecord.builder()
+                    .botId("test-bot")
+                    .transactionId("txn-1")
+                    .metadata(metadata)
+                    .build();
+
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            ArgumentCaptor<Map> bodyCaptor = ArgumentCaptor.forClass(Map.class);
+            when(requestBodySpec.bodyValue(bodyCaptor.capture())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.toBodilessEntity()).thenReturn(Mono.empty());
+
+            PaymentEventPublisher.PaymentCompletedEvent event =
+                    new PaymentEventPublisher.PaymentCompletedEvent(record);
+
+            // when
+            machineService.onPaymentCompleted(event);
+
+            // then
+            assertThat(bodyCaptor.getValue()).doesNotContainKey("reservationCode");
+        }
+    }
+
+    @Nested
+    class GetReservationByCode {
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnReservationOnSuccess() {
+            // given
+            Map<String, Object> response = new HashMap<>();
+            response.put("machineId", "w1");
+            response.put("machineName", "Washer 1");
+            response.put("slotEnd", "2026-06-11T11:00:00");
+
+            when(webClient.get()).thenReturn(requestHeadersUriSpec);
+            when(requestHeadersUriSpec.uri(anyString(), any(Object.class))).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.just(response));
+
+            // when
+            Optional<Map<String, Object>> result = machineService.getReservationByCode("RES-ABC123");
+
+            // then
+            assertThat(result).contains(response);
+            verify(requestHeadersUriSpec).uri("http://localhost:8082/api/reservations/{code}", "RES-ABC123");
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnEmptyWhenCallFails() {
+            // given
+            when(webClient.get()).thenReturn(requestHeadersUriSpec);
+            when(requestHeadersUriSpec.uri(anyString(), any(Object.class))).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.error(new RuntimeException("404 Not Found")));
+
+            // when
+            Optional<Map<String, Object>> result = machineService.getReservationByCode("RES-UNKNOWN");
+
+            // then
+            assertThat(result).isEmpty();
+        }
+    }
+
+    @Nested
+    class GetHeldReservations {
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnHeldReservationsOnSuccess() {
+            // given
+            Map<String, Object> reservation = new HashMap<>();
+            reservation.put("machineId", "w1");
+            reservation.put("slotStart", "2026-06-11T16:00:00");
+            List<Map<String, Object>> response = List.of(reservation);
+
+            when(webClient.get()).thenReturn(requestHeadersUriSpec);
+            when(requestHeadersUriSpec.uri(anyString(), any(Object.class))).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.just(response));
+
+            // when
+            List<Map<String, Object>> result = machineService.getHeldReservations("+237690000000");
+
+            // then
+            assertThat(result).isEqualTo(response);
+            verify(requestHeadersUriSpec).uri("http://localhost:8082/api/reservations/customer/{phone}", "+237690000000");
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnEmptyListWhenCallFails() {
+            // given
+            when(webClient.get()).thenReturn(requestHeadersUriSpec);
+            when(requestHeadersUriSpec.uri(anyString(), any(Object.class))).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.error(new RuntimeException("Connection refused")));
+
+            // when
+            List<Map<String, Object>> result = machineService.getHeldReservations("+237690000000");
+
+            // then
+            assertThat(result).isEmpty();
+        }
+    }
+
+    @Nested
+    class ValidateReservation {
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnValidationResponseOnSuccess() {
+            // given
+            Map<String, Object> response = new HashMap<>();
+            response.put("valid", true);
+
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.just(response));
+
+            // when
+            Optional<Map<String, Object>> result = machineService.validateReservation("RES-ABC123", "w1");
+
+            // then
+            assertThat(result).contains(response);
+            verify(requestBodyUriSpec).uri("http://localhost:8082/api/reservations/validate");
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnEmptyWhenCallFails() {
+            // given
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.error(new RuntimeException("Connection refused")));
+
+            // when
+            Optional<Map<String, Object>> result = machineService.validateReservation("RES-ABC123", "w1");
+
+            // then
+            assertThat(result).isEmpty();
+        }
+    }
+
+    @Nested
+    class CancelReservation {
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnResponseOnSuccessfulCancel() {
+            // given
+            Map<String, Object> response = new HashMap<>();
+            response.put("status", "CANCELLED");
+
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.just(response));
+
+            // when
+            Map<String, Object> result = machineService.cancelReservation("ref-1");
+
+            // then
+            assertThat(result).isEqualTo(response);
+            verify(requestBodyUriSpec).uri("http://localhost:8082/api/reservations/cancel");
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnNullWhenCallFails() {
+            // given
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.error(new RuntimeException("Connection refused")));
+
+            // when
+            Map<String, Object> result = machineService.cancelReservation("ref-1");
+
+            // then
+            assertThat(result).isNull();
+        }
+    }
+
+    @Nested
+    class CreateReservation {
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnResponseOnSuccessfulCreate() {
+            // given
+            Map<String, Object> response = new HashMap<>();
+            response.put("reservationCode", "RES-ABC123");
+
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.just(response));
+
+            // when
+            Map<String, Object> result = machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00");
+
+            // then
+            assertThat(result).isEqualTo(response);
+            verify(requestBodyUriSpec).uri("http://localhost:8082/api/reservations");
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldThrowServiceUnavailableOnEmptySuccessBody() {
+            // given — an empty 2xx body is not a genuine conflict; it must not be conflated
+            // with the null-means-conflict signal used elsewhere in this method.
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.empty());
+
+            // when / then
+            assertThatThrownBy(() -> machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00"))
+                    .isInstanceOf(MachineServiceUnavailableException.class);
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldReturnNullOnGenuineSlotConflict() {
+            // given — MachineStateService returns 409 Conflict for an actual overlapping
+            // reservation/cycle; this is the one failure mode that should NOT be escalated.
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.error(WebClientResponseException.create(
+                            409, "Conflict", org.springframework.http.HttpHeaders.EMPTY, new byte[0], null)));
+
+            // when
+            Map<String, Object> result = machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00");
+
+            // then
+            assertThat(result).isNull();
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldThrowServiceUnavailableOnForbidden() {
+            // given — e.g. the bot's M2M client is missing the required OAuth2 scope. This is
+            // NOT a slot conflict and must not be silently treated as one.
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.error(WebClientResponseException.create(
+                            403, "Forbidden", org.springframework.http.HttpHeaders.EMPTY, new byte[0], null)));
+
+            // when / then
+            assertThatThrownBy(() -> machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00"))
+                    .isInstanceOf(MachineServiceUnavailableException.class);
+        }
+
+        @SuppressWarnings("unchecked")
+        @Test
+        void shouldThrowServiceUnavailableOnGenericFailure() {
+            // given — e.g. connection refused, timeout
+            when(webClient.post()).thenReturn(requestBodyUriSpec);
+            when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+            when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
+            when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+            when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+            when(responseSpec.bodyToMono(any(org.springframework.core.ParameterizedTypeReference.class)))
+                    .thenReturn(Mono.error(new RuntimeException("Connection refused")));
+
+            // when / then
+            assertThatThrownBy(() -> machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00"))
+                    .isInstanceOf(MachineServiceUnavailableException.class);
         }
     }
 

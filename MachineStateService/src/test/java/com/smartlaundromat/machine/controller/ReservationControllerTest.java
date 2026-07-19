@@ -21,6 +21,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -167,6 +169,72 @@ class ReservationControllerTest {
 
     @Test
     @WithMockUser(authorities = "SCOPE_sls-reservation-read")
+    void shouldReturnNoConflictWhenNoOverlap() throws Exception {
+        // given
+        when(reservationService.findConflicting(eq("washer_01"), any(), any(), isNull()))
+                .thenReturn(java.util.Optional.empty());
+
+        // when / then
+        mockMvc.perform(get("/api/reservations/conflicts")
+                        .param("machineId", "washer_01")
+                        .param("durationMinutes", "30"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.conflict").value(false));
+    }
+
+    @Test
+    @WithMockUser(authorities = "SCOPE_sls-reservation-read")
+    void shouldReturnConflictWhenOverlapExists() throws Exception {
+        // given
+        Reservation conflicting = Reservation.builder()
+                .reservationCode("RES-NEXT")
+                .machineId("washer_01")
+                .status(ReservationStatus.ACTIVE)
+                .slotStart(LocalDateTime.now().plusMinutes(5))
+                .slotEnd(LocalDateTime.now().plusMinutes(65))
+                .feeAmount(1500)
+                .build();
+        when(reservationService.findConflicting(eq("washer_01"), any(), any(), isNull()))
+                .thenReturn(java.util.Optional.of(conflicting));
+
+        // when / then
+        mockMvc.perform(get("/api/reservations/conflicts")
+                        .param("machineId", "washer_01")
+                        .param("durationMinutes", "60"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.conflict").value(true))
+                .andExpect(jsonPath("$.conflictingReservationCode").value("RES-NEXT"));
+    }
+
+    @Test
+    @WithMockUser(authorities = "SCOPE_sls-reservation-read")
+    void shouldExcludeConflictWhenCodeMatchesTheOnlyOverlap() throws Exception {
+        // given
+        when(reservationService.findConflicting(eq("washer_01"), any(), any(), eq("RES-OWN")))
+                .thenReturn(java.util.Optional.empty());
+
+        // when / then
+        mockMvc.perform(get("/api/reservations/conflicts")
+                        .param("machineId", "washer_01")
+                        .param("durationMinutes", "60")
+                        .param("reservationCode", "RES-OWN"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.conflict").value(false));
+    }
+
+    @Test
+    @WithMockUser(authorities = "SCOPE_sls-reservation-read")
+    void shouldReturn400WhenDurationMinutesIsNotPositive() throws Exception {
+        // when / then
+        mockMvc.perform(get("/api/reservations/conflicts")
+                        .param("machineId", "washer_01")
+                        .param("durationMinutes", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    @WithMockUser(authorities = "SCOPE_sls-reservation-read")
     void shouldListReservationsForMachine() throws Exception {
         // given
         Reservation reservation = Reservation.builder()
@@ -182,6 +250,28 @@ class ReservationControllerTest {
 
         // when / then
         mockMvc.perform(get("/api/reservations/machine/washer_01"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].reservationCode").value("RES-ABC"));
+    }
+
+    @Test
+    @WithMockUser(authorities = "SCOPE_sls-reservation-read")
+    void shouldListHeldReservationsForCustomer() throws Exception {
+        // given
+        Reservation reservation = Reservation.builder()
+                .reservationCode("RES-ABC")
+                .machineId("washer_02")
+                .customerPhone("237612345678")
+                .status(ReservationStatus.ACTIVE)
+                .slotStart(LocalDateTime.now())
+                .slotEnd(LocalDateTime.now().plusHours(1))
+                .feeAmount(1500)
+                .currency("XAF")
+                .build();
+        when(reservationService.listHeldForCustomer("237612345678")).thenReturn(List.of(reservation));
+
+        // when / then
+        mockMvc.perform(get("/api/reservations/customer/237612345678"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].reservationCode").value("RES-ABC"));
     }

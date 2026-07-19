@@ -176,6 +176,9 @@ public class TranslationService {
         addTranslation("status_active_cycle",
                 "✅ You have an active wash cycle on machine *{machine}*.\n\nYour laundry is in progress!",
                 "✅ Vous avez un cycle de lavage actif sur la machine *{machine}*.\n\nVotre linge est en cours!");
+        addTranslation("status_reservation_held",
+                "📅 You have a reservation request for: *{reservations}*.\n\nThe machine hasn't started. If payment isn't confirmed yet, complete it to secure your slot; once confirmed, present your code at the reserved time to start the machine.",
+                "📅 Vous avez une demande de réservation pour: *{reservations}*.\n\nLa machine n'a pas démarré. Si le paiement n'est pas encore confirmé, finalisez-le pour garantir votre créneau; une fois confirmé, présentez votre code à l'heure réservée pour démarrer la machine.");
 
         // Availability
         addTranslation("availability_title", "\uD83D\uDCCA Machine Availability:", "\uD83D\uDCCA Disponibilité des Machines:");
@@ -202,6 +205,11 @@ public class TranslationService {
         addTranslation("cycle_completed",
                 "\uD83C\uDF89 *Your laundry is ready!*\n\n\uD83D\uDCCD Machine: {machine}\n⏱️ Cycle completed at: {endTime}\n\n\uD83D\uDC55 Please collect your clothes so the next customer can use the machine.\n\nThank you for using Smart Laundry! \uD83E\uDDFA",
                 "\uD83C\uDF89 *Votre linge est prêt!*\n\n\uD83D\uDCCD Machine: {machine}\n⏱️ Cycle terminé à: {endTime}\n\n\uD83D\uDC55 Veuillez récupérer vos vêtements pour que le prochain client puisse utiliser la machine.\n\nMerci d'avoir utilisé Smart Laundry! \uD83E\uDDFA");
+
+        // Cycle almost done (proactive reminder, sent by PaymentManagementService)
+        addTranslation("cycle_almost_done",
+                "⏰ *Almost done!*\n\n📍 Machine: {machine}\n⏱️ About {minutes} minute(s) left.\n\nPlease get ready to collect your laundry soon!",
+                "⏰ *Bientôt terminé!*\n\n📍 Machine: {machine}\n⏱️ Environ {minutes} minute(s) restante(s).\n\nPréparez-vous à récupérer votre linge bientôt!");
 
         // Feedback
         addTranslation("feedback_request",
@@ -275,6 +283,12 @@ public class TranslationService {
         addTranslation("campay_err_generic",
                 "Payment request failed. Please try again.",
                 "La demande de paiement a échoué. Veuillez réessayer.");
+        addTranslation("err_machine_busy",
+                "❌ This machine was just taken by another customer. Please choose a different machine or try again in a moment.",
+                "❌ Cette machine vient d'être prise par un autre client. Veuillez choisir une autre machine ou réessayer dans un instant.");
+        addTranslation("err_pending_payment",
+                "❌ There's already a payment in progress for this machine. Please wait a moment and try again.",
+                "❌ Un paiement est déjà en cours pour cette machine. Veuillez patienter un instant et réessayer.");
 
         // Reservation
         addTranslation("btn_reserve", "📅 Reserve", "📅 Réserver");
@@ -314,11 +328,50 @@ public class TranslationService {
         addTranslation("reservation_creation_failed",
                 "⚠️ Your payment was confirmed but we could not finalize the reservation for {machine}. Please contact support.\n\nType 'start' for the main menu.",
                 "⚠️ Votre paiement a été confirmé mais nous n'avons pas pu finaliser la réservation pour {machine}. Veuillez contacter le support.\n\nTapez 'start' pour le menu principal.");
+        addTranslation("reservation_slot_unavailable",
+                "❌ Sorry, that slot for {machine} was just taken by another customer. Please choose a different time or machine.\n\nNo payment was taken.\n\nType 'start' for the main menu.",
+                "❌ Désolé, ce créneau pour {machine} vient d'être pris par un autre client. Veuillez choisir une autre heure ou une autre machine.\n\nAucun paiement n'a été prélevé.\n\nTapez 'start' pour le menu principal.");
+        addTranslation("reservation_upcoming",
+                "⏰ *Your slot is starting soon!*\n\n🖥️ Machine: {machine}\n🕐 Starts in about {minutes} minute(s), until {slotEnd}.\n🔑 Code: {code}\n\nPlease come present this code at the machine to start it. If unclaimed after your slot ends, the reservation will be released.",
+                "⏰ *Votre créneau commence bientôt!*\n\n🖥️ Machine: {machine}\n🕐 Commence dans environ {minutes} minute(s), jusqu'à {slotEnd}.\n🔑 Code: {code}\n\nVeuillez présenter ce code à la machine pour la démarrer. S'il n'est pas utilisé avant la fin du créneau, la réservation sera libérée.");
+
+        // Reservation redemption
+        addTranslation("btn_redeem_code", "🔑 Have a Code", "🔑 J'ai un Code");
+        addTranslation("redeem_code_prompt",
+                "🔑 Please enter your reservation code (e.g. RES-AB12CD):\n\n_Type 'cancel' to go back._",
+                "🔑 Veuillez entrer votre code de réservation (ex: RES-AB12CD):\n\n_Tapez 'cancel' pour revenir._");
+        addTranslation("redeem_code_not_found",
+                "❌ We couldn't find a reservation with that code.\n\nPlease check the code and try again.",
+                "❌ Nous n'avons trouvé aucune réservation avec ce code.\n\nVeuillez vérifier le code et réessayer.");
+        addTranslation("redeem_code_used",
+                "❌ This reservation code has already been used.",
+                "❌ Ce code de réservation a déjà été utilisé.");
+        addTranslation("redeem_code_cancelled",
+                "❌ This reservation was cancelled.",
+                "❌ Cette réservation a été annulée.");
+        addTranslation("redeem_code_not_active",
+                "❌ This reservation hasn't been confirmed yet — payment may still be in progress.",
+                "❌ Cette réservation n'a pas encore été confirmée — le paiement est peut-être toujours en cours.");
+        addTranslation("redeem_code_out_of_slot",
+                "❌ This code is only valid during your reserved time slot.",
+                "❌ Ce code n'est valable que pendant votre créneau de réservation.");
+        addTranslation("redeem_code_confirmed",
+                "✅ Reservation found for {machine}!\n\nYour slot ends at {slotEnd}. Please choose your wash cycle:",
+                "✅ Réservation trouvée pour {machine}!\n\nVotre créneau se termine à {slotEnd}. Veuillez choisir votre cycle de lavage:");
+        addTranslation("err_invalid_reservation_code",
+                "❌ That reservation code isn't valid for this machine right now.",
+                "❌ Ce code de réservation n'est pas valable pour cette machine en ce moment.");
+        addTranslation("err_reservation_conflict",
+                "❌ This machine has an upcoming reservation and your chosen cycle would run into it.\n\nPlease pick a shorter cycle or a different machine.",
+                "❌ Cette machine a une réservation à venir et votre cycle choisi empiéterait dessus.\n\nVeuillez choisir un cycle plus court ou une autre machine.");
 
         // Staff alert
         addTranslation("staff_alert_low_rating",
                 "⚠️ *LOW RATING ALERT*\n\n\uD83D\uDCCD Machine: {machine}\n\uD83D\uDCF1 Customer: {phone}\n⭐ Rating: {rating}/5\n\uD83D\uDCAC Comment: {comment}\n\uD83D\uDD50 Time: {time}\n\nPlease follow up with the customer.",
                 "⚠️ *ALERTE NOTE BASSE*\n\n\uD83D\uDCCD Machine: {machine}\n\uD83D\uDCF1 Client: {phone}\n⭐ Note: {rating}/5\n\uD83D\uDCAC Commentaire: {comment}\n\uD83D\uDD50 Heure: {time}\n\nVeuillez faire un suivi avec le client.");
+        addTranslation("staff_alert_reservation_failed",
+                "⚠️ *RESERVATION RECONCILIATION NEEDED*\n\n📍 Machine: {machine}\n📱 Customer: {phone}\n💰 Amount charged: {amount} XAF\n🧾 Transaction ref: {transactionReference}\n🕐 Time: {time}\n\nPayment succeeded but the reservation could not be activated. Please manually verify/refund.",
+                "⚠️ *RÉCONCILIATION DE RÉSERVATION NÉCESSAIRE*\n\n📍 Machine: {machine}\n📱 Client: {phone}\n💰 Montant prélevé: {amount} XAF\n🧾 Réf. transaction: {transactionReference}\n🕐 Heure: {time}\n\nLe paiement a réussi mais la réservation n'a pas pu être activée. Veuillez vérifier/rembourser manuellement.");
     }
 
 }

@@ -65,8 +65,37 @@ public class Transaction {
     @Column(name = "rfid_card_uid", length = 50)
     private String rfidCardUid;
 
+    @Column(name = "reservation_code", length = 20)
+    private String reservationCode;
+
+    /**
+     * True for the fee payment that confirms/holds a future reservation slot.
+     * These must never trigger a machine start or set {@link #cycleStartedAt} —
+     * the machine only actually starts later, at redemption, via a separate
+     * transaction carrying {@link #reservationCode}.
+     */
+    @Column(name = "reservation_hold", nullable = false)
+    @Builder.Default
+    private boolean reservationHold = false;
+
     @Column(name = "timeout_at")
     private LocalDateTime timeoutAt;
+
+    @Column(name = "reminder_sent_at")
+    private LocalDateTime reminderSentAt;
+
+    @Column(name = "completed_notified_at")
+    private LocalDateTime completedNotifiedAt;
+
+    /**
+     * Set once, when the payment for this cycle first succeeds — never
+     * touched again. Unlike {@code updatedAt} (refreshed by {@code @PreUpdate}
+     * on every save, including the reminder/completion jobs' own bookkeeping
+     * writes), this is safe to use as an immutable cycle-start anchor for
+     * computing cycleEnd = cycleStartedAt + cycleDuration.
+     */
+    @Column(name = "cycle_started_at")
+    private LocalDateTime cycleStartedAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default

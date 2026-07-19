@@ -8,7 +8,9 @@ import com.smartlaundromat.machine.exception.MachineNotFoundException;
 import com.smartlaundromat.machine.exception.ReservationException;
 import com.smartlaundromat.machine.model.Machine;
 import com.smartlaundromat.machine.model.Reservation;
+import com.smartlaundromat.machine.model.enums.CycleStatus;
 import com.smartlaundromat.machine.model.enums.ReservationStatus;
+import com.smartlaundromat.machine.repository.MachineCycleRepository;
 import com.smartlaundromat.machine.repository.MachineRepository;
 import com.smartlaundromat.machine.repository.ReservationRepository;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
@@ -48,6 +51,7 @@ public class ReservationService {
 
     private final ReservationRepository reservationRepository;
     private final MachineRepository machineRepository;
+    private final MachineCycleRepository machineCycleRepository;
     private final FeatureProperties featureProperties;
     private final ReservationProperties reservationProperties;
     private final PricingClient pricingClient;
@@ -72,7 +76,10 @@ public class ReservationService {
     public ReservationResponse createReservation(CreateReservationRequest request) {
         requireEnabled();
 
-        Machine machine = machineRepository.findByMachineId(request.getMachineId())
+        // Locked fetch: holds the machine row for the rest of this transaction so
+        // the overlap check below and the reservation save are atomic against a
+        // second concurrent createReservation call for the same machine/slot.
+        Machine machine = machineRepository.findByMachineIdForUpdate(request.getMachineId())
                 .orElseThrow(() -> new MachineNotFoundException(
                         "Machine not found: " + request.getMachineId()));
 
@@ -92,6 +99,18 @@ public class ReservationService {
             throw new ReservationException(
                     "Machine " + request.getMachineId() + " is already reserved for that time slot");
         }
+
+        // Mirror image of the overlap check above: a machine currently mid-cycle (started by a
+        // walk-in) must not be reservable for a slot it will still be physically running in.
+        // A running cycle's startedAt is always <= now <= start (slotStart can't be in the past,
+        // checked above), so full interval overlap reduces to this one condition: endsAt > start.
+        machineCycleRepository.findByMachineIdAndStatus(request.getMachineId(), CycleStatus.IN_PROGRESS)
+                .filter(cycle -> cycle.getEndsAt() != null && cycle.getEndsAt().isAfter(start))
+                .ifPresent(cycle -> {
+                    throw new ReservationException(
+                            "Machine " + request.getMachineId() + " is currently running a cycle until "
+                                    + cycle.getEndsAt() + " — choose a later slot");
+                });
 
         String code = generateUniqueCode();
         String reference = "RESV-" + request.getMachineId() + "-" + System.currentTimeMillis();
@@ -122,7 +141,9 @@ public class ReservationService {
     @Transactional
     public ReservationResponse activateByReference(String transactionReference) {
         requireEnabled();
-        Reservation reservation = reservationRepository.findByTransactionReference(transactionReference)
+        // Locked fetch: prevents this read-then-write from racing a concurrent
+        // cancel/activate call or the hold-expiry sweep on the same reservation.
+        Reservation reservation = reservationRepository.findByTransactionReferenceForUpdate(transactionReference)
                 .orElseThrow(() -> new ReservationException(
                         "No reservation for transaction reference: " + transactionReference));
 
@@ -146,6 +167,38 @@ public class ReservationService {
         log.info("Reservation ACTIVATED: code={} machine={} ref={}",
                 reservation.getReservationCode(), reservation.getMachineId(), transactionReference);
         return toResponse(reservation, "Reservation is now active for its 1-hour slot");
+    }
+
+    // ── Cancel (payment failed, or never initiated) ──────────────────────────────
+
+    /**
+     * Releases a not-yet-activated hold, e.g. when the reservation-fee payment fails
+     * or the caller never proceeds to pay. Only {@code PENDING_PAYMENT} reservations
+     * can be cancelled — an already-{@code ACTIVE} one has been paid for and must go
+     * through support, not a silent cancel.
+     */
+    @Transactional
+    public ReservationResponse cancel(String transactionReference) {
+        requireEnabled();
+        // Locked fetch: same reasoning as activateByReference above.
+        Reservation reservation = reservationRepository.findByTransactionReferenceForUpdate(transactionReference)
+                .orElseThrow(() -> new ReservationException(
+                        "No reservation for transaction reference: " + transactionReference));
+
+        if (reservation.getStatus() == ReservationStatus.CANCELLED) {
+            return toResponse(reservation, "Reservation already cancelled");
+        }
+        if (reservation.getStatus() != ReservationStatus.PENDING_PAYMENT) {
+            throw new ReservationException(
+                    "Reservation cannot be cancelled from status " + reservation.getStatus());
+        }
+
+        reservation.setStatus(ReservationStatus.CANCELLED);
+        reservationRepository.save(reservation);
+
+        log.info("Reservation CANCELLED: code={} machine={} ref={}",
+                reservation.getReservationCode(), reservation.getMachineId(), transactionReference);
+        return toResponse(reservation, "Reservation hold released");
     }
 
     // ── Validate / consume (code + machine) ─────────────────────────────────────
@@ -228,6 +281,22 @@ public class ReservationService {
         return reservationRepository.findActiveCovering(machineId, LocalDateTime.now());
     }
 
+    /**
+     * Earliest reservation (PENDING_PAYMENT or ACTIVE) overlapping {@code [windowStart, windowEnd)}
+     * on this machine, other than {@code excludeReservationCode} — used both to block a walk-in
+     * whose chosen cycle duration would run into an upcoming reservation, and as the final
+     * defense-in-depth check in {@code MachineService.startCycle}.
+     */
+    @Transactional(readOnly = true)
+    public Optional<Reservation> findConflicting(String machineId, LocalDateTime windowStart,
+                                                  LocalDateTime windowEnd, String excludeReservationCode) {
+        if (!isEnabled()) return Optional.empty();
+        return reservationRepository.findOverlapping(machineId, windowStart, windowEnd).stream()
+                .filter(r -> excludeReservationCode == null
+                        || !r.getReservationCode().equalsIgnoreCase(excludeReservationCode.trim()))
+                .min(Comparator.comparing(Reservation::getSlotStart));
+    }
+
     // ── Queries ─────────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
@@ -241,6 +310,17 @@ public class ReservationService {
     @Transactional(readOnly = true)
     public List<Reservation> listForMachine(String machineId) {
         return reservationRepository.findByMachineIdOrderBySlotStartDesc(machineId);
+    }
+
+    /**
+     * A customer's currently-held reservations (PENDING_PAYMENT or ACTIVE), soonest
+     * first — feature-flagged like everything else here, so a disabled feature
+     * reports no held reservations rather than stale ones.
+     */
+    @Transactional(readOnly = true)
+    public List<Reservation> listHeldForCustomer(String customerPhone) {
+        if (!isEnabled()) return List.of();
+        return reservationRepository.findHeldByCustomerPhone(customerPhone);
     }
 
     // ── Scheduled expiry ──────────────────────────────────────────────────────────
@@ -257,6 +337,32 @@ public class ReservationService {
         if (!expirable.isEmpty()) {
             reservationRepository.saveAll(expirable);
             log.info("Expired {} overdue reservation(s)", expirable.size());
+        }
+    }
+
+    /**
+     * Releases holds that were created but never paid for within
+     * {@code reservation.hold-timeout-minutes}. Distinct from {@link #expireOverdue()}
+     * (which handles slots that elapsed with a valid, possibly-active reservation) —
+     * this handles the abandoned-checkout case, so the slot doesn't stay blocked until
+     * {@code slotEnd} just because a customer never completed payment.
+     *
+     * <p>Uses a single atomic {@code UPDATE ... WHERE status = PENDING_PAYMENT}
+     * (see {@link com.smartlaundromat.machine.repository.ReservationRepository#cancelStalePendingHolds})
+     * rather than a read-then-save loop: a read-then-write here would race
+     * {@link #activateByReference} — the row could be activated (paid) between this
+     * sweep's read and its write, and a blind save would silently cancel an
+     * already-paid reservation. The atomic UPDATE's WHERE clause makes it a no-op
+     * for any row that has left PENDING_PAYMENT by the time it runs.
+     */
+    @Scheduled(fixedDelayString = "${reservation.hold-check-ms:60000}")
+    @Transactional
+    public void releaseExpiredHolds() {
+        if (!isEnabled()) return;
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(reservationProperties.getHoldTimeoutMinutes());
+        int released = reservationRepository.cancelStalePendingHolds(cutoff);
+        if (released > 0) {
+            log.info("Released {} unpaid reservation hold(s)", released);
         }
     }
 

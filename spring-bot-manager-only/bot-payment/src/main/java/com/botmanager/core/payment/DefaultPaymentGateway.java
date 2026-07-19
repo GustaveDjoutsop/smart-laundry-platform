@@ -76,6 +76,13 @@ public class DefaultPaymentGateway extends PaymentGateway {
             body.put("cycleDuration", extractCycleDuration(request));
             body.put("provider", resolveProvider(request.phoneNumber()));
             body.put("description", request.description());
+            String reservationCode = extractReservationCode(request);
+            if (reservationCode != null) {
+                body.put("reservationCode", reservationCode);
+            }
+            if (isReservationHold(request)) {
+                body.put("reservationHold", true);
+            }
 
             log.debug("Payment initiation request body: {}", body);
 
@@ -243,6 +250,17 @@ public class DefaultPaymentGateway extends PaymentGateway {
             return ((Number) request.metadata().get("duration")).intValue();
         }
         return 30;
+    }
+
+    private boolean isReservationHold(PaymentRequest request) {
+        return request.metadata() != null && Boolean.TRUE.equals(request.metadata().get("isReservation"));
+    }
+
+    private String extractReservationCode(PaymentRequest request) {
+        if (request.metadata() != null && request.metadata().containsKey("reservationCode")) {
+            return (String) request.metadata().get("reservationCode");
+        }
+        return null;
     }
 
     private String resolveProvider(String phoneNumber) {

@@ -30,4 +30,17 @@ public class PaymentInitiationRequest {
     private PaymentProvider provider;
 
     private String description;
+
+    /**
+     * Reservation code being redeemed, if the customer is starting a machine held under
+     * an active reservation. Null for ordinary walk-in payments.
+     */
+    private String reservationCode;
+
+    /**
+     * True when this payment is the fee that confirms/holds a future reservation
+     * slot, rather than a payment meant to start a machine right now. Defaults to
+     * false so existing callers (wash payments, redemptions) are unaffected.
+     */
+    private boolean reservationHold;
 }

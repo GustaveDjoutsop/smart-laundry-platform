@@ -1,14 +1,18 @@
 package com.botmanager.bots.laundry;
 
 import com.botmanager.core.bot.BaseBot;
+import com.botmanager.core.bot.ProactiveNotifier;
+import com.botmanager.core.flow.ConversationState;
 import com.botmanager.core.flow.FlowEngine;
 import com.botmanager.core.flow.FlowPlugin;
+import com.botmanager.core.flow.FlowState;
 import com.botmanager.core.i18n.Language;
 import com.botmanager.core.i18n.TranslationService;
 import com.botmanager.core.machine.MachineService;
 import com.botmanager.core.payment.PaymentGateway;
 import com.botmanager.core.payment.PaymentRecord;
 import com.botmanager.core.redis.RedisManager;
+import com.botmanager.core.whatsapp.WhatsAppClient;
 import com.botmanager.core.whatsapp.WhatsAppClientFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -17,17 +21,23 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
-public class LaundryBot extends BaseBot {
+public class LaundryBot extends BaseBot implements ProactiveNotifier {
 
     private static final ZoneId DOUALA_ZONE = ZoneId.of("Africa/Douala");
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
+    private static final long FEEDBACK_DEDUP_TTL_SECONDS = 86400; // 24h
 
     private final LaundryFlowPlugin plugin;
     private final TranslationService translationService;
     private final MachineService machineService;
+    private final TransactionClient transactionClient;
+    private final FeedbackService feedbackService;
+    private final LaundryBotConfig laundryConfig;
 
     public LaundryBot(LaundryBotConfig config,
                       FlowEngine flowEngine,
@@ -38,12 +48,16 @@ public class LaundryBot extends BaseBot {
                       MachineService machineService,
                       TranslationService translationService,
                       PricingClient pricingClient,
-                      TransactionClient transactionClient) {
+                      TransactionClient transactionClient,
+                      FeedbackService feedbackService) {
 
         super(config, flowEngine, redisManager, whatsAppClientFactory, objectMapper);
         this.translationService = translationService;
         this.machineService = machineService;
-        this.plugin = new LaundryFlowPlugin(paymentGateway, machineService, translationService, config, pricingClient, transactionClient);
+        this.transactionClient = transactionClient;
+        this.feedbackService = feedbackService;
+        this.laundryConfig = config;
+        this.plugin = new LaundryFlowPlugin(paymentGateway, machineService, translationService, config, pricingClient, transactionClient, feedbackService);
 
         machineService.registerBot(config);
 
@@ -53,6 +67,90 @@ public class LaundryBot extends BaseBot {
     @Override
     public FlowPlugin getPlugin() {
         return plugin;
+    }
+
+    @Override
+    public void sendProactiveNotification(String phone, String messageKey, Map<String, Object> params) {
+        ConversationState state = loadConversationState(phone);
+        Language lang = Language.fromCode(state.getContextValueAsString("language"));
+        String message = translationService.translate(messageKey, lang, params != null ? params : Map.of());
+        sendMessage(phone, message);
+        log.info("Sent proactive notification: bot={}, phone={}, messageKey={}", config.getBotId(), phone, messageKey);
+
+        if ("cycle_completed".equals(messageKey)) {
+            maybeSendFeedbackRequest(phone, params, lang);
+        }
+    }
+
+    /**
+     * After a cycle-completed notification, asks for feedback — but only if
+     * this was the customer's last active cycle (checked via TransactionClient,
+     * so a customer running multiple machines isn't interrupted mid-visit) and
+     * only once per 24h (Redis dedup, same setIfAbsent pattern MessageProcessor
+     * uses for inbound message dedup).
+     *
+     * <p>Reloads conversation state fresh right before mutating it (rather than
+     * reusing the state loaded earlier in sendProactiveNotification), to pick up
+     * whatever the customer's own in-flight reply may have just written during
+     * the getActiveCycles round-trip above. There's still no per-conversation
+     * locking on the conv:{botId}:{phone} key (none exists anywhere in this
+     * codebase today — BaseBot.handleMessage has the same gap), so a genuinely
+     * concurrent inbound message can still race this save. Accepted for now;
+     * would need real locking to close completely.
+     */
+    private void maybeSendFeedbackRequest(String phone, Map<String, Object> params, Language lang) {
+        if (params == null) {
+            return;
+        }
+
+        List<Map<String, Object>> activeCycles = transactionClient.getActiveCycles(phone);
+        if (!activeCycles.isEmpty()) {
+            log.info("Skipping feedback request for {} — {} other active cycle(s)", phone, activeCycles.size());
+            return;
+        }
+
+        String dedupKey = "feedback-asked:" + config.getBotId() + ":" + phone;
+        if (!redisManager.setIfAbsent(dedupKey, "1", FEEDBACK_DEDUP_TTL_SECONDS)) {
+            log.info("Skipping feedback request for {} — already asked within the last 24h", phone);
+            return;
+        }
+
+        String machine = (String) params.get("machine");
+        String transactionId = (String) params.get("transactionId");
+
+        ConversationState state = loadConversationState(phone);
+        state.setContextValue("customerPhone", phone);
+        state.setContextValue("feedbackTransactionId", transactionId);
+        state.setContextValue("feedbackMachineId", machine);
+        state.setContextValue("feedbackMachineName", machine);
+        state.setCurrentFlowId("laundry_flow");
+        state.setCurrentStateId("await_feedback_rating");
+
+        String message = translationService.translate("feedback_request", lang,
+                Map.of("machine", machine != null ? machine : ""));
+        List<FlowState.ButtonOption> buttons = List.of(
+                ratingButton("feedback_5", "btn_rating_5", lang),
+                ratingButton("feedback_3", "btn_rating_3", lang),
+                ratingButton("feedback_1", "btn_rating_1", lang)
+        );
+
+        WhatsAppClient client = whatsAppClientFactory.getClient(config.getBotId(), config.getPhoneNumberId());
+        if (client != null) {
+            client.sendButtons(phone, message, buttons);
+        }
+
+        saveConversationState(phone, state);
+
+        log.info("Sent feedback request: bot={}, phone={}, transactionId={}", config.getBotId(), phone, transactionId);
+    }
+
+    private FlowState.ButtonOption ratingButton(String id, String translationKey, Language lang) {
+        FlowState.ButtonOption button = new FlowState.ButtonOption();
+        button.setId(id);
+        String title = translationService.translate(translationKey, lang);
+        button.setTitle(title.length() > 20 ? title.substring(0, 20) : title);
+
+        return button;
     }
 
     @Override
@@ -99,52 +197,45 @@ public class LaundryBot extends BaseBot {
         String machineId = (String) metadata.get("machineId");
         String reservationDate = (String) metadata.get("reservationDate");
         String reservationTime = (String) metadata.get("reservationTime");
+        String reservationCode = (String) metadata.get("newReservationCode");
+        String transactionReference = (String) metadata.get("reservationTransactionReference");
 
         log.info("Reservation payment confirmed for customer={}, machine={}, date={}, time={}",
                 customerPhone, machineId, reservationDate, reservationTime);
 
-        // Build the slot start datetime for MachineStateService
-        String slotStartIso = reservationDate + "T" + reservationTime + ":00";
+        // The hold was already created — and the slot's availability already
+        // confirmed — before payment was initiated (LaundryFlowPlugin.handleInitiateReservation).
+        // Only activation remains here.
+        Map<String, Object> activationResponse = machineService.activateReservation(transactionReference);
+        if (activationResponse == null) {
+            log.error("Reservation payment confirmed but activation failed for customer={}, machine={}, transactionReference={}",
+                    customerPhone, machineId, transactionReference);
 
-        // Create the reservation in MachineStateService
-        Map<String, Object> reservationResponse = machineService.createReservation(
-                machineId, customerPhone, slotStartIso);
+            Map<String, Object> alertVars = new HashMap<>();
+            alertVars.put("machine", machineName);
+            alertVars.put("phone", customerPhone);
+            alertVars.put("amount", record.getAmount());
+            alertVars.put("transactionReference", transactionReference != null ? transactionReference : "unknown");
+            feedbackService.sendStaffAlert(laundryConfig, "staff_alert_reservation_failed", alertVars);
 
-        if (reservationResponse != null) {
-            String reservationCode = (String) reservationResponse.get("reservationCode");
-            String transactionReference = (String) reservationResponse.get("transactionReference");
-
-            // Activate the reservation immediately since payment is already confirmed
-            Map<String, Object> activationResponse = machineService.activateReservation(transactionReference);
-            if (activationResponse == null) {
-                log.error("Reservation created (code={}) but activation failed for customer={}, machine={}, transactionReference={}",
-                        reservationCode, customerPhone, machineId, transactionReference);
-                String message = translationService.translate("reservation_creation_failed", lang, Map.of(
-                        "machine", machineName
-                ));
-                sendMessage(customerPhone, message);
-                return;
-            }
-
-            String message = translationService.translate("reservation_confirmed", lang, Map.of(
-                    "machine", machineName,
-                    "date", reservationDate != null ? reservationDate : "",
-                    "time", reservationTime != null ? reservationTime : "",
-                    "code", reservationCode != null ? reservationCode : "",
-                    "amount", record.getAmount()
-            ));
-
-            log.info("Reservation confirmed: code={}, machine={}, customer={}",
-                    reservationCode, machineName, customerPhone);
-            sendMessage(customerPhone, message);
-        } else {
-            log.error("Failed to create reservation after payment for customer={}, machine={}",
-                    customerPhone, machineId);
             String message = translationService.translate("reservation_creation_failed", lang, Map.of(
                     "machine", machineName
             ));
             sendMessage(customerPhone, message);
+            return;
         }
+
+        String message = translationService.translate("reservation_confirmed", lang, Map.of(
+                "machine", machineName,
+                "date", reservationDate != null ? reservationDate : "",
+                "time", reservationTime != null ? reservationTime : "",
+                "code", reservationCode != null ? reservationCode : "",
+                "amount", record.getAmount()
+        ));
+
+        log.info("Reservation confirmed: code={}, machine={}, customer={}",
+                reservationCode, machineName, customerPhone);
+        sendMessage(customerPhone, message);
     }
 
     @Override
@@ -156,6 +247,15 @@ public class LaundryBot extends BaseBot {
         Language lang = resolveLanguage(metadata);
         String machineName = (String) metadata.getOrDefault("machineName", "machine");
         String reason = extractFailureReason(record, lang);
+
+        // For reservations, the hold was created before payment; a failed payment
+        // must release it rather than leaving the slot blocked until it times out.
+        if (Boolean.TRUE.equals(metadata.get("isReservation"))) {
+            String transactionReference = (String) metadata.get("reservationTransactionReference");
+            if (transactionReference != null) {
+                machineService.cancelReservation(transactionReference);
+            }
+        }
 
         String message = translationService.translate("payment_failed_notification", lang, Map.of(
                 "machine", machineName,

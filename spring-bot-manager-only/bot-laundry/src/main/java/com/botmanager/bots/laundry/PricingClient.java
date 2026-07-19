@@ -11,9 +11,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Fetches cycle pricing from PaymentManagementService GET /api/pricing (no auth required).
- * Results are cached in-process for 60 seconds; on any failure the config defaults are used
- * so the bot keeps working while PMS is unavailable.
+ * Fetches cycle/reservation pricing from PaymentManagementService GET /api/pricing (no auth
+ * required). Results are cached in-process for 60 seconds; on any failure the config defaults
+ * are used so the bot keeps working while PMS is unavailable.
  */
 @Slf4j
 public class PricingClient {
@@ -24,16 +24,18 @@ public class PricingClient {
     private final String pricingUrl;
     private final int shortCycleFallback;
     private final int longCycleFallback;
+    private final int reservationFeeFallback;
 
     private volatile List<Map<String, Object>> cached = null;
     private volatile Instant cacheTime = Instant.MIN;
 
     public PricingClient(RestTemplate restTemplate, String pmsBaseUrl,
-                         int shortCycleFallback, int longCycleFallback) {
-        this.restTemplate       = restTemplate;
-        this.pricingUrl         = pmsBaseUrl + "/api/pricing";
-        this.shortCycleFallback = shortCycleFallback;
-        this.longCycleFallback  = longCycleFallback;
+                         int shortCycleFallback, int longCycleFallback, int reservationFeeFallback) {
+        this.restTemplate           = restTemplate;
+        this.pricingUrl             = pmsBaseUrl + "/api/pricing";
+        this.shortCycleFallback     = shortCycleFallback;
+        this.longCycleFallback      = longCycleFallback;
+        this.reservationFeeFallback = reservationFeeFallback;
     }
 
     public int getShortCyclePrice() {
@@ -50,6 +52,10 @@ public class PricingClient {
 
     public int getDryLongPrice() {
         return getAmount("dry_long", longCycleFallback);
+    }
+
+    public int getReservationFee() {
+        return getAmount("reservation_fee", reservationFeeFallback);
     }
 
     private int getAmount(String key, int fallback) {

@@ -2,7 +2,10 @@ package com.smartlaundromat.machine.repository;
 
 import com.smartlaundromat.machine.model.Reservation;
 import com.smartlaundromat.machine.model.enums.ReservationStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -23,11 +26,35 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
 
     Optional<Reservation> findByTransactionReference(String transactionReference);
 
+    /**
+     * Locks the reservation row for the duration of the caller's transaction, so a
+     * status read-then-write (activate/cancel) can't race a concurrent activate,
+     * cancel, or the hold-expiry sweep on the same reservation.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM Reservation r WHERE r.transactionReference = :transactionReference")
+    Optional<Reservation> findByTransactionReferenceForUpdate(
+            @Param("transactionReference") String transactionReference);
+
     boolean existsByReservationCode(String reservationCode);
 
     List<Reservation> findByMachineIdAndStatus(String machineId, ReservationStatus status);
 
     List<Reservation> findByMachineIdOrderBySlotStartDesc(String machineId);
+
+    /**
+     * A customer's currently-held reservations (paid-and-confirmed or awaiting fee
+     * payment), soonest slot first — used to show upcoming/held reservations
+     * distinctly from an active wash cycle in the bot's status check.
+     */
+    @Query("""
+           SELECT r FROM Reservation r
+           WHERE r.customerPhone = :customerPhone
+             AND r.status IN (com.smartlaundromat.machine.model.enums.ReservationStatus.PENDING_PAYMENT,
+                              com.smartlaundromat.machine.model.enums.ReservationStatus.ACTIVE)
+           ORDER BY r.slotStart ASC
+           """)
+    List<Reservation> findHeldByCustomerPhone(@Param("customerPhone") String customerPhone);
 
     /**
      * Finds reservations for a machine that overlap the half-open interval
@@ -69,4 +96,34 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
              AND r.slotEnd <= :now
            """)
     List<Reservation> findExpirable(@Param("now") LocalDateTime now);
+
+    List<Reservation> findByStatusAndCreatedAtBefore(ReservationStatus status, LocalDateTime cutoff);
+
+    /**
+     * Atomically cancels stale unpaid holds in a single UPDATE, guarded by
+     * {@code status = PENDING_PAYMENT} at the database level. Deliberately not a
+     * read-then-save loop: a plain SELECT-then-modify here would race a concurrent
+     * {@code activateByReference}/{@code cancel} call — this row could flip to ACTIVE
+     * between the sweep's read and its write, and a blind save would silently
+     * clobber a just-activated (paid) reservation back to CANCELLED. The WHERE
+     * clause makes this a no-op for any row that has since left PENDING_PAYMENT,
+     * so there's no read-then-write window to race at all.
+     *
+     * @return number of holds released
+     */
+    @Modifying
+    @Query("""
+           UPDATE Reservation r SET r.status = com.smartlaundromat.machine.model.enums.ReservationStatus.CANCELLED
+           WHERE r.status = com.smartlaundromat.machine.model.enums.ReservationStatus.PENDING_PAYMENT
+             AND r.createdAt < :cutoff
+           """)
+    int cancelStalePendingHolds(@Param("cutoff") LocalDateTime cutoff);
+
+    /**
+     * ACTIVE reservations whose slot starts within the reminder window and haven't
+     * been reminded yet. Bounded by {@code slotStart <= cutoff} (cutoff = now +
+     * reminderMinutesBefore) rather than an unbounded scan of all ACTIVE rows.
+     */
+    List<Reservation> findByStatusAndReminderSentAtIsNullAndSlotStartBefore(
+            ReservationStatus status, LocalDateTime cutoff);
 }

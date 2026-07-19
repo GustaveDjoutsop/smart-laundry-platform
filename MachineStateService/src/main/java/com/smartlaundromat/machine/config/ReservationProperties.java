@@ -39,4 +39,15 @@ public class ReservationProperties {
 
     /** Prefix prepended to every reservation code (e.g. {@code RES-AB12CD}). */
     private String codePrefix = "RES-";
+
+    /**
+     * How long a PENDING_PAYMENT hold is allowed to sit unpaid before it's released
+     * back to the slot. Symmetric with PaymentManagementService's own
+     * {@code payment.timeout-minutes} (default 5), since the reservation-fee payment
+     * goes through the same provider timeout.
+     */
+    private int holdTimeoutMinutes = 5;
+
+    /** How long before a reservation's slot start to send the "starts soon" reminder. */
+    private int reminderMinutesBefore = 15;
 }

@@ -46,19 +46,22 @@ spring:
           auth0:
             token-uri: https://dev-iuo6si32jobgnmod.eu.auth0.com/oauth/token
         registration:
-          # M2M client used to call MachineStateService's /api/machines/start-cycle.
-          # Reuses the same Auth0 M2M application as spring-bot-manager-only's
-          # smartlaundry-m2m registration (already granted sls-machine-start).
+          # M2M client used to call MachineStateService's /api/machines/start-cycle
+          # and GET /api/machines/{id} (machine availability check). Reuses the same
+          # Auth0 M2M application as spring-bot-manager-only's smartlaundry-m2m
+          # registration (already granted both scopes there).
           smartlaundry-m2m:
             provider: auth0
             client-id: ${AUTH0_CLIENT_ID:6UGj1BFYTVTUdSC2AklgNsGoXqbCWlGZ}
             client-secret: ${AUTH0_CLIENT_SECRET:}
             authorization-grant-type: client_credentials
-            scope: sls-machine-start
+            scope: sls-machine-start, sls-machine-read, sls-reservation-read, sls-bot-admin
 
 payment:
   currency: XAF
   timeout-minutes: 5
+  reminder-minutes-before: 5
+  reminder-lookback-minutes: 90
 
   pricing:
     short-cycle: 1000
@@ -85,6 +88,10 @@ payment:
 
 machine-state-service:
   base-url: ${MACHINE_STATE_SERVICE_URL:http://localhost:8082}
+
+bot-manager-service:
+  base-url: ${BOT_MANAGER_SERVICE_URL:http://localhost:8090}
+  bot-id: ${BOT_MANAGER_BOT_ID:laundry}
 
 # ── Post-payment machine trigger ──────────────────────────────────────────────
 # EQLink is NOT a payment system — it is a machine CONTROL platform.
@@ -146,9 +153,20 @@ resilience4j:
         wait-duration-in-open-state: 30s
         permitted-number-of-calls-in-half-open-state: 3
         automatic-transition-from-open-to-half-open-enabled: true
+      botManagerService:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
   bulkhead:
     instances:
       machineStateService:
+        max-concurrent-calls: 10
+        max-wait-duration: 0
+      botManagerService:
         max-concurrent-calls: 10
         max-wait-duration: 0
 

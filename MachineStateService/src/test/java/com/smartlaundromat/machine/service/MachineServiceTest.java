@@ -29,6 +29,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -167,6 +168,91 @@ class MachineServiceTest {
         }
 
         @Test
+        void shouldNotDowngradeRunningMachineFromStaleIdleTelemetryWhenSimulatorEnabled() {
+            // given: simulator active, machine is live-RUNNING (e.g. startCycle() committed after
+            // this telemetry snapshot was built by the simulator's batched heartbeat)
+            ReflectionTestUtils.setField(machineService, "simulatorEnabled", true);
+            idleMachine.setStatus(MachineStatus.RUNNING);
+            idleMachine.setCurrentCycleType(CycleType.HEAVY);
+            idleMachine.setCycleProgress(40);
+            idleMachine.setDoorLocked(true);
+            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            TelemetryPayload payload = new TelemetryPayload();
+            payload.setMachineId("washer_01");
+            payload.setStatus("IDLE");
+            payload.setDoorLocked(false);
+            payload.setSpinSpeed(0);
+
+            // when
+            machineService.processTelemetry(payload);
+
+            // then: RUNNING and its cycle fields are preserved; only heartbeat bookkeeping updates
+            assertThat(idleMachine.getStatus()).isEqualTo(MachineStatus.RUNNING);
+            assertThat(idleMachine.getCurrentCycleType()).isEqualTo(CycleType.HEAVY);
+            assertThat(idleMachine.getCycleProgress()).isEqualTo(40);
+            assertThat(idleMachine.getDoorLocked()).isTrue();
+            assertThat(idleMachine.getIsOnline()).isTrue();
+            assertThat(idleMachine.getLastHeartbeat()).isNotNull();
+            verify(machineRepository).save(idleMachine);
+            verify(machineEventRepository, never()).save(any());
+        }
+
+        @Test
+        void shouldApplyBareIdleTelemetryWhileRunningWhenSimulatorDisabled() {
+            // given: simulator OFF (real hardware profile) - a real device reporting bare IDLE
+            // while the DB still says RUNNING must still be applied, since the batched-heartbeat
+            // race this guard protects against can't happen without the simulator running
+            idleMachine.setStatus(MachineStatus.RUNNING);
+            idleMachine.setCurrentCycleType(CycleType.HEAVY);
+            idleMachine.setCycleProgress(40);
+            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            TelemetryPayload payload = new TelemetryPayload();
+            payload.setMachineId("washer_01");
+            payload.setStatus("IDLE");
+            payload.setDoorLocked(false);
+            payload.setSpinSpeed(0);
+
+            // when
+            machineService.processTelemetry(payload);
+
+            // then
+            assertThat(idleMachine.getStatus()).isEqualTo(MachineStatus.IDLE);
+            verify(machineRepository).save(idleMachine);
+            // Status changed from RUNNING to IDLE, so an event should be recorded
+            verify(machineEventRepository).save(any(MachineEvent.class));
+        }
+
+        @Test
+        void shouldApplyRealErrorTransitionWhileRunning() {
+            // given: a real hardware fault reported mid-cycle - must NOT be swallowed by the
+            // stale-idle-heartbeat guard, which is scoped only to bare IDLE with no error data
+            idleMachine.setStatus(MachineStatus.RUNNING);
+            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            TelemetryPayload payload = new TelemetryPayload();
+            payload.setMachineId("washer_01");
+            payload.setStatus("ERROR");
+            payload.setErrorCode("E99");
+            payload.setErrorMessage("Door open mid-cycle");
+
+            // when
+            machineService.processTelemetry(payload);
+
+            // then
+            assertThat(idleMachine.getStatus()).isEqualTo(MachineStatus.ERROR);
+            assertThat(idleMachine.getErrorCode()).isEqualTo("E99");
+            assertThat(idleMachine.getErrorMessage()).isEqualTo("Door open mid-cycle");
+            verify(machineRepository).save(idleMachine);
+            // Status changed from RUNNING to ERROR, so an event should be recorded
+            verify(machineEventRepository).save(any(MachineEvent.class));
+        }
+
+        @Test
         void shouldHandleNullFieldsInTelemetry() {
             // given
             when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
@@ -205,7 +291,7 @@ class MachineServiceTest {
         void shouldThrowWhenMachineNotFound() {
             // given
             StartCycleRequest request = buildRequest();
-            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.empty());
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.empty());
 
             // when / then
             assertThatThrownBy(() -> machineService.startCycle(request))
@@ -216,7 +302,7 @@ class MachineServiceTest {
         void shouldThrowWhenMachineNotAvailable() {
             // given
             idleMachine.setStatus(MachineStatus.RUNNING);
-            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
             StartCycleRequest request = buildRequest();
 
             // when / then
@@ -228,7 +314,7 @@ class MachineServiceTest {
         @Test
         void shouldThrowWhenCycleAlreadyInProgress() {
             // given
-            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
             when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
                     .thenReturn(Optional.of(new MachineCycle()));
             StartCycleRequest request = buildRequest();
@@ -242,7 +328,7 @@ class MachineServiceTest {
         @Test
         void shouldStartCycleSuccessfully() {
             // given
-            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
             when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
                     .thenReturn(Optional.empty());
             when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());
@@ -268,7 +354,7 @@ class MachineServiceTest {
         @Test
         void shouldDefaultToNormalCycleTypeWhenInvalid() {
             // given
-            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
             when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
                     .thenReturn(Optional.empty());
             when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());
@@ -288,7 +374,7 @@ class MachineServiceTest {
         @Test
         void shouldThrowWhenMachineReservedWithoutCode() {
             // given
-            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
             when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
                     .thenReturn(Optional.empty());
 
@@ -313,7 +399,7 @@ class MachineServiceTest {
         @Test
         void shouldStartCycleWithValidReservationCode() {
             // given
-            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
             when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
                     .thenReturn(Optional.empty());
 
@@ -338,6 +424,199 @@ class MachineServiceTest {
             // then
             assertThat(cycle).isNotNull();
             verify(reservationService).validateAndConsume("RES-ABC", "washer_01");
+        }
+
+        @Test
+        void shouldThrowWhenWalkInDurationWouldOverlapUpcomingReservation() {
+            // given — nothing covers "now", but the requested duration would run into a
+            // reservation starting soon (e.g. a 60-min walk-in wash at 9:55 for a 10:00 reservation)
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
+                    .thenReturn(Optional.empty());
+            when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());
+
+            var upcoming = com.smartlaundromat.machine.model.Reservation.builder()
+                    .reservationCode("RES-NEXT")
+                    .machineId("washer_01")
+                    .status(ReservationStatus.ACTIVE)
+                    .slotStart(LocalDateTime.now().plusMinutes(5))
+                    .feeAmount(1500)
+                    .build();
+            when(reservationService.findConflicting(eq("washer_01"), any(), any(), isNull()))
+                    .thenReturn(Optional.of(upcoming));
+
+            StartCycleRequest request = buildRequest();
+            request.setDurationMinutes(60);
+
+            // when / then
+            assertThatThrownBy(() -> machineService.startCycle(request))
+                    .isInstanceOf(MachineNotAvailableException.class)
+                    .hasMessageContaining("would run into that reservation");
+            verify(machineCycleRepository, never()).save(any());
+        }
+
+        @Test
+        void shouldStartWhenNoConflictInWindow() {
+            // given
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
+                    .thenReturn(Optional.empty());
+            when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());
+            when(reservationService.findConflicting(eq("washer_01"), any(), any(), isNull()))
+                    .thenReturn(Optional.empty());
+            when(machineCycleRepository.save(any(MachineCycle.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(machineRepository.save(any(Machine.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            StartCycleRequest request = buildRequest();
+
+            // when
+            MachineCycle cycle = machineService.startCycle(request);
+
+            // then
+            assertThat(cycle).isNotNull();
+        }
+
+        @Test
+        void shouldRejectWhenOwnRedeemedCycleWouldOverrunIntoNextReservation() {
+            // given — customer redeems their own code covering "now", but picks a duration long
+            // enough to bleed into a DIFFERENT, later reservation. Their own code must be excluded
+            // from the conflict search (it's the reservation just consumed), yet the next
+            // reservation must still be caught.
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
+                    .thenReturn(Optional.empty());
+
+            var ownReservation = com.smartlaundromat.machine.model.Reservation.builder()
+                    .reservationCode("RES-OWN")
+                    .machineId("washer_01")
+                    .status(ReservationStatus.ACTIVE)
+                    .feeAmount(1500)
+                    .build();
+            when(reservationService.activeReservationCovering("washer_01"))
+                    .thenReturn(Optional.of(ownReservation));
+            when(reservationService.validateAndConsume("RES-OWN", "washer_01")).thenReturn(ownReservation);
+
+            var nextReservation = com.smartlaundromat.machine.model.Reservation.builder()
+                    .reservationCode("RES-NEXT")
+                    .machineId("washer_01")
+                    .status(ReservationStatus.ACTIVE)
+                    .slotStart(LocalDateTime.now().plusMinutes(10))
+                    .feeAmount(1500)
+                    .build();
+            when(reservationService.findConflicting(eq("washer_01"), any(), any(), eq("RES-OWN")))
+                    .thenReturn(Optional.of(nextReservation));
+
+            StartCycleRequest request = buildRequest();
+            request.setReservationCode("RES-OWN");
+            request.setDurationMinutes(60);
+
+            // when / then
+            assertThatThrownBy(() -> machineService.startCycle(request))
+                    .isInstanceOf(MachineNotAvailableException.class)
+                    .hasMessageContaining("would run into that reservation");
+            verify(machineCycleRepository, never()).save(any());
+        }
+
+        @Test
+        void shouldRejectAsNotAvailableWhenCycleSaveRacesConcurrentInsert() {
+            // given
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
+                    .thenReturn(Optional.empty());
+            when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());
+            when(machineCycleRepository.save(any(MachineCycle.class)))
+                    .thenThrow(new org.springframework.dao.DataIntegrityViolationException(
+                            "duplicate key value violates unique constraint idx_machine_cycles_machine_in_progress",
+                            new RuntimeException("duplicate key value violates unique constraint \"idx_machine_cycles_machine_in_progress\"")));
+
+            StartCycleRequest request = buildRequest();
+
+            // when / then
+            assertThatThrownBy(() -> machineService.startCycle(request))
+                    .isInstanceOf(MachineNotAvailableException.class)
+                    .hasMessageContaining("active cycle");
+            verify(commandDispatcher, never()).dispatch(any(), any(), any());
+        }
+
+        @Test
+        void shouldRethrowUnrelatedDataIntegrityViolations() {
+            // given
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
+                    .thenReturn(Optional.empty());
+            when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());
+            when(machineCycleRepository.save(any(MachineCycle.class)))
+                    .thenThrow(new org.springframework.dao.DataIntegrityViolationException(
+                            "value too long",
+                            new RuntimeException("value too long")));
+
+            StartCycleRequest request = buildRequest();
+
+            // when / then
+            assertThatThrownBy(() -> machineService.startCycle(request))
+                    .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class)
+                    .isNotInstanceOf(MachineNotAvailableException.class);
+        }
+
+        @Test
+        void shouldReturnExistingCycleWhenIdempotencyRaceLosesAfterLockAcquired() {
+            // given — simulates two genuinely concurrent duplicate deliveries of the same
+            // transactionReference (e.g. two OutboxRelayService instances): the pre-lock
+            // idempotency check (first stub, empty) already ran and found nothing, but by
+            // the time THIS call acquires the machine row lock, the other caller has already
+            // committed a cycle for this exact transactionReference. The post-lock re-check
+            // must return that cycle instead of falling through to the generic
+            // "already has an active cycle" rejection.
+            MachineCycle winnerCycle = MachineCycle.builder()
+                    .machineId("washer_01")
+                    .transactionReference("TXN-001")
+                    .status(CycleStatus.IN_PROGRESS)
+                    .build();
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineCycleRepository.findByTransactionReference("TXN-001"))
+                    .thenReturn(Optional.empty())   // pre-lock check: nothing yet
+                    .thenReturn(Optional.of(winnerCycle));  // post-lock re-check: other caller won
+
+            StartCycleRequest request = buildRequest();
+
+            // when
+            MachineCycle result = machineService.startCycle(request);
+
+            // then
+            assertThat(result).isSameAs(winnerCycle);
+            verify(machineCycleRepository, never()).save(any());
+            verify(commandDispatcher, never()).dispatch(any(), any(), any());
+        }
+
+        @Test
+        void shouldThrowNotAvailableWhenSaveRacesOnTransactionReferenceConstraint() {
+            // given — defense-in-depth backstop for the post-lock re-check above: only
+            // reachable when two racing calls for the same transactionReference target
+            // DIFFERENT machines, so neither shares the other's row lock, and both still
+            // slip past their own pre/post-lock checks. We must NOT try to read back the
+            // winning row inside this same transaction: Postgres poisons the whole
+            // transaction after a failed statement until it's rolled back, so a
+            // same-transaction SELECT here would itself fail rather than return the
+            // winner. The correct behavior is to throw and let the caller's own retry
+            // (fresh transaction) resolve it via the pre-lock idempotency check.
+            when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
+            when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
+                    .thenReturn(Optional.empty());
+            when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());
+            when(machineCycleRepository.findByTransactionReference("TXN-001"))
+                    .thenReturn(Optional.empty());  // pre-lock and post-lock checks: nothing yet
+            when(machineCycleRepository.save(any(MachineCycle.class)))
+                    .thenThrow(new org.springframework.dao.DataIntegrityViolationException(
+                            "duplicate key value violates unique constraint idx_machine_cycles_tx_ref",
+                            new RuntimeException("duplicate key value violates unique constraint \"idx_machine_cycles_tx_ref\"")));
+
+            StartCycleRequest request = buildRequest();
+
+            // when / then
+            assertThatThrownBy(() -> machineService.startCycle(request))
+                    .isInstanceOf(MachineNotAvailableException.class)
+                    .hasMessageContaining("Duplicate start request");
+            verify(commandDispatcher, never()).dispatch(any(), any(), any());
         }
     }
 
@@ -479,7 +758,7 @@ class MachineServiceTest {
     void shouldStartCycleWithVariousCycleTypes(String cycleType, String expectedDefault,
                                                 int duration, int pulseCount) {
         // given
-        when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(idleMachine));
+        when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
         when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
                 .thenReturn(Optional.empty());
         when(reservationService.activeReservationCovering("washer_01")).thenReturn(Optional.empty());

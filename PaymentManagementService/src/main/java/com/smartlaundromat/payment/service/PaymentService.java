@@ -11,15 +11,21 @@ import com.smartlaundromat.payment.model.enums.PaymentProvider;
 import com.smartlaundromat.payment.model.enums.PaymentStatus;
 import com.smartlaundromat.payment.repository.OutboxEventRepository;
 import com.smartlaundromat.payment.repository.TransactionRepository;
+import com.smartlaundromat.payment.service.machine.MachineAvailabilityClient;
+import com.smartlaundromat.payment.service.machine.ReservationClient;
 import com.smartlaundromat.payment.service.provider.CampayService;
 import com.smartlaundromat.payment.service.provider.MtnMomoService;
 import com.smartlaundromat.payment.service.provider.OrangeMoneyService;
 import com.smartlaundromat.payment.service.provider.PaymentProviderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
+import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -33,6 +39,8 @@ public class PaymentService {
     private final TransactionRepository transactionRepository;
     private final OutboxEventRepository outboxEventRepository;
     private final ObjectMapper objectMapper;
+    private final MachineAvailabilityClient machineAvailabilityClient;
+    private final ReservationClient reservationClient;
 
     private final CampayService campayService;
     private final MtnMomoService mtnMomoService;
@@ -44,13 +52,15 @@ public class PaymentService {
     public PaymentResponse initiatePayment(PaymentInitiationRequest request) {
         log.info("Initiating payment: machine={}, amount={}, provider={}",
                 request.getMachineId(), request.getAmount(), request.getProvider());
-        List<Transaction> activeCycles = transactionRepository
-                .findByMachineIdAndStatus(request.getMachineId(), PaymentStatus.SUCCESSFUL);
-        if (!activeCycles.isEmpty()) {
-            log.warn("Machine {} has an active cycle, rejecting new payment request", request.getMachineId());
+        if (!machineAvailabilityClient.isAvailable(request.getMachineId())) {
+            log.warn("Machine {} is not available, rejecting new payment request", request.getMachineId());
             throw new PaymentException("MACHINE_BUSY",
-                    "Machine " + request.getMachineId() + " has an active cycle");
+                    "Machine " + request.getMachineId() + " is not available");
         }
+        // Checked before the reservation-code/conflict validation below (both remote calls): a
+        // machine already mid-checkout should be rejected as PENDING_PAYMENT from local state
+        // alone, without spending a round-trip (and risking a fail-closed error) on a request
+        // that's going to be rejected regardless of reservation state.
         List<Transaction> pendingPayments = transactionRepository
                 .findByMachineIdAndStatus(request.getMachineId(), PaymentStatus.PENDING);
         if (!pendingPayments.isEmpty()) {
@@ -58,6 +68,22 @@ public class PaymentService {
             throw new PaymentException("PENDING_PAYMENT",
                     "Machine " + request.getMachineId() + " has a pending payment");
         }
+        if (StringUtils.hasText(request.getReservationCode())
+                && !reservationClient.isValid(request.getReservationCode(), request.getMachineId())) {
+            log.warn("Reservation code invalid for machine {}, rejecting new payment request", request.getMachineId());
+            throw new PaymentException("RESERVATION_INVALID_CODE",
+                    "Reservation code is not valid for machine " + request.getMachineId());
+        }
+        // Duration-aware: blocks a walk-in whose chosen cycle would run into someone else's
+        // upcoming reservation, before charging. A supplied reservationCode is excluded from the
+        // conflict search so a legitimate redemption never self-conflicts.
+        reservationClient.checkConflict(request.getMachineId(), request.getCycleDuration(), request.getReservationCode())
+                .ifPresent(conflictingSlotStart -> {
+                    log.warn("Machine {} has a reservation starting at {}, rejecting new payment request",
+                            request.getMachineId(), conflictingSlotStart);
+                    throw new PaymentException("RESERVATION_SLOT_CONFLICT",
+                            "Machine " + request.getMachineId() + " is reserved starting at " + conflictingSlotStart);
+                });
 
         String externalReference = UUID.randomUUID().toString();
 
@@ -70,10 +96,27 @@ public class PaymentService {
                 .cycleDuration(request.getCycleDuration())
                 .description(request.getDescription())
                 .paymentProvider(request.getProvider())
+                .reservationCode(request.getReservationCode())
+                .reservationHold(request.isReservationHold())
                 .build();
 
         log.info("save new transaction with external reference: {}", externalReference);
-        transactionRepository.save(transaction);
+        try {
+            transactionRepository.save(transaction);
+        } catch (DataIntegrityViolationException exception) {
+            // Backstop for the check-then-act race above: a concurrent request for the same
+            // machine can win between the pending-payment check and this save. The unique
+            // partial index on transactions(machine_id) WHERE status='PENDING' catches it here.
+            // Only this specific constraint means "pending payment race" — any other integrity
+            // violation is a real bug and must not be masked as a routine rejection.
+            String cause = String.valueOf(exception.getMostSpecificCause().getMessage());
+            if (cause.contains("idx_transactions_machine_pending")) {
+                log.warn("Machine {} got a pending payment concurrently, rejecting this request", request.getMachineId());
+                throw new PaymentException("PENDING_PAYMENT",
+                        "Machine " + request.getMachineId() + " has a pending payment");
+            }
+            throw exception;
+        }
 
         PaymentProviderService provider = resolveProvider(request.getProvider());
         log.info("Requesting payment from provider {}: externalReference={}, phoneNumber={}, amount={}",
@@ -104,6 +147,12 @@ public class PaymentService {
      * Postgres transaction (ACID). The {@link OutboxRelayService} picks it up
      * asynchronously and dispatches to MachineStateService — decoupling the
      * payment commit from the machine-start HTTP call (P4, W5/W10).
+     *
+     * <p>Locked fetch: payment providers retry webhook delivery on timeout, so two
+     * genuinely concurrent calls for the same externalReference are a real
+     * possibility, not just sequential retries. Without the lock, both could read
+     * PENDING before either commits, both pass the already-successful check below,
+     * and both write a SUCCESSFUL update / outbox event.
      */
     @Transactional
     public Transaction processWebhook(PaymentProvider provider,
@@ -112,7 +161,7 @@ public class PaymentService {
                                       String providerReference,
                                       String failureReason) {
 
-        Transaction transaction = transactionRepository.findByExternalReference(externalReference)
+        Transaction transaction = transactionRepository.findByExternalReferenceForUpdate(externalReference)
                 .orElseThrow(() -> new PaymentException("TRANSACTION_NOT_FOUND",
                         "Transaction not found: " + externalReference));
 
@@ -124,12 +173,24 @@ public class PaymentService {
         if ("SUCCESSFUL".equalsIgnoreCase(status)) {
             transaction.setStatus(PaymentStatus.SUCCESSFUL);
             transaction.setProviderReference(providerReference);
-            transactionRepository.save(transaction);
 
             log.info("Payment SUCCESSFUL — tx={}, machine={}, provider={}",
                     externalReference, transaction.getMachineId(), provider);
 
-            outboxEventRepository.save(buildPaymentSucceededEvent(transaction));
+            if (transaction.isReservationHold()) {
+                // This fee only confirms/holds a future slot — the machine must not start
+                // now, so no outbox event is written here. Reservation activation
+                // (PENDING_PAYMENT -> ACTIVE) happens entirely outside this service: the
+                // bot detects this payment success on its own (polling PaymentStatusWorker)
+                // and calls MachineStateService's /api/reservations/activate directly.
+                transactionRepository.save(transaction);
+                log.info("Reservation hold fee confirmed — skipping machine-start dispatch: tx={}, machine={}",
+                        externalReference, transaction.getMachineId());
+            } else {
+                transaction.setCycleStartedAt(LocalDateTime.now());
+                transactionRepository.save(transaction);
+                outboxEventRepository.save(buildPaymentSucceededEvent(transaction));
+            }
 
         } else {
             transaction.setStatus(PaymentStatus.FAILED);
@@ -156,8 +217,18 @@ public class PaymentService {
         return transactionRepository.findByRfidCardUidOrderByCreatedAtDesc(cardUid);
     }
 
-    public Optional<Transaction> getActiveCycleByPhone(String phone) {
-        return transactionRepository.findTop1ByPhoneNumberAndStatusOrderByCreatedAtDesc(phone, PaymentStatus.SUCCESSFUL);
+    public List<Transaction> getActiveCyclesByPhone(String phone) {
+        LocalDateTime now = LocalDateTime.now();
+        return transactionRepository
+                .findByPhoneNumberAndStatusOrderByCreatedAtDesc(phone, PaymentStatus.SUCCESSFUL)
+                .stream()
+                // cycleStartedAt is only set for transactions that actually started a
+                // machine (see processWebhook) — reservation-hold fee payments never set
+                // it, so they're correctly excluded here rather than being mistaken for
+                // an active cycle based on their own createdAt.
+                .filter(tx -> tx.getCycleStartedAt() != null
+                        && tx.getCycleStartedAt().plusMinutes(tx.getCycleDuration()).isAfter(now))
+                .toList();
     }
 
     public Map<String, Object> getProviderStatus() {
@@ -171,13 +242,15 @@ public class PaymentService {
     // ── Private ───────────────────────────────────────────────────────────────
 
     private OutboxEvent buildPaymentSucceededEvent(Transaction tx) {
-        Map<String, Object> payloadMap = Map.of(
-                "machineId",            tx.getMachineId(),
-                "transactionReference", tx.getExternalReference(),
-                "cycleType",            "NORMAL",
-                "durationMinutes",      tx.getCycleDuration() != null ? tx.getCycleDuration() : 30,
-                "pulseCount",           tx.getPulseCount()    != null ? tx.getPulseCount()    : 1
-        );
+        Map<String, Object> payloadMap = new HashMap<>();
+        payloadMap.put("machineId", tx.getMachineId());
+        payloadMap.put("transactionReference", tx.getExternalReference());
+        payloadMap.put("cycleType", "NORMAL");
+        payloadMap.put("durationMinutes", tx.getCycleDuration() != null ? tx.getCycleDuration() : 30);
+        payloadMap.put("pulseCount", tx.getPulseCount() != null ? tx.getPulseCount() : 1);
+        if (tx.getReservationCode() != null) {
+            payloadMap.put("reservationCode", tx.getReservationCode());
+        }
         try {
             return OutboxEvent.builder()
                     .aggregateType("Transaction")

@@ -10,6 +10,8 @@ import com.smartlaundromat.payment.model.enums.PaymentProvider;
 import com.smartlaundromat.payment.model.enums.PaymentStatus;
 import com.smartlaundromat.payment.repository.OutboxEventRepository;
 import com.smartlaundromat.payment.repository.TransactionRepository;
+import com.smartlaundromat.payment.service.machine.MachineAvailabilityClient;
+import com.smartlaundromat.payment.service.machine.ReservationClient;
 import com.smartlaundromat.payment.service.provider.CampayService;
 import com.smartlaundromat.payment.service.provider.MtnMomoService;
 import com.smartlaundromat.payment.service.provider.OrangeMoneyService;
@@ -23,6 +25,7 @@ import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -55,6 +58,12 @@ class PaymentServiceTest {
     @Mock
     OrangeMoneyService orangeMoneyService;
 
+    @Mock
+    MachineAvailabilityClient machineAvailabilityClient;
+
+    @Mock
+    ReservationClient reservationClient;
+
     @InjectMocks
     PaymentService paymentService;
 
@@ -79,8 +88,7 @@ class PaymentServiceTest {
 
         @Test
         void shouldInitiatePaymentWhenMachineIsFree() {
-            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.SUCCESSFUL))
-                    .thenReturn(Collections.emptyList());
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
             when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
                     .thenReturn(Collections.emptyList());
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -99,23 +107,42 @@ class PaymentServiceTest {
         }
 
         @Test
-        void shouldThrowWhenMachineHasActiveCycle() {
-            Transaction active = Transaction.builder()
-                    .machineId("MACH-01")
-                    .status(PaymentStatus.SUCCESSFUL)
-                    .build();
-            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.SUCCESSFUL))
-                    .thenReturn(List.of(active));
+        void shouldCarryReservationHoldFlagOntoTransaction() {
+            request.setReservationHold(true);
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
+                    .thenReturn(Collections.emptyList());
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(campayService.requestPayment(anyString(), any(), anyString(), anyString()))
+                    .thenReturn(PaymentResponse.builder().success(true).providerReference("CAMP-REF-002").build());
+
+            paymentService.initiatePayment(request);
+
+            verify(transactionRepository, atLeastOnce()).save(argThat(Transaction::isReservationHold));
+        }
+
+        @Test
+        void shouldThrowWhenMachineIsNotAvailable() {
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(false);
 
             assertThatThrownBy(() -> paymentService.initiatePayment(request))
                     .isInstanceOf(PaymentException.class)
-                    .hasMessageContaining("active cycle");
+                    .hasMessageContaining("not available");
+        }
+
+        @Test
+        void shouldThrowWhenMachineStatusUnknown() {
+            when(machineAvailabilityClient.isAvailable("MACH-01"))
+                    .thenThrow(new PaymentException("MACHINE_STATUS_UNKNOWN", "Could not verify status of machine MACH-01"));
+
+            assertThatThrownBy(() -> paymentService.initiatePayment(request))
+                    .isInstanceOf(PaymentException.class)
+                    .hasMessageContaining("Could not verify status");
         }
 
         @Test
         void shouldThrowWhenMachineHasPendingPayment() {
-            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.SUCCESSFUL))
-                    .thenReturn(Collections.emptyList());
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
             Transaction pending = Transaction.builder()
                     .machineId("MACH-01")
                     .status(PaymentStatus.PENDING)
@@ -129,10 +156,135 @@ class PaymentServiceTest {
         }
 
         @Test
+        void shouldInitiatePaymentWhenReservationCodeValid() {
+            request.setReservationCode("RES-ABC123");
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(reservationClient.isValid("RES-ABC123", "MACH-01")).thenReturn(true);
+            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
+                    .thenReturn(Collections.emptyList());
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            PaymentResponse providerResponse = PaymentResponse.builder()
+                    .success(true)
+                    .providerReference("CAMP-REF-001")
+                    .build();
+            when(campayService.requestPayment(anyString(), any(), anyString(), anyString()))
+                    .thenReturn(providerResponse);
+
+            paymentService.initiatePayment(request);
+
+            verify(transactionRepository, times(2)).save(argThat(tx -> "RES-ABC123".equals(tx.getReservationCode())));
+        }
+
+        @Test
+        void shouldThrowWhenReservationCodeInvalid() {
+            request.setReservationCode("RES-ABC123");
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(reservationClient.isValid("RES-ABC123", "MACH-01")).thenReturn(false);
+
+            assertThatThrownBy(() -> paymentService.initiatePayment(request))
+                    .isInstanceOf(PaymentException.class)
+                    .hasMessageContaining("not valid");
+
+            verifyNoInteractions(campayService, mtnMomoService, orangeMoneyService);
+            verify(transactionRepository, never()).save(any());
+        }
+
+        @Test
+        void shouldSkipReservationCodeValidationWhenNoCodeProvided() {
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(reservationClient.checkConflict("MACH-01", request.getCycleDuration(), null))
+                    .thenReturn(Optional.empty());
+            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
+                    .thenReturn(Collections.emptyList());
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            PaymentResponse providerResponse = PaymentResponse.builder()
+                    .success(true)
+                    .providerReference("CAMP-REF-001")
+                    .build();
+            when(campayService.requestPayment(anyString(), any(), anyString(), anyString()))
+                    .thenReturn(providerResponse);
+
+            paymentService.initiatePayment(request);
+
+            verify(reservationClient, never()).isValid(any(), any());
+        }
+
+        @Test
+        void shouldThrowWhenReservationConflictExists() {
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            LocalDateTime conflictStart = LocalDateTime.now().plusMinutes(5);
+            when(reservationClient.checkConflict("MACH-01", request.getCycleDuration(), null))
+                    .thenReturn(Optional.of(conflictStart));
+
+            assertThatThrownBy(() -> paymentService.initiatePayment(request))
+                    .isInstanceOf(PaymentException.class)
+                    .hasMessageContaining("reserved starting at");
+
+            verifyNoInteractions(campayService, mtnMomoService, orangeMoneyService);
+            verify(transactionRepository, never()).save(any());
+        }
+
+        @Test
+        void shouldProceedWhenNoReservationConflict() {
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(reservationClient.checkConflict("MACH-01", request.getCycleDuration(), null))
+                    .thenReturn(Optional.empty());
+            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
+                    .thenReturn(Collections.emptyList());
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            PaymentResponse providerResponse = PaymentResponse.builder()
+                    .success(true)
+                    .providerReference("CAMP-REF-001")
+                    .build();
+            when(campayService.requestPayment(anyString(), any(), anyString(), anyString()))
+                    .thenReturn(providerResponse);
+
+            PaymentResponse result = paymentService.initiatePayment(request);
+
+            assertThat(result.getProviderReference()).isEqualTo("CAMP-REF-001");
+        }
+
+        @Test
+        void shouldRejectAsPendingPaymentWhenSaveRacesConcurrentInsert() {
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
+                    .thenReturn(Collections.emptyList());
+            when(transactionRepository.save(any(Transaction.class)))
+                    .thenThrow(new org.springframework.dao.DataIntegrityViolationException(
+                            "duplicate key value violates unique constraint idx_transactions_machine_pending",
+                            new RuntimeException("duplicate key value violates unique constraint \"idx_transactions_machine_pending\"")));
+
+            assertThatThrownBy(() -> paymentService.initiatePayment(request))
+                    .isInstanceOf(PaymentException.class)
+                    .hasMessageContaining("pending payment");
+
+            verifyNoInteractions(campayService, mtnMomoService, orangeMoneyService);
+        }
+
+        @Test
+        void shouldRethrowUnrelatedDataIntegrityViolations() {
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
+                    .thenReturn(Collections.emptyList());
+            when(transactionRepository.save(any(Transaction.class)))
+                    .thenThrow(new org.springframework.dao.DataIntegrityViolationException(
+                            "value too long for type character varying(30)",
+                            new RuntimeException("value too long for type character varying(30)")));
+
+            assertThatThrownBy(() -> paymentService.initiatePayment(request))
+                    .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class)
+                    .isNotInstanceOf(PaymentException.class);
+
+            verifyNoInteractions(campayService, mtnMomoService, orangeMoneyService);
+        }
+
+        @Test
         void shouldUseMtnProviderWhenRequested() {
             request.setProvider(PaymentProvider.MTN);
-            when(transactionRepository.findByMachineIdAndStatus(anyString(), eq(PaymentStatus.SUCCESSFUL)))
-                    .thenReturn(Collections.emptyList());
+            when(machineAvailabilityClient.isAvailable(anyString())).thenReturn(true);
             when(transactionRepository.findByMachineIdAndStatus(anyString(), eq(PaymentStatus.PENDING)))
                     .thenReturn(Collections.emptyList());
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -153,8 +305,7 @@ class PaymentServiceTest {
         @Test
         void shouldUseOrangeProviderWhenRequested() {
             request.setProvider(PaymentProvider.ORANGE_MONEY);
-            when(transactionRepository.findByMachineIdAndStatus(anyString(), eq(PaymentStatus.SUCCESSFUL)))
-                    .thenReturn(Collections.emptyList());
+            when(machineAvailabilityClient.isAvailable(anyString())).thenReturn(true);
             when(transactionRepository.findByMachineIdAndStatus(anyString(), eq(PaymentStatus.PENDING)))
                     .thenReturn(Collections.emptyList());
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -186,7 +337,7 @@ class PaymentServiceTest {
                     .cycleDuration(30)
                     .status(PaymentStatus.PENDING)
                     .build();
-            when(transactionRepository.findByExternalReference("EXT-001"))
+            when(transactionRepository.findByExternalReferenceForUpdate("EXT-001"))
                     .thenReturn(Optional.of(transaction));
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
             when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -196,10 +347,76 @@ class PaymentServiceTest {
 
             assertThat(result.getStatus()).isEqualTo(PaymentStatus.SUCCESSFUL);
             assertThat(result.getProviderReference()).isEqualTo("PROV-001");
+            assertThat(result.getCycleStartedAt()).isNotNull();
             verify(outboxEventRepository).save(argThat(event ->
                     "PaymentSucceeded".equals(event.getEventType())
                     && "EXT-001".equals(event.getAggregateId())
                     && event.getPayload().contains("MACH-01")
+            ));
+        }
+
+        @Test
+        void shouldSkipMachineStartAndCycleStartedAtForReservationHold() {
+            Transaction transaction = Transaction.builder()
+                    .externalReference("EXT-HOLD-01")
+                    .machineId("washer_02")
+                    .pulseCount(1)
+                    .cycleDuration(60)
+                    .reservationHold(true)
+                    .status(PaymentStatus.PENDING)
+                    .build();
+            when(transactionRepository.findByExternalReferenceForUpdate("EXT-HOLD-01"))
+                    .thenReturn(Optional.of(transaction));
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            Transaction result = paymentService.processWebhook(
+                    PaymentProvider.CAMPAY, "EXT-HOLD-01", "SUCCESSFUL", "PROV-HOLD-01", null);
+
+            assertThat(result.getStatus()).isEqualTo(PaymentStatus.SUCCESSFUL);
+            assertThat(result.getCycleStartedAt()).isNull();
+            verify(outboxEventRepository, never()).save(any());
+        }
+
+        @Test
+        void shouldIncludeReservationCodeInOutboxPayloadWhenPresent() {
+            Transaction transaction = Transaction.builder()
+                    .externalReference("EXT-004")
+                    .machineId("MACH-01")
+                    .pulseCount(2)
+                    .cycleDuration(60)
+                    .reservationCode("RES-ABC123")
+                    .status(PaymentStatus.PENDING)
+                    .build();
+            when(transactionRepository.findByExternalReferenceForUpdate("EXT-004"))
+                    .thenReturn(Optional.of(transaction));
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            paymentService.processWebhook(PaymentProvider.CAMPAY, "EXT-004", "SUCCESSFUL", "PROV-004", null);
+
+            verify(outboxEventRepository).save(argThat(event ->
+                    event.getPayload().contains("RES-ABC123")
+            ));
+        }
+
+        @Test
+        void shouldOmitReservationCodeFromOutboxPayloadWhenAbsent() {
+            Transaction transaction = Transaction.builder()
+                    .externalReference("EXT-001")
+                    .machineId("MACH-01")
+                    .pulseCount(2)
+                    .cycleDuration(30)
+                    .status(PaymentStatus.PENDING)
+                    .build();
+            when(transactionRepository.findByExternalReferenceForUpdate("EXT-001"))
+                    .thenReturn(Optional.of(transaction));
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            paymentService.processWebhook(PaymentProvider.CAMPAY, "EXT-001", "SUCCESSFUL", "PROV-001", null);
+
+            verify(outboxEventRepository).save(argThat(event ->
+                    !event.getPayload().contains("reservationCode")
             ));
         }
 
@@ -209,7 +426,7 @@ class PaymentServiceTest {
                     .externalReference("EXT-001")
                     .status(PaymentStatus.PENDING)
                     .build();
-            when(transactionRepository.findByExternalReference("EXT-001"))
+            when(transactionRepository.findByExternalReferenceForUpdate("EXT-001"))
                     .thenReturn(Optional.of(transaction));
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -227,7 +444,7 @@ class PaymentServiceTest {
                     .externalReference("EXT-001")
                     .status(PaymentStatus.SUCCESSFUL)
                     .build();
-            when(transactionRepository.findByExternalReference("EXT-001"))
+            when(transactionRepository.findByExternalReferenceForUpdate("EXT-001"))
                     .thenReturn(Optional.of(transaction));
 
             Transaction result = paymentService.processWebhook(
@@ -240,13 +457,38 @@ class PaymentServiceTest {
 
         @Test
         void shouldThrowWhenTransactionNotFound() {
-            when(transactionRepository.findByExternalReference("INVALID"))
+            when(transactionRepository.findByExternalReferenceForUpdate("INVALID"))
                     .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> paymentService.processWebhook(
                     PaymentProvider.CAMPAY, "INVALID", "SUCCESSFUL", null, null))
                     .isInstanceOf(PaymentException.class)
                     .hasMessageContaining("Transaction not found");
+        }
+
+        @Test
+        void shouldUseLockedFetchNotPlainReadForWebhookProcessing() {
+            // given — payment providers retry webhook delivery on timeout, so two genuinely
+            // concurrent calls for the same externalReference are a real possibility. This
+            // asserts processWebhook goes through the row-locking repository method, not the
+            // plain findByExternalReference used by read-only lookups (getTransactionByReference),
+            // which would leave the status-check-then-write open to a race.
+            Transaction transaction = Transaction.builder()
+                    .externalReference("EXT-001")
+                    .machineId("MACH-01")
+                    .pulseCount(2)
+                    .cycleDuration(30)
+                    .status(PaymentStatus.PENDING)
+                    .build();
+            when(transactionRepository.findByExternalReferenceForUpdate("EXT-001"))
+                    .thenReturn(Optional.of(transaction));
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            paymentService.processWebhook(PaymentProvider.CAMPAY, "EXT-001", "SUCCESSFUL", "PROV-001", null);
+
+            verify(transactionRepository).findByExternalReferenceForUpdate("EXT-001");
+            verify(transactionRepository, never()).findByExternalReference(anyString());
         }
     }
 
@@ -288,6 +530,67 @@ class PaymentServiceTest {
         List<Transaction> result = paymentService.getTransactionsByCard("ABC123");
 
         assertThat(result).hasSize(1);
+    }
+
+    @Test
+    void shouldGetMultipleActiveCyclesByPhone() {
+        Transaction washer = Transaction.builder()
+                .machineId("washer_01").phoneNumber("237612345678")
+                .status(PaymentStatus.SUCCESSFUL)
+                .cycleDuration(60).cycleStartedAt(LocalDateTime.now().minusMinutes(10))
+                .build();
+        Transaction dryer = Transaction.builder()
+                .machineId("dryer_02").phoneNumber("237612345678")
+                .status(PaymentStatus.SUCCESSFUL)
+                .cycleDuration(30).cycleStartedAt(LocalDateTime.now().minusMinutes(5))
+                .build();
+        when(transactionRepository.findByPhoneNumberAndStatusOrderByCreatedAtDesc("237612345678", PaymentStatus.SUCCESSFUL))
+                .thenReturn(List.of(washer, dryer));
+
+        List<Transaction> result = paymentService.getActiveCyclesByPhone("237612345678");
+
+        assertThat(result).hasSize(2).extracting(Transaction::getMachineId)
+                .containsExactly("washer_01", "dryer_02");
+    }
+
+    @Test
+    void shouldExcludeFinishedCyclesFromActiveCyclesByPhone() {
+        Transaction finished = Transaction.builder()
+                .machineId("washer_01").phoneNumber("237612345678")
+                .status(PaymentStatus.SUCCESSFUL)
+                .cycleDuration(30).cycleStartedAt(LocalDateTime.now().minusMinutes(45))
+                .build();
+        Transaction stillRunning = Transaction.builder()
+                .machineId("dryer_02").phoneNumber("237612345678")
+                .status(PaymentStatus.SUCCESSFUL)
+                .cycleDuration(60).cycleStartedAt(LocalDateTime.now().minusMinutes(5))
+                .build();
+        when(transactionRepository.findByPhoneNumberAndStatusOrderByCreatedAtDesc("237612345678", PaymentStatus.SUCCESSFUL))
+                .thenReturn(List.of(finished, stillRunning));
+
+        List<Transaction> result = paymentService.getActiveCyclesByPhone("237612345678");
+
+        assertThat(result).extracting(Transaction::getMachineId).containsExactly("dryer_02");
+    }
+
+    @Test
+    void shouldExcludeReservationHoldFeeFromActiveCyclesByPhone() {
+        // A reservation-fee payment's createdAt is "now" and its cycleDuration is the
+        // reserved slot's length — without the cycleStartedAt gate this would look
+        // identical to a real, currently-running cycle even though nothing has started.
+        Transaction reservationHold = Transaction.builder()
+                .machineId("washer_02").phoneNumber("237612345678")
+                .status(PaymentStatus.SUCCESSFUL)
+                .cycleDuration(60).createdAt(LocalDateTime.now())
+                .reservationHold(true)
+                .cycleStartedAt(null)
+                .build();
+        when(transactionRepository.findByPhoneNumberAndStatusOrderByCreatedAtDesc("237612345678", PaymentStatus.SUCCESSFUL))
+                .thenReturn(List.of(reservationHold));
+
+        List<Transaction> result = paymentService.getActiveCyclesByPhone("237612345678");
+
+        assertThat(result).isEmpty();
     }
 
     @Test

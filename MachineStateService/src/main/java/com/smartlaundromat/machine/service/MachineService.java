@@ -21,6 +21,8 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -56,6 +58,11 @@ public class MachineService {
     private final MachineCommandDispatcher commandDispatcher;
 
     private final MeterRegistry meterRegistry;
+
+    /** Gates the stale-simulator-heartbeat guard in {@link #processTelemetry}: real hardware
+     *  telemetry (simulator disabled) must never have a status transition suppressed. */
+    @Value("${simulator.enabled:false}")
+    private boolean simulatorEnabled;
 
     @PostConstruct
     public void init() {
@@ -113,6 +120,29 @@ public class MachineService {
             return;
         }
 
+        // Guards a race, possible only when the simulator is active, where a generic idle-heartbeat
+        // snapshot was built by the batched heartbeat before a concurrent startCycle() committed
+        // RUNNING for this machine. Gated behind simulatorEnabled so real hardware telemetry (no
+        // simulator running, so this race can't occur) is never affected - a real device reporting
+        // bare IDLE while the DB says RUNNING must still be applied. Scoped narrowly to that exact
+        // bare-IDLE shape (no cycleType/cycleProgress/errorCode/errorMessage), which is the only
+        // shape the simulator's idle heartbeat ever produces. When this fires, the ENTIRE payload
+        // is discarded except isOnline/lastHeartbeat - including its temperature/doorLocked/etc.
+        // fields, which are just simulated sensor jitter, not authoritative signal worth persisting
+        // over a live-RUNNING machine's real state.
+        if (simulatorEnabled
+                && machine.getStatus() == MachineStatus.RUNNING
+                && "IDLE".equalsIgnoreCase(telemetry.getStatus())
+                && telemetry.getCycleType() == null
+                && telemetry.getCycleProgress() == null
+                && telemetry.getErrorCode() == null
+                && telemetry.getErrorMessage() == null) {
+            machine.setIsOnline(true);
+            machine.setLastHeartbeat(LocalDateTime.now());
+            machineRepository.save(machine);
+            return;
+        }
+
         String previousStatus = machine.getStatus().name();
 
         if (telemetry.getStatus() != null) {
@@ -166,8 +196,29 @@ public class MachineService {
             }
         }
 
-        Machine machine = machineRepository.findByMachineId(request.getMachineId())
+        // Locked fetch: holds the row for the rest of this transaction so the
+        // active-cycle check below and the cycle/machine save are atomic against
+        // a second concurrent startCycle call for the same machine.
+        Machine machine = machineRepository.findByMachineIdForUpdate(request.getMachineId())
                 .orElseThrow(() -> new MachineNotFoundException("Machine not found: " + request.getMachineId()));
+
+        // Re-check idempotency now that the machine row is locked: the check above ran
+        // before the lock, so two truly concurrent duplicate deliveries of the same
+        // transactionReference could both pass it. The first to acquire the lock wins and
+        // commits a cycle; the second, on unblocking, would otherwise see that cycle via
+        // the "already has an active cycle" check below and be rejected instead of getting
+        // the idempotent response this transactionReference is entitled to.
+        if (StringUtils.hasText(request.getTransactionReference())) {
+            Optional<MachineCycle> existingAfterLock =
+                    machineCycleRepository.findByTransactionReference(request.getTransactionReference());
+            if (existingAfterLock.isPresent()) {
+                log.info("Idempotent start (post-lock) — returning existing cycle for tx={}",
+                        request.getTransactionReference());
+                meterRegistry.counter("machine.cycle.idempotent.total",
+                        "machine_id", request.getMachineId()).increment();
+                return existingAfterLock.get();
+            }
+        }
 
         if (!machine.isAvailable()) {
             throw new MachineNotAvailableException(
@@ -180,11 +231,16 @@ public class MachineService {
                             "Machine " + request.getMachineId() + " already has an active cycle");
                 });
 
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime endsAt = now.plusMinutes(request.getDurationMinutes());
+
         // ── Reservation gating ────────────────────────────────────────────────
         // If the feature is on and this machine is currently held by an active reservation,
         // the start request MUST carry the matching reservation code (checked by code + machine,
         // not by user). A valid code is consumed (marked USED) here.
-        reservationService.activeReservationCovering(request.getMachineId()).ifPresent(reserved -> {
+        String consumedReservationCode = null;
+        Optional<Reservation> coveringNow = reservationService.activeReservationCovering(request.getMachineId());
+        if (coveringNow.isPresent()) {
             if (!StringUtils.hasText(request.getReservationCode())) {
                 throw new MachineNotAvailableException(
                         "Machine " + request.getMachineId()
@@ -192,12 +248,23 @@ public class MachineService {
             }
             Reservation consumed = reservationService.validateAndConsume(
                     request.getReservationCode().trim(), request.getMachineId());
+            consumedReservationCode = consumed.getReservationCode();
             log.info("Reservation {} redeemed to start machine {}",
-                    consumed.getReservationCode(), request.getMachineId());
-        });
+                    consumedReservationCode, request.getMachineId());
+        }
 
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime endsAt = now.plusMinutes(request.getDurationMinutes());
+        // Duration-aware lookahead: even if nothing covers "now", the requested cycle might run
+        // into a reservation starting soon (e.g. a 60-min walk-in wash at 9:55 for a 10:00
+        // reservation). Excluding the code just consumed above means a customer running late into
+        // their OWN redeemed slot is still correctly blocked if their cycle would bleed into the
+        // NEXT customer's reservation.
+        reservationService.findConflicting(request.getMachineId(), now, endsAt, consumedReservationCode)
+                .ifPresent(conflict -> {
+                    throw new MachineNotAvailableException(
+                            "Machine " + request.getMachineId() + " is reserved starting at " + conflict.getSlotStart()
+                                    + " — the requested " + request.getDurationMinutes()
+                                    + "-minute cycle would run into that reservation");
+                });
 
         CycleType cycleType;
         try {
@@ -218,7 +285,34 @@ public class MachineService {
                 .transactionReference(request.getTransactionReference())
                 .pulseCount(request.getPulseCount())
                 .build();
-        machineCycleRepository.save(cycle);
+        try {
+            machineCycleRepository.save(cycle);
+        } catch (DataIntegrityViolationException exception) {
+            String cause = String.valueOf(exception.getMostSpecificCause().getMessage());
+            // Backstop for the locked-fetch guard above, in case some future caller
+            // bypasses it: the partial unique index on machine_cycles(machine_id)
+            // WHERE status='IN_PROGRESS' is the last line of defense.
+            if (cause.contains("idx_machine_cycles_machine_in_progress")) {
+                throw new MachineNotAvailableException(
+                        "Machine " + request.getMachineId() + " already has an active cycle");
+            }
+            // Backstop for the post-lock idempotency re-check above: only reachable when
+            // two racing calls for the same transactionReference target DIFFERENT
+            // machines (so neither shares the other's row lock) and both still slip
+            // past their own pre/post-lock checks. We deliberately do NOT try to read
+            // back the winning row here: Postgres poisons the whole transaction after
+            // any failed statement until it's rolled back, so a same-transaction SELECT
+            // at this point would itself fail ("current transaction is aborted"), not
+            // return the winner. Throw instead — the caller's own retry (e.g.
+            // OutboxRelayService's exponential backoff) re-invokes startCycle in a
+            // fresh transaction, where the pre-lock idempotency check above already
+            // correctly returns the existing cycle.
+            if (cause.contains("idx_machine_cycles_tx_ref")) {
+                throw new MachineNotAvailableException(
+                        "Duplicate start request for transaction " + request.getTransactionReference());
+            }
+            throw exception;
+        }
         meterRegistry.counter("machine.cycle.started.total",
                 "machine_id", request.getMachineId(),
                 "cycle_type", cycleType.name()).increment();

@@ -18,7 +18,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -60,8 +59,8 @@ class SimulatorHeartbeatServiceTest {
 
         @Test
         void shouldSendIdleTelemetryForOfflineMachines() {
-            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(washer));
-            when(machineRepository.findByMachineId("dryer_01")).thenReturn(Optional.of(dryer));
+            when(machineRepository.findByMachineIdInAndStatusNot(List.of("washer_01", "dryer_01"), MachineStatus.RUNNING))
+                    .thenReturn(List.of(washer, dryer));
 
             service.sendHeartbeats();
 
@@ -70,8 +69,8 @@ class SimulatorHeartbeatServiceTest {
 
         @Test
         void shouldSendIdleStatusInPayload() {
-            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(washer));
-            when(machineRepository.findByMachineId("dryer_01")).thenReturn(Optional.of(dryer));
+            when(machineRepository.findByMachineIdInAndStatusNot(List.of("washer_01", "dryer_01"), MachineStatus.RUNNING))
+                    .thenReturn(List.of(washer, dryer));
 
             service.sendHeartbeats();
 
@@ -83,8 +82,10 @@ class SimulatorHeartbeatServiceTest {
         @Test
         void shouldSkipRunningMachines() {
             washer.setStatus(MachineStatus.RUNNING);
-            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(washer));
-            when(machineRepository.findByMachineId("dryer_01")).thenReturn(Optional.of(dryer));
+            // The repository query itself excludes RUNNING machines, so a RUNNING washer
+            // would never be part of the returned list in the first place.
+            when(machineRepository.findByMachineIdInAndStatusNot(List.of("washer_01", "dryer_01"), MachineStatus.RUNNING))
+                    .thenReturn(List.of(dryer));
 
             service.sendHeartbeats();
 
@@ -95,8 +96,8 @@ class SimulatorHeartbeatServiceTest {
         @Test
         void shouldPreserveFinishedStatusInPayload() {
             washer.setStatus(MachineStatus.FINISHED);
-            when(machineRepository.findByMachineId("washer_01")).thenReturn(Optional.of(washer));
-            when(machineRepository.findByMachineId("dryer_01")).thenReturn(Optional.of(dryer));
+            when(machineRepository.findByMachineIdInAndStatusNot(List.of("washer_01", "dryer_01"), MachineStatus.RUNNING))
+                    .thenReturn(List.of(washer, dryer));
 
             service.sendHeartbeats();
 
@@ -117,7 +118,8 @@ class SimulatorHeartbeatServiceTest {
             washer.setStatus(MachineStatus.RUNNING);
             washer.setCycleStartedAt(LocalDateTime.now().minusMinutes(15));
             washer.setCycleEndsAt(LocalDateTime.now().plusMinutes(15));
-            when(machineRepository.findByStatus(MachineStatus.RUNNING)).thenReturn(List.of(washer));
+            when(machineRepository.findByMachineIdInAndStatus(List.of("washer_01", "dryer_01"), MachineStatus.RUNNING))
+                    .thenReturn(List.of(washer));
 
             service.updateRunningMachines();
 
@@ -132,7 +134,8 @@ class SimulatorHeartbeatServiceTest {
 
         @Test
         void shouldSkipWhenNoRunningMachines() {
-            when(machineRepository.findByStatus(MachineStatus.RUNNING)).thenReturn(List.of());
+            when(machineRepository.findByMachineIdInAndStatus(List.of("washer_01", "dryer_01"), MachineStatus.RUNNING))
+                    .thenReturn(List.of());
 
             service.updateRunningMachines();
 

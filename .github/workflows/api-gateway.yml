@@ -36,64 +36,7 @@ jobs:
       - name: Build and run unit tests
         run: mvn -B verify -DskipITs=true
 
-  # ── 2. Deploy to Railway (dev) ───────────────────────────────────────────────
-  deploy-dev:
-    name: Deploy → Railway (dev)
-    needs: test
-    runs-on: ubuntu-latest
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop')
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Sync Doppler secrets → Railway
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
-          SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID_GATEWAY }}
-        run: |
-          curl -Ls https://cli.doppler.com/install.sh | sudo sh
-          VARS=()
-          while IFS= read -r pair; do
-            VARS+=("$pair")
-          done < <(doppler secrets download \
-            --no-file --format json \
-            --project api-gateway \
-            --config dev \
-            --token "$DOPPLER_TOKEN" \
-            | jq -r 'to_entries[] | "\(.key)=\(.value)"')
-          echo "Syncing ${#VARS[@]} variables to Railway service $SERVICE_ID..."
-          [ ${#VARS[@]} -eq 0 ] && echo "No Doppler variables to sync, skipping." && exit 0
-          railway variables set --service "$SERVICE_ID" "${VARS[@]}"
-          echo "Sync complete."
-
-      - name: Deploy to Railway and verify health
-        working-directory: .
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID_GATEWAY }}
-        run: |
-          echo "Deploying to Railway..."
-          railway up --service "$SERVICE_ID"
-
-          echo "Waiting 90s for container startup..."
-          sleep 90
-
-          echo "Fetching deployment logs..."
-          LOGS=$(railway logs --service "$SERVICE_ID" --tail 100 2>&1 \
-                 || railway logs --tail 100 2>&1 \
-                 || echo "")
-          echo "--- Last 40 log lines ---"
-          echo "$LOGS" | tail -40
-          echo "-------------------------"
-
-          if echo "$LOGS" | grep -qE "Started .+ in [0-9]"; then
-            echo "✓ Spring Boot started successfully"; exit 0
-          fi
-          if echo "$LOGS" | grep -qE "APPLICATION FAILED TO START|Exception encountered during context initialization|BeanCreationException"; then
-            echo "✗ Application startup failed — check logs above"; exit 1
-          fi
-          echo "✗ Could not determine startup status from logs"; exit 1
+  # Deployment to Railway (dev) is handled by Railway's native GitHub integration
+  # (auto-deploys on push to master/develop). A previous custom "railway up" CLI
+  # deploy step here was redundant with that integration — removed rather than
+  # fixed, since the native integration already deploys reliably.

@@ -20,6 +20,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.time.Instant;
 import java.util.*;
@@ -124,6 +125,11 @@ public class MachineService {
     }
 
     public void startMachine(String botId, String machineId, String program, String transactionId) {
+        startMachine(botId, machineId, program, transactionId, null);
+    }
+
+    public void startMachine(String botId, String machineId, String program, String transactionId,
+                              String reservationCode) {
         try {
             Map<String, Object> body = new HashMap<>();
             body.put("machineId", machineId);
@@ -131,6 +137,9 @@ public class MachineService {
             body.put("durationMinutes", resolveDuration(botId, program));
             body.put("pulseCount", resolvePulseCount(botId, program));
             body.put("transactionReference", transactionId);
+            if (reservationCode != null) {
+                body.put("reservationCode", reservationCode);
+            }
 
             callMachineService(() -> webClient.post()
                     .uri(machineStateServiceUrl + "/api/machines/start-cycle")
@@ -175,7 +184,11 @@ public class MachineService {
      * Creates a reservation via MachineStateService and returns the response containing
      * the reservation code and details.
      *
-     * @return the reservation response map, or null if the call failed
+     * @return the reservation response map, or null if the slot is genuinely already taken
+     *         (MachineStateService returns 409 Conflict for this)
+     * @throws MachineServiceUnavailableException on any other failure (auth, 5xx, timeout,
+     *         connection refused, ...) — these are not slot conflicts and must not be reported
+     *         to the customer as "someone else took your slot"
      */
     public Map<String, Object> createReservation(String machineId, String customerPhone,
                                                   String slotStart) {
@@ -195,11 +208,23 @@ public class MachineService {
                     .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                     .block());
 
+            if (response == null) {
+                // An empty 2xx body is not a genuine conflict — never conflate it with one.
+                throw new MachineServiceUnavailableException(
+                        "MachineStateService returned empty response for reservation on machine " + machineId);
+            }
+
             log.info("Reservation created successfully: {}", response);
             return response;
-        } catch (Exception exception) {
-            log.error("Failed to create reservation for machine {}: {}", machineId, exception.getMessage());
+        } catch (MachineServiceUnavailableException e) {
+            throw e;
+        } catch (WebClientResponseException.Conflict conflict) {
+            log.info("Reservation slot conflict for machine {}: {}", machineId, conflict.getMessage());
             return null;
+        } catch (Exception exception) {
+            log.warn("Failed to create reservation for machine {}: {}", machineId, exception.getMessage());
+            throw new MachineServiceUnavailableException(
+                    "Failed to create reservation for machine " + machineId, exception);
         }
     }
 
@@ -231,6 +256,114 @@ public class MachineService {
         }
     }
 
+    /**
+     * Cancels a not-yet-activated reservation via MachineStateService, releasing the
+     * hold on the slot (e.g. when the reservation-fee payment fails or is never
+     * initiated). Safe to call even if the reservation was never created.
+     *
+     * @return the cancellation response map, or null if the call failed
+     */
+    public Map<String, Object> cancelReservation(String transactionReference) {
+        try {
+            Map<String, Object> body = new HashMap<>();
+            body.put("transactionReference", transactionReference);
+
+            log.info("Cancelling reservation via MachineStateService: transactionReference={}", transactionReference);
+
+            Map<String, Object> response = callMachineService(() -> webClient.post()
+                    .uri(machineStateServiceUrl + "/api/reservations/cancel")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                    .block());
+
+            log.info("Reservation cancelled successfully: {}", response);
+            return response;
+        } catch (Exception exception) {
+            log.error("Failed to cancel reservation with ref {}: {}", transactionReference, exception.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Looks up a reservation by its redemption code. This is the only endpoint that maps
+     * code → machine without already knowing the machine, so it's the first call in the
+     * bot's "I have a reservation code" redemption flow.
+     *
+     * @return the reservation response map (including {@code machineId}/{@code machineName}/
+     *         {@code slotEnd}), or empty if the code doesn't exist / the service is unreachable.
+     */
+    public Optional<Map<String, Object>> getReservationByCode(String code) {
+        try {
+            // URI template variable (not string concatenation) so WebClient percent-encodes the
+            // code — this method is public and must not assume callers have already sanitized it.
+            Map<String, Object> response = callMachineServiceRead(() -> webClient.get()
+                    .uri(machineStateServiceUrl + "/api/reservations/{code}", code)
+                    .retrieve()
+                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                    .block());
+
+            return Optional.ofNullable(response);
+        } catch (Exception exception) {
+            log.warn("Failed to fetch reservation by code {}: {}", code, exception.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Authoritative code + machine validity check (valid/reason), used both to confirm a
+     * redemption before showing cycle selection and to pre-check before charging.
+     *
+     * @return the validation response map ({@code valid}, {@code reason}), or empty if the
+     *         service is unreachable.
+     */
+    public Optional<Map<String, Object>> validateReservation(String reservationCode, String machineId) {
+        try {
+            Map<String, Object> body = new HashMap<>();
+            body.put("reservationCode", reservationCode);
+            body.put("machineId", machineId);
+
+            Map<String, Object> response = callMachineServiceRead(() -> webClient.post()
+                    .uri(machineStateServiceUrl + "/api/reservations/validate")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                    .block());
+
+            return Optional.ofNullable(response);
+        } catch (Exception exception) {
+            log.warn("Failed to validate reservation code {} for machine {}: {}",
+                    reservationCode, machineId, exception.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * A customer's currently-held reservations (paid-and-confirmed or awaiting fee
+     * payment), soonest slot first — used by the status check so a held reservation
+     * is never mistaken for a machine actually running right now.
+     *
+     * @return the held reservations, or an empty list if the service is unreachable
+     */
+    @SuppressWarnings("unchecked")
+    public List<Map<String, Object>> getHeldReservations(String customerPhone) {
+        try {
+            List<Map<String, Object>> response = callMachineServiceRead(() -> webClient.get()
+                    .uri(machineStateServiceUrl + "/api/reservations/customer/{phone}", customerPhone)
+                    .retrieve()
+                    .bodyToMono(new ParameterizedTypeReference<List<Map<String, Object>>>() {})
+                    .block());
+
+            return response != null ? response : List.of();
+        } catch (Exception exception) {
+            log.warn("Failed to fetch held reservations for customerPhone={}: {}",
+                    customerPhone, exception.getMessage());
+            return List.of();
+        }
+    }
+
     @EventListener
     public void onPaymentCompleted(PaymentEventPublisher.PaymentCompletedEvent event) {
         PaymentRecord record = event.getRecord();
@@ -244,10 +377,12 @@ public class MachineService {
         }
         String machineId = (String) record.getMetadata().get("machineId");
         String program = (String) record.getMetadata().get("program");
+        String reservationCode = (String) record.getMetadata().get("reservationCode");
         if (machineId != null) {
             startMachine(record.getBotId(), machineId,
                     program != null ? program : "NORMAL",
-                    record.getTransactionId());
+                    record.getTransactionId(),
+                    reservationCode);
         }
     }
 

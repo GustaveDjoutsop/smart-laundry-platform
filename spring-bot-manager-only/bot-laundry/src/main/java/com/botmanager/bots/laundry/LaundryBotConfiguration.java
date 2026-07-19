@@ -37,7 +37,8 @@ public class LaundryBotConfiguration {
                                  LaundryBotProperties laundryBotProperties,
                                  RestTemplate restTemplate,
                                  @Value("${microservice.payment-service-url:http://localhost:8081}") String pmsBaseUrl,
-                                 Environment environment) {
+                                 Environment environment,
+                                 FeedbackService feedbackService) {
 
         LaundryBotConfig config = BotConfigLoader.load(
                 botProperties.getConfigDirectory(), "laundry.bot.json",
@@ -64,12 +65,14 @@ public class LaundryBotConfiguration {
                 restTemplate,
                 pmsBaseUrl,
                 config.getShortCycle().getPrice(),
-                config.getLongCycle().getPrice());
+                config.getLongCycle().getPrice(),
+                config.getReservation().getPrice());
 
         TransactionClient transactionClient = new TransactionClient(restTemplate, pmsBaseUrl);
 
         return new LaundryBot(config, flowEngine, redisManager, whatsAppClientFactory,
-                objectMapper, paymentGateway, machineService, translationService, pricingClient, transactionClient);
+                objectMapper, paymentGateway, machineService, translationService, pricingClient, transactionClient,
+                feedbackService);
     }
 
     public static void applyYamlOverrides(LaundryBotConfig config, LaundryBotProperties props) {

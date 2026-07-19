@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -106,6 +107,7 @@ public class RfidCardService {
                 .status(PaymentStatus.SUCCESSFUL)
                 .paymentProvider(PaymentProvider.CAMPAY)
                 .rfidCardUid(cardUid)
+                .cycleStartedAt(LocalDateTime.now())
                 .build();
         transactionRepository.save(transaction);
 
