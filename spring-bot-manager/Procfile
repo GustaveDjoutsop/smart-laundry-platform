@@ -1,1 +1,0 @@
-web: java -Xmx384m -Xms256m -XX:+UseG1GC -Dserver.port=$PORT -jar bot-app/target/bot-app-0.1.0-SNAPSHOT.jar
