@@ -1,4 +1,5 @@
 const { renderTemplate } = require('./templateRenderer');
+const { logger } = require('../../utils/logger');
 
 function normalizeInbound(message) {
   const text = message?.text?.body;
@@ -58,6 +59,23 @@ function validateFlowConfig(botConfig) {
     for (const state of flow.states) {
       if (state.type === 'image' && (typeof state.link !== 'string' || !state.link.trim())) {
         throw new Error(`flow ${flowId} state ${state.id}: image state requires a non-empty link`);
+      }
+
+      if (state.type === 'cards') {
+        if (!Array.isArray(state.items) || state.items.length === 0) {
+          throw new Error(`flow ${flowId} state ${state.id}: cards state requires a non-empty items[]`);
+        }
+        for (const item of state.items) {
+          if (!item || typeof item.image !== 'string' || !item.image.trim()) {
+            throw new Error(`flow ${flowId} state ${state.id}: every card item requires a non-empty image`);
+          }
+          if (!item.buttonId || typeof item.buttonId !== 'string') {
+            throw new Error(`flow ${flowId} state ${state.id}: every card item requires a buttonId`);
+          }
+          if (typeof item.caption !== 'string' || !item.caption.trim()) {
+            throw new Error(`flow ${flowId} state ${state.id}: every card item requires a non-empty caption`);
+          }
+        }
       }
 
       if (state.type !== 'action' || state.action !== 'route') continue;
@@ -339,6 +357,91 @@ class FlowEngine {
           };
           outboundIntents.push(outboundIntent);
           if (typeof send === 'function') await send(outboundIntent);
+
+          if (this.plugin && this.plugin.afterState) {
+            await this.plugin.afterState(flowContext);
+          }
+          break;
+        }
+
+        hasConsumedInboundText = true;
+        if (stateDefinition.saveAs) {
+          conversationState.context = conversationState.context || {};
+          conversationState.context[stateDefinition.saveAs] = inboundMessage.text;
+        }
+
+        if (stateDefinition.next) {
+          if (this.plugin && this.plugin.beforeTransition) {
+            await this.plugin.beforeTransition(flowContext, { to: stateDefinition.next });
+          }
+          conversationState.currentStateId = stateDefinition.next;
+        }
+
+        if (this.plugin && this.plugin.afterState) {
+          await this.plugin.afterState(flowContext);
+        }
+
+        continue;
+      }
+
+      if (stateDefinition.type === 'cards') {
+        // Fans a visual "pick one" prompt out across several WhatsApp
+        // messages (one image+button per item, since list message headers
+        // are text-only and can't carry per-row photos), then gates on the
+        // reply exactly like 'list' does.
+        if (inboundMessage.type !== 'text' || hasConsumedInboundText) {
+          const templateContext = {
+            ...flowContext.context,
+            user: { phone: from },
+            bot: { name: this.botConfig.botName }
+          };
+
+          // A single 'cards' render fans out into several independent WhatsApp
+          // sends. Unlike every other state type (one message, one send), a
+          // failure partway through must not throw out of step() uncaught -
+          // that would skip the Redis persist in ConfigBot.handleMessage and
+          // strand the conversation on its *previous* state while the user
+          // may already have received some of these cards. So each send is
+          // isolated: log and keep going, so the rest of the cards and the
+          // footer (with its way back to the menu) still reach the user.
+          const trySend = async (intent) => {
+            outboundIntents.push(intent);
+            if (typeof send !== 'function') return;
+            try {
+              await send(intent);
+            } catch (err) {
+              logger.warn('cards state: failed to send one message, continuing with the rest', {
+                stateId: stateDefinition.id,
+                intentType: intent.type,
+                error: err && err.message ? err.message : String(err)
+              });
+            }
+          };
+
+          if (stateDefinition.intro) {
+            await trySend({ type: 'text', to: from, body: renderTemplate(stateDefinition.intro, templateContext) });
+          }
+
+          const items = Array.isArray(stateDefinition.items) ? stateDefinition.items : [];
+          for (const item of items) {
+            // eslint-disable-next-line no-await-in-loop
+            await trySend({
+              type: 'buttons',
+              to: from,
+              body: renderTemplate(item.caption || '', templateContext),
+              buttons: [{ id: item.buttonId, title: item.buttonTitle || 'View' }],
+              image: item.image
+            });
+          }
+
+          if (Array.isArray(stateDefinition.footerButtons) && stateDefinition.footerButtons.length) {
+            await trySend({
+              type: 'buttons',
+              to: from,
+              body: stateDefinition.footerText ? renderTemplate(stateDefinition.footerText, templateContext) : 'More options:',
+              buttons: stateDefinition.footerButtons
+            });
+          }
 
           if (this.plugin && this.plugin.afterState) {
             await this.plugin.afterState(flowContext);

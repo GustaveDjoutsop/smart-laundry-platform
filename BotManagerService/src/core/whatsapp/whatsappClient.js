@@ -74,7 +74,7 @@ class WhatsAppCloudClient {
     return this._postWithRetry(url, payload);
   }
 
-  async sendButtons({ to, body, buttons } = {}) {
+  async sendButtons({ to, body, buttons, image } = {}) {
     if (!this.isConfigured()) {
       throw new Error('WhatsApp client not configured (missing accessToken/phoneNumberId)');
     }
@@ -87,6 +87,7 @@ class WhatsAppCloudClient {
 
     const safeButtons = Array.isArray(buttons) ? buttons : [];
     const limitedButtons = safeButtons.slice(0, 3);
+    const imageLink = String(image || '').trim();
 
     const payload = {
       messaging_product: 'whatsapp',
@@ -94,6 +95,7 @@ class WhatsAppCloudClient {
       type: 'interactive',
       interactive: {
         type: 'button',
+        ...(imageLink ? { header: { type: 'image', image: { link: imageLink } } } : {}),
         body: {
           text: String(body || '')
         },

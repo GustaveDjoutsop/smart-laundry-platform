@@ -444,72 +444,60 @@
 
         {
           "id": "west_recipes",
-          "type": "list",
-          "template": "🌴 *West African Recipes*\n\nPick a dish to get the full recipe with photo:",
-          "buttonText": "Choose Recipe",
-          "sections": [
-            {
-              "title": "West Africa",
-              "rows": [
-                { "id": "recipe_jollof_rice", "title": "Jollof Rice", "description": "45 min · 380 kcal · Easy" },
-                { "id": "recipe_egusi_soup", "title": "Egusi Soup", "description": "50 min · 510 kcal · Medium" },
-                { "id": "recipe_suya_skewers", "title": "Suya Skewers", "description": "30 min · 340 kcal · Easy" },
-                { "id": "back_regions", "title": "⬅️ Regions", "description": "Back to region list" }
-              ]
-            }
+          "type": "cards",
+          "intro": "🌴 *West African Recipes*\n\nOur favorite West African dishes — tap \"Get this recipe\" on the one that looks good:",
+          "items": [
+            { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Jollof_rice_with_vegetable.jpg/960px-Jollof_rice_with_vegetable.jpg", "caption": "*Jollof Rice*\n45 min · 380 kcal · Easy", "buttonId": "recipe_jollof_rice", "buttonTitle": "➡️ Get this recipe" },
+            { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/89/Egusi_soup_in_a_plate.jpg/960px-Egusi_soup_in_a_plate.jpg", "caption": "*Egusi Soup*\n50 min · 510 kcal · Medium", "buttonId": "recipe_egusi_soup", "buttonTitle": "➡️ Get this recipe" },
+            { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b4/Suya_with_pepper_sauce.jpg/960px-Suya_with_pepper_sauce.jpg", "caption": "*Suya Skewers*\n30 min · 340 kcal · Easy", "buttonId": "recipe_suya_skewers", "buttonTitle": "➡️ Get this recipe" }
+          ],
+          "footerButtons": [
+            { "id": "back_regions", "title": "⬅️ Regions" },
+            { "id": "menu", "title": "🏠 Main menu" }
           ],
           "saveAs": "recipeChoice",
           "next": "recipe_route"
         },
         {
           "id": "east_recipes",
-          "type": "list",
-          "template": "☕ *East African Recipes*\n\nPick a dish to get the full recipe with photo:",
-          "buttonText": "Choose Recipe",
-          "sections": [
-            {
-              "title": "East Africa",
-              "rows": [
-                { "id": "recipe_injera_tibs", "title": "Injera with Tibs", "description": "60 min · 450 kcal · Medium" },
-                { "id": "recipe_ugali_sukuma", "title": "Ugali & Sukuma Wiki", "description": "20 min · 290 kcal · Easy" },
-                { "id": "back_regions", "title": "⬅️ Regions", "description": "Back to region list" }
-              ]
-            }
+          "type": "cards",
+          "intro": "☕ *East African Recipes*\n\nOur favorite East African dishes — tap \"Get this recipe\" on the one that looks good:",
+          "items": [
+            { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/20/Tibs_and_Injera.jpg/960px-Tibs_and_Injera.jpg", "caption": "*Injera with Tibs*\n60 min · 450 kcal · Medium", "buttonId": "recipe_injera_tibs", "buttonTitle": "➡️ Get this recipe" },
+            { "image": "https://upload.wikimedia.org/wikipedia/commons/4/48/Ugali_%26_Sukuma_Wiki.jpg", "caption": "*Ugali & Sukuma Wiki*\n20 min · 290 kcal · Easy", "buttonId": "recipe_ugali_sukuma", "buttonTitle": "➡️ Get this recipe" }
+          ],
+          "footerButtons": [
+            { "id": "back_regions", "title": "⬅️ Regions" },
+            { "id": "menu", "title": "🏠 Main menu" }
           ],
           "saveAs": "recipeChoice",
           "next": "recipe_route"
         },
         {
           "id": "north_recipes",
-          "type": "list",
-          "template": "🏜 *North African Recipes*\n\nPick a dish to get the full recipe with photo:",
-          "buttonText": "Choose Recipe",
-          "sections": [
-            {
-              "title": "North Africa",
-              "rows": [
-                { "id": "recipe_tagine_chicken", "title": "Chicken Tagine", "description": "90 min · 420 kcal · Medium" },
-                { "id": "recipe_shakshuka", "title": "Shakshuka", "description": "25 min · 310 kcal · Easy" },
-                { "id": "back_regions", "title": "⬅️ Regions", "description": "Back to region list" }
-              ]
-            }
+          "type": "cards",
+          "intro": "🏜 *North African Recipes*\n\nOur favorite North African dishes — tap \"Get this recipe\" on the one that looks good:",
+          "items": [
+            { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Chicken_Veg_Tagine_Rabat_Nov25_A7CR_08908.jpg/960px-Chicken_Veg_Tagine_Rabat_Nov25_A7CR_08908.jpg", "caption": "*Chicken Tagine*\n90 min · 420 kcal · Medium", "buttonId": "recipe_tagine_chicken", "buttonTitle": "➡️ Get this recipe" },
+            { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/Shakshuka_by_Calliopejen1.jpg/960px-Shakshuka_by_Calliopejen1.jpg", "caption": "*Shakshuka*\n25 min · 310 kcal · Easy", "buttonId": "recipe_shakshuka", "buttonTitle": "➡️ Get this recipe" }
+          ],
+          "footerButtons": [
+            { "id": "back_regions", "title": "⬅️ Regions" },
+            { "id": "menu", "title": "🏠 Main menu" }
           ],
           "saveAs": "recipeChoice",
           "next": "recipe_route"
         },
         {
           "id": "central_recipes",
-          "type": "list",
-          "template": "🌳 *Central African Recipes*\n\nPick a dish to get the full recipe with photo:",
-          "buttonText": "Choose Recipe",
-          "sections": [
-            {
-              "title": "Central Africa",
-              "rows": [
-                { "id": "recipe_fufu_ndole", "title": "Fufu with Ndolé", "description": "55 min · 490 kcal · Medium" },
-                { "id": "back_regions", "title": "⬅️ Regions", "description": "Back to region list" }
-              ]
-            }
+          "type": "cards",
+          "intro": "🌳 *Central African Recipes*\n\nOur favorite Central African dish — tap \"Get this recipe\" for the details:",
+          "items": [
+            { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Ndol%C3%A9_camerounais.JPG/960px-Ndol%C3%A9_camerounais.JPG", "caption": "*Fufu with Ndolé*\n55 min · 490 kcal · Medium", "buttonId": "recipe_fufu_ndole", "buttonTitle": "➡️ Get this recipe" }
+          ],
+          "footerButtons": [
+            { "id": "back_regions", "title": "⬅️ Regions" },
+            { "id": "menu", "title": "🏠 Main menu" }
           ],
           "saveAs": "recipeChoice",
           "next": "recipe_route"

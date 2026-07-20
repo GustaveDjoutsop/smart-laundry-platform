@@ -353,5 +353,50 @@ test('AfroMarket: WhatsApp UI limits respected across the whole config', () => {
         }
       }
     }
+
+    if (state.type === 'cards') {
+      for (const item of state.items) {
+        assert.ok(item.buttonTitle.length <= 20, `${state.id} card button '${item.buttonTitle}' exceeds 20 chars`);
+      }
+      if (Array.isArray(state.footerButtons)) {
+        assert.ok(state.footerButtons.length <= 3, `${state.id} footerButtons has more than 3 buttons`);
+        for (const button of state.footerButtons) {
+          assert.ok(button.title.length <= 20, `${state.id} footer button '${button.title}' exceeds 20 chars`);
+        }
+      }
+    }
   }
+});
+
+test('AfroMarket: region cards states fan out one image+button message per dish, then footer controls', async () => {
+  const step = createStepper();
+
+  await step('hi');
+  await step('recipes');
+  await step('browse_recipes');
+
+  const result = await step('region_west');
+  assert.equal(result.outboundIntents.length, 5);
+  assert.equal(result.outboundIntents[0].type, 'text');
+  assert.match(result.outboundIntents[0].body, /West African Recipes/);
+
+  const dishMessages = result.outboundIntents.slice(1, 4);
+  for (const dish of dishMessages) {
+    assert.equal(dish.type, 'buttons');
+    assert.ok(dish.image, `${dish.body} card is missing its image`);
+    assert.equal(dish.buttons.length, 1);
+    assert.match(dish.buttons[0].title, /Get this recipe/);
+  }
+  assert.match(dishMessages[0].body, /Jollof Rice/);
+  assert.match(dishMessages[1].body, /Egusi Soup/);
+  assert.match(dishMessages[2].body, /Suya Skewers/);
+
+  const footer = result.outboundIntents[4];
+  assert.equal(footer.type, 'buttons');
+  assert.deepEqual(footer.buttons.map((b) => b.id), ['back_regions', 'menu']);
+
+  // Tapping a specific dish's own card button still opens its full recipe.
+  const detail = await step('recipe_egusi_soup');
+  assert.equal(detail.outboundIntents[0].type, 'image');
+  assert.match(detail.outboundIntents[0].caption, /Egusi Soup/);
 });

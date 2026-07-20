@@ -88,6 +88,53 @@ test('WhatsAppCloudClient sendButtons calls fetch with interactive button payloa
   assert.equal(payload.interactive.action.buttons[0].reply.title, 'One');
 });
 
+test('WhatsAppCloudClient sendButtons includes an image header when image is provided', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    return { ok: true, status: 200, json: async () => ({ messages: [{ id: 'wamid.4' }] }) };
+  };
+
+  const client = new WhatsAppCloudClient({
+    accessToken: 'token',
+    phoneNumberId: '123',
+    apiVersion: 'v20.0',
+    apiBase: 'https://graph.facebook.com',
+    fetchImpl
+  });
+
+  await client.sendButtons({
+    to: '237670000000',
+    body: 'Dish A',
+    buttons: [{ id: 'get_a', title: 'Get this recipe' }],
+    image: 'https://example.com/dish.jpg'
+  });
+
+  const payload = JSON.parse(calls[0].init.body);
+  assert.deepEqual(payload.interactive.header, { type: 'image', image: { link: 'https://example.com/dish.jpg' } });
+});
+
+test('WhatsAppCloudClient sendButtons omits the header entirely when no image is given', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    return { ok: true, status: 200, json: async () => ({ messages: [{ id: 'wamid.5' }] }) };
+  };
+
+  const client = new WhatsAppCloudClient({
+    accessToken: 'token',
+    phoneNumberId: '123',
+    apiVersion: 'v20.0',
+    apiBase: 'https://graph.facebook.com',
+    fetchImpl
+  });
+
+  await client.sendButtons({ to: '237670000000', body: 'No image', buttons: [{ id: 'x', title: 'X' }] });
+
+  const payload = JSON.parse(calls[0].init.body);
+  assert.equal(payload.interactive.header, undefined);
+});
+
 test('WhatsAppCloudClient sendImage calls fetch with image payload and truncates long captions', async () => {
   const calls = [];
   const fetchImpl = async (url, init) => {

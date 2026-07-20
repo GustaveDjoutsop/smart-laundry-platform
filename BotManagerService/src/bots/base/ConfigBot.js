@@ -64,7 +64,8 @@ class ConfigBot extends BaseBot {
       await this.whatsapp.sendButtons({
         to: outboundIntent.to,
         body: outboundIntent.body,
-        buttons: outboundIntent.buttons
+        buttons: outboundIntent.buttons,
+        image: outboundIntent.image
       });
       return;
     }
