@@ -180,3 +180,76 @@ test('WhatsAppCloudClient sendImage rejects missing link', async () => {
 
   await assert.rejects(() => client.sendImage({ to: '237670000000', caption: 'no link' }), /non-empty link/);
 });
+
+test('WhatsAppCloudClient sendCtaUrl builds a freeform cta_url interactive payload with image header', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    return { ok: true, status: 200, json: async () => ({ messages: [{ id: 'wamid.6' }] }) };
+  };
+
+  const client = new WhatsAppCloudClient({
+    accessToken: 'token',
+    phoneNumberId: '123',
+    apiVersion: 'v20.0',
+    apiBase: 'https://graph.facebook.com',
+    fetchImpl
+  });
+
+  await client.sendCtaUrl({
+    to: '237670000000',
+    body: 'Le Petit Dakar — Senegalese',
+    image: 'https://example.com/dakar.jpg',
+    buttonText: 'Visit Website',
+    url: 'https://www.lepetitdakar.com/en',
+    footer: 'Opens in your browser'
+  });
+
+  const payload = JSON.parse(calls[0].init.body);
+  assert.equal(payload.messaging_product, 'whatsapp');
+  assert.equal(payload.type, 'interactive');
+  assert.equal(payload.interactive.type, 'cta_url');
+  assert.deepEqual(payload.interactive.header, { type: 'image', image: { link: 'https://example.com/dakar.jpg' } });
+  assert.equal(payload.interactive.body.text, 'Le Petit Dakar — Senegalese');
+  assert.deepEqual(payload.interactive.action, {
+    name: 'cta_url',
+    parameters: { display_text: 'Visit Website', url: 'https://www.lepetitdakar.com/en' }
+  });
+  assert.equal(payload.interactive.footer.text, 'Opens in your browser');
+});
+
+test('WhatsAppCloudClient sendCtaUrl omits header/footer when not provided and truncates a long button label', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  const client = new WhatsAppCloudClient({
+    accessToken: 'token',
+    phoneNumberId: '123',
+    fetchImpl
+  });
+
+  await client.sendCtaUrl({
+    to: '237670000000',
+    body: 'No image here',
+    buttonText: 'This label is way too long for a button',
+    url: 'https://example.com'
+  });
+
+  const payload = JSON.parse(calls[0].init.body);
+  assert.equal(payload.interactive.header, undefined);
+  assert.equal(payload.interactive.footer, undefined);
+  assert.equal(payload.interactive.action.parameters.display_text.length, 20);
+});
+
+test('WhatsAppCloudClient sendCtaUrl rejects a missing url', async () => {
+  const client = new WhatsAppCloudClient({
+    accessToken: 'token',
+    phoneNumberId: '123',
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) })
+  });
+
+  await assert.rejects(() => client.sendCtaUrl({ to: '237670000000', body: 'x' }), /non-empty url/);
+});

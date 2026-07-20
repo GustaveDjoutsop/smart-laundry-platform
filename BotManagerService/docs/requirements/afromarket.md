@@ -54,9 +54,40 @@ hi/menu → Main menu (list, Jasper-style wording)
   │     ├─ Tonight's Dinner (3 quick recipes, unchanged from v1)
   │     └─ Shopping Tips → can jump straight into Shop online
   ├─ 🎉 Current promo → weekly deal + shop/recipe shortcuts
-  ├─ 🍽️ Afro Restaurant → directory list (3 restaurants) → pick one → its address, phone, opening hours
+  ├─ 🍽️ Afro Restaurant → 3 real restaurants as photo cards, each with a genuine "Visit Website" button
   └─ 🏬 AfroMarket Store → address, phone, opening hours (info only)
 ```
+
+## Afro Restaurant: real restaurants with working website links
+
+Initially built as a directory (list → pick one → address/phone/hours detail
+screen) with fictional placeholder restaurants. Replaced 2026-07-20 with real,
+verified businesses and a genuine "Visit Website" link, after confirming two
+things by testing directly against Meta's API rather than assuming:
+
+- **`jaspers_market_media_carousel_v1` (Meta's own approved demo template,
+  shared on this sandbox WABA) cannot be reused for this**: its "Get this
+  recipe" button URL is a fully static string with no `{{1}}` variable
+  (verified by re-fetching the approved template's raw components) — every
+  card would link to the exact same hardcoded Meta developer-docs page,
+  which would be actively misleading for a real restaurant recommendation.
+  Confirmed structurally, not just by inspection.
+- **The fix**: WhatsApp Cloud API's freeform `cta_url` interactive message
+  type — no template, no approval wait, and each message carries its own
+  real URL. Added `WhatsAppCloudClient.sendCtaUrl` and extended the `cards`
+  engine state so an item can specify `buttonUrl` (opens a link, e.g.
+  restaurant websites) instead of `buttonId` (quick-reply, routes back into
+  the flow, e.g. recipes) — validated to require exactly one of the two.
+
+**The 3 restaurants are real** (found via web search, addresses/phones
+cross-checked against multiple sources, websites verified reachable):
+Le Petit Dakar (Senegalese, lepetitdakar.com), Ohinéné (Ivorian, ohinene.fr),
+BMK Paris-Bamako (West African/Mali, bmkparis.com). Ohinéné's and BMK's
+opening hours weren't confirmably found, so those cards say "Check website
+for current hours" rather than guessing — replace with confirmed hours
+whenever available. Verified live: tapping "Visit Website" shows WhatsApp's
+own "You're about to leave WhatsApp and go to https://..." confirmation with
+the correct restaurant URL, and actually opens that real site.
 
 15 products across 4 categories (Grains & Starches, Pantry & Sauces, Spices &
 Seasoning, Fresh & Frozen), priced in EUR. 8 recipes carried over from v1,

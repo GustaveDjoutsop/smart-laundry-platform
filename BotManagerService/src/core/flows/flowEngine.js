@@ -69,11 +69,21 @@ function validateFlowConfig(botConfig) {
           if (!item || typeof item.image !== 'string' || !item.image.trim()) {
             throw new Error(`flow ${flowId} state ${state.id}: every card item requires a non-empty image`);
           }
-          if (!item.buttonId || typeof item.buttonId !== 'string') {
-            throw new Error(`flow ${flowId} state ${state.id}: every card item requires a buttonId`);
-          }
           if (typeof item.caption !== 'string' || !item.caption.trim()) {
             throw new Error(`flow ${flowId} state ${state.id}: every card item requires a non-empty caption`);
+          }
+          // Each card is either a quick-reply button (routes back into the
+          // flow, e.g. "Get this recipe") or a CTA-URL button (opens an
+          // external link, e.g. "Visit Website") - never both, never neither.
+          const hasQuickReply = Boolean(item.buttonId);
+          const hasUrlButton = Boolean(item.buttonUrl);
+          if (hasQuickReply === hasUrlButton) {
+            throw new Error(
+              `flow ${flowId} state ${state.id}: every card item requires exactly one of buttonId or buttonUrl`
+            );
+          }
+          if (hasUrlButton && typeof item.buttonUrl !== 'string') {
+            throw new Error(`flow ${flowId} state ${state.id}: card item buttonUrl must be a string`);
           }
         }
       }
@@ -424,11 +434,24 @@ class FlowEngine {
 
           const items = Array.isArray(stateDefinition.items) ? stateDefinition.items : [];
           for (const item of items) {
+            const body = renderTemplate(item.caption || '', templateContext);
+            if (item.buttonUrl) {
+              // eslint-disable-next-line no-await-in-loop
+              await trySend({
+                type: 'cta_url',
+                to: from,
+                body,
+                image: item.image,
+                buttonText: item.buttonTitle || 'Open link',
+                url: renderTemplate(item.buttonUrl, templateContext)
+              });
+              continue;
+            }
             // eslint-disable-next-line no-await-in-loop
             await trySend({
               type: 'buttons',
               to: from,
-              body: renderTemplate(item.caption || '', templateContext),
+              body,
               buttons: [{ id: item.buttonId, title: item.buttonTitle || 'View' }],
               image: item.image
             });

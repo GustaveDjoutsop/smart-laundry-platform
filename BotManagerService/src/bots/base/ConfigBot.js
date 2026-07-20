@@ -89,6 +89,18 @@ class ConfigBot extends BaseBot {
       return;
     }
 
+    if (outboundIntent.type === 'cta_url') {
+      await this.whatsapp.sendCtaUrl({
+        to: outboundIntent.to,
+        body: outboundIntent.body,
+        image: outboundIntent.image,
+        buttonText: outboundIntent.buttonText,
+        url: outboundIntent.url,
+        footer: outboundIntent.footer
+      });
+      return;
+    }
+
     logger.warn('Unsupported outbound intent', outboundIntent);
   }
 }

@@ -198,23 +198,6 @@ test('FlowEngine rejects cards state with an item missing an image', () => {
   assert.throws(() => new FlowEngine({ botConfig }), /every card item requires a non-empty image/);
 });
 
-test('FlowEngine rejects cards state with an item missing a buttonId', () => {
-  const botConfig = {
-    botId: 't',
-    botName: 'TestBot',
-    defaultFlowId: 'main_menu',
-    flows: {
-      main_menu: {
-        states: [
-          { id: 'picks', type: 'cards', items: [{ image: 'https://example.com/a.jpg', caption: 'x' }] }
-        ]
-      }
-    }
-  };
-
-  assert.throws(() => new FlowEngine({ botConfig }), /every card item requires a buttonId/);
-});
-
 test('FlowEngine cards state sends intro + one image-button message per item + footer, then gates on the reply', async () => {
   const botConfig = {
     botId: 't',
@@ -357,6 +340,83 @@ test('FlowEngine cards state survives a mid-loop send() failure: later cards, fo
     send: async () => {}
   });
   assert.equal(answered.intents[0].body, 'You picked dish_c');
+});
+
+test('FlowEngine rejects a cards item with both buttonId and buttonUrl, or neither', () => {
+  const makeConfig = (item) => ({
+    botId: 't',
+    botName: 'TestBot',
+    defaultFlowId: 'main_menu',
+    flows: {
+      main_menu: { states: [{ id: 'picks', type: 'cards', items: [{ image: 'https://example.com/a.jpg', caption: 'x', ...item }] }] }
+    }
+  });
+
+  assert.throws(
+    () => new FlowEngine({ botConfig: makeConfig({ buttonId: 'a', buttonUrl: 'https://example.com' }) }),
+    /exactly one of buttonId or buttonUrl/
+  );
+  assert.throws(
+    () => new FlowEngine({ botConfig: makeConfig({}) }),
+    /exactly one of buttonId or buttonUrl/
+  );
+});
+
+test('FlowEngine cards state sends CTA-URL (not quick-reply) messages for items with buttonUrl', async () => {
+  const botConfig = {
+    botId: 't',
+    botName: 'TestBot',
+    defaultFlowId: 'main_menu',
+    flows: {
+      main_menu: {
+        states: [
+          {
+            id: 'restaurant_picker',
+            type: 'cards',
+            intro: 'Restaurants near you:',
+            items: [
+              { image: 'https://example.com/dakar.jpg', caption: 'Le Petit Dakar', buttonUrl: 'https://www.lepetitdakar.com/en', buttonTitle: '🌐 Visit Website' },
+              { image: 'https://example.com/ohinene.jpg', caption: 'Ohinéné', buttonUrl: 'https://www.ohinene.fr/', buttonTitle: '🌐 Visit Website' }
+            ],
+            footerButtons: [{ id: 'menu', title: 'Main Menu' }],
+            saveAs: 'restaurantChoice',
+            next: 'welcome'
+          },
+          { id: 'welcome', type: 'message', template: 'Back at the menu' }
+        ]
+      }
+    }
+  };
+
+  const engine = new FlowEngine({ botConfig });
+  const sent = [];
+
+  const rendered = await engine.step({
+    from: '237670000000',
+    message: { text: { body: 'hi' } },
+    state: { currentFlowId: null, currentStateId: null, context: {} },
+    send: async (intent) => sent.push(intent)
+  });
+
+  assert.equal(sent.length, 4);
+  assert.equal(sent[1].type, 'cta_url');
+  assert.equal(sent[1].url, 'https://www.lepetitdakar.com/en');
+  assert.equal(sent[1].buttonText, '🌐 Visit Website');
+  assert.equal(sent[1].image, 'https://example.com/dakar.jpg');
+  assert.equal(sent[2].type, 'cta_url');
+  assert.equal(sent[2].url, 'https://www.ohinene.fr/');
+  assert.equal(sent[3].type, 'buttons');
+  assert.equal(sent[3].buttons[0].id, 'menu');
+
+  // A cta_url tap produces no reply for the bot to route on; the only
+  // real path forward is the footer's quick-reply button.
+  const afterMenu = await engine.step({
+    from: '237670000000',
+    message: { text: { body: 'menu' } },
+    state: rendered.state,
+    send: async () => {}
+  });
+  assert.equal(afterMenu.intents[0].body, 'Back at the menu');
 });
 
 test('FlowEngine action without goto or next ends the turn instead of looping', async () => {

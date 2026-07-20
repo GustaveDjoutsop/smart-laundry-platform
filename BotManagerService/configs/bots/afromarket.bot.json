@@ -706,85 +706,33 @@
 
         {
           "id": "afro_restaurant_list",
-          "type": "list",
-          "template": "🍽️ *Afro Restaurants*\n\nAfrican restaurants we know and recommend around Paris. Pick one to see its address, phone and opening hours:",
-          "buttonText": "Choose Restaurant",
-          "sections": [
+          "type": "cards",
+          "intro": "🍽️ *Afro Restaurants*\n\nReal African restaurants we recommend around Paris — tap Visit Website for their menu, hours and reservations:",
+          "items": [
             {
-              "title": "Restaurants",
-              "rows": [
-                { "id": "restaurant_baobab_kitchen", "title": "Baobab Kitchen", "description": "Senegalese · Belleville" },
-                { "id": "restaurant_le_maquis", "title": "Le Maquis", "description": "Ivorian · Faubourg St-Denis" },
-                { "id": "restaurant_injera_house", "title": "Injera House", "description": "Ethiopian & Eritrean · Myrha" },
-                { "id": "back_menu", "title": "🏠 Main Menu", "description": "Back to the start" }
-              ]
+              "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cf/Senegalese_Thieboudienne.JPG/960px-Senegalese_Thieboudienne.JPG",
+              "caption": "*Le Petit Dakar* — Senegalese\n📍 6 Rue Elzévir, 75003 Paris (Le Marais)\n📞 +33 1 44 59 34 74\n🕐 Tue–Sat 12:30–14:30 & 19:30–22:30 (closed Sun–Mon)",
+              "buttonUrl": "https://www.lepetitdakar.com/en",
+              "buttonTitle": "🌐 Visit Website"
+            },
+            {
+              "image": "https://upload.wikimedia.org/wikipedia/commons/9/94/Attieke_and_chicken.jpg",
+              "caption": "*Ohinéné* — Ivorian\n📍 14 Rue de la Chine, 75020 Paris\n📞 +33 6 43 62 32 19\n🕐 Check website for current hours",
+              "buttonUrl": "https://www.ohinene.fr/",
+              "buttonTitle": "🌐 Visit Website"
+            },
+            {
+              "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/Maaf%C3%A9.jpg/960px-Maaf%C3%A9.jpg",
+              "caption": "*BMK Paris-Bamako* — West African (Mali)\n📍 14 Rue de la Fidélité, 75010 Paris (Canal Saint-Martin)\n🕐 Check website for current hours & contact",
+              "buttonUrl": "https://www.bmkparis.com/",
+              "buttonTitle": "🌐 Visit Website"
             }
           ],
-          "saveAs": "restaurantChoice",
-          "next": "restaurant_list_route"
-        },
-        {
-          "id": "restaurant_list_route",
-          "type": "action",
-          "action": "route",
-          "params": {
-            "from": "restaurantChoice",
-            "map": {
-              "restaurant_baobab_kitchen": "restaurant_detail_baobab_kitchen",
-              "restaurant_le_maquis": "restaurant_detail_le_maquis",
-              "restaurant_injera_house": "restaurant_detail_injera_house",
-              "back_menu": "welcome",
-              "menu": "welcome"
-            },
-            "default": "afro_restaurant_list"
-          }
-        },
-
-        {
-          "id": "restaurant_detail_baobab_kitchen",
-          "type": "buttons",
-          "template": "🍽️ *Baobab Kitchen*\nSenegalese cuisine\n\n📍 Address: 22 Rue de Belleville, 75020 Paris, France\n📞 Phone: +33 1 42 11 22 33\n🕐 Opening Hours:\nMon–Sat: 12:00–22:30\nSun: Closed",
-          "buttons": [
-            { "id": "back_restaurants", "title": "⬅️ Restaurants" },
+          "footerButtons": [
             { "id": "menu", "title": "🏠 Main Menu" }
           ],
-          "saveAs": "restaurantDetailChoice",
-          "next": "restaurant_detail_route"
-        },
-        {
-          "id": "restaurant_detail_le_maquis",
-          "type": "buttons",
-          "template": "🍽️ *Le Maquis*\nIvorian cuisine\n\n📍 Address: 8 Rue du Faubourg Saint-Denis, 75010 Paris, France\n📞 Phone: +33 1 45 67 89 10\n🕐 Opening Hours:\nTue–Sun: 12:00–23:00\nMon: Closed",
-          "buttons": [
-            { "id": "back_restaurants", "title": "⬅️ Restaurants" },
-            { "id": "menu", "title": "🏠 Main Menu" }
-          ],
-          "saveAs": "restaurantDetailChoice",
-          "next": "restaurant_detail_route"
-        },
-        {
-          "id": "restaurant_detail_injera_house",
-          "type": "buttons",
-          "template": "🍽️ *Injera House*\nEthiopian & Eritrean cuisine\n\n📍 Address: 15 Rue Myrha, 75018 Paris, France\n📞 Phone: +33 1 53 41 22 09\n🕐 Opening Hours:\nMon–Sun: 11:30–22:00",
-          "buttons": [
-            { "id": "back_restaurants", "title": "⬅️ Restaurants" },
-            { "id": "menu", "title": "🏠 Main Menu" }
-          ],
-          "saveAs": "restaurantDetailChoice",
-          "next": "restaurant_detail_route"
-        },
-        {
-          "id": "restaurant_detail_route",
-          "type": "action",
-          "action": "route",
-          "params": {
-            "from": "restaurantDetailChoice",
-            "map": {
-              "back_restaurants": "afro_restaurant_list",
-              "menu": "welcome"
-            },
-            "default": "afro_restaurant_list"
-          }
+          "saveAs": "restaurantFollowChoice",
+          "next": "welcome"
         },
 
         {

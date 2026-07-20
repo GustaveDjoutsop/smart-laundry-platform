@@ -235,40 +235,40 @@ test('AfroMarket: current promo, restaurant info and store info are reachable an
   assert.match(result.outboundIntents[0].body, /Opening Hours/);
 });
 
-test('AfroMarket: Afro Restaurant is a directory - list first, then per-restaurant detail', async () => {
+test('AfroMarket: Afro Restaurant sends real restaurants as cards with working Visit Website buttons', async () => {
   const step = createStepper();
 
   await step('hi');
-  let result = await step('afro_restaurant');
-  assert.equal(result.outboundIntents[0].type, 'list');
+  const result = await step('afro_restaurant');
+
+  assert.equal(result.outboundIntents.length, 5);
+  assert.equal(result.outboundIntents[0].type, 'text');
   assert.match(result.outboundIntents[0].body, /Afro Restaurants/);
 
-  const rowIds = result.outboundIntents[0].sections.flatMap((s) => s.rows.map((r) => r.id));
-  assert.deepEqual(rowIds, [
-    'restaurant_baobab_kitchen',
-    'restaurant_le_maquis',
-    'restaurant_injera_house',
-    'back_menu'
-  ]);
+  const cards = result.outboundIntents.slice(1, 4);
+  for (const card of cards) {
+    assert.equal(card.type, 'cta_url');
+    assert.ok(card.image, `${card.body} card is missing its image`);
+    assert.match(card.url, /^https:\/\//);
+    assert.match(card.buttonText, /Visit Website/);
+  }
+  assert.match(cards[0].body, /Le Petit Dakar/);
+  assert.equal(cards[0].url, 'https://www.lepetitdakar.com/en');
+  assert.match(cards[1].body, /Ohinéné/);
+  assert.equal(cards[1].url, 'https://www.ohinene.fr/');
+  assert.match(cards[2].body, /BMK Paris-Bamako/);
+  assert.equal(cards[2].url, 'https://www.bmkparis.com/');
 
-  result = await step('restaurant_baobab_kitchen');
-  assert.equal(result.outboundIntents[0].type, 'buttons');
-  assert.match(result.outboundIntents[0].body, /Baobab Kitchen/);
-  assert.match(result.outboundIntents[0].body, /Senegalese/);
-  assert.match(result.outboundIntents[0].body, /Rue de Belleville/);
-  assert.match(result.outboundIntents[0].body, /Opening Hours/);
+  const footer = result.outboundIntents[4];
+  assert.equal(footer.type, 'buttons');
+  assert.deepEqual(footer.buttons.map((b) => b.id), ['menu']);
 
-  result = await step('back_restaurants');
-  assert.equal(result.outboundIntents[0].type, 'list');
-  assert.match(result.outboundIntents[0].body, /Afro Restaurants/);
-
-  result = await step('restaurant_le_maquis');
-  assert.match(result.outboundIntents[0].body, /Le Maquis/);
-  assert.match(result.outboundIntents[0].body, /Ivorian/);
-
-  result = await step('menu');
-  assert.equal(result.outboundIntents[0].type, 'list');
-  assert.match(result.outboundIntents[0].body, /Welcome to \*AfroMarket\*/);
+  // A cta_url button never sends a reply back to the bot - there's nothing to
+  // route to for it. The only way forward is the footer's Main Menu button
+  // (or any other message, self-healing back to the menu either way).
+  const afterTap = await step('menu');
+  assert.equal(afterTap.outboundIntents[0].type, 'list');
+  assert.match(afterTap.outboundIntents[0].body, /Welcome to \*AfroMarket\*/);
 });
 
 test('AfroMarket: recipes hub still exposes meal plans, dinner ideas and shopping tips', async () => {

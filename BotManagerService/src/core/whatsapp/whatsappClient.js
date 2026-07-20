@@ -205,6 +205,46 @@ class WhatsAppCloudClient {
     return this._postWithRetry(url, payload);
   }
 
+  async sendCtaUrl({ to, body, image, buttonText, url: linkUrl, footer } = {}) {
+    if (!this.isConfigured()) {
+      throw new Error('WhatsApp client not configured (missing accessToken/phoneNumberId)');
+    }
+
+    const targetUrl = String(linkUrl || '').trim();
+    if (!targetUrl) {
+      throw new Error('sendCtaUrl requires a non-empty url');
+    }
+
+    const messagesUrl = buildMessagesUrl({
+      apiBase: this.apiBase,
+      apiVersion: this.apiVersion,
+      phoneNumberId: this.phoneNumberId
+    });
+
+    const imageLink = String(image || '').trim();
+    // Meta caps CTA URL button text at 20 characters.
+    const displayText = utf16SliceSafe(String(buttonText || 'Open link').trim() || 'Open link', 20);
+    const footerText = utf16SliceSafe(String(footer || ''), 60).trim();
+
+    const payload = {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'cta_url',
+        ...(imageLink ? { header: { type: 'image', image: { link: imageLink } } } : {}),
+        body: { text: String(body || '') },
+        action: {
+          name: 'cta_url',
+          parameters: { display_text: displayText, url: targetUrl }
+        },
+        ...(footerText ? { footer: { text: footerText } } : {})
+      }
+    };
+
+    return this._postWithRetry(messagesUrl, payload);
+  }
+
   async _postWithRetry(url, payload) {
     const maxAttempts = 3;
 
