@@ -53,7 +53,7 @@
                 { "id": "shop_online", "title": "🛒 Shop online", "description": "Groceries delivered to you" },
                 { "id": "recipes", "title": "🍲 Get recipe ideas", "description": "Recipes, meal plans & dinner tips" },
                 { "id": "current_promo", "title": "🎉 Current promo", "description": "This week's deal" },
-                { "id": "afro_restaurant", "title": "🍽️ Afro Restaurant", "description": "Address, phone & hours" },
+                { "id": "afro_restaurant", "title": "🍽️ Afro Restaurant", "description": "Restaurants we recommend" },
                 { "id": "afromarket_store", "title": "🏬 AfroMarket Store", "description": "Our physical shop" }
               ]
             }
@@ -71,7 +71,7 @@
               "shop_online": "groceries_categories",
               "recipes": "recipes_hub",
               "current_promo": "current_promo",
-              "afro_restaurant": "afro_restaurant_info",
+              "afro_restaurant": "afro_restaurant_list",
               "afromarket_store": "afromarket_store_info",
               "menu": "welcome"
             },
@@ -717,27 +717,85 @@
         },
 
         {
-          "id": "afro_restaurant_info",
-          "type": "buttons",
-          "template": "🍽️ *Afro Restaurant*\n\nAuthentic African dishes, cooked fresh daily.\n\n📍 Address: 12 Rue de la Diaspora, 75011 Paris, France\n📞 Phone: +33 1 23 45 67 89\n🕐 Opening Hours:\nMon–Fri: 11:00–22:00\nSat–Sun: 12:00–23:00",
-          "buttons": [
-            { "id": "recipes", "title": "🍲 See recipes" },
-            { "id": "menu", "title": "🏠 Main menu" }
+          "id": "afro_restaurant_list",
+          "type": "list",
+          "template": "🍽️ *Afro Restaurants*\n\nAfrican restaurants we know and recommend around Paris. Pick one to see its address, phone and opening hours:",
+          "buttonText": "Choose Restaurant",
+          "sections": [
+            {
+              "title": "Restaurants",
+              "rows": [
+                { "id": "restaurant_baobab_kitchen", "title": "Baobab Kitchen", "description": "Senegalese · Belleville" },
+                { "id": "restaurant_le_maquis", "title": "Le Maquis", "description": "Ivorian · Faubourg St-Denis" },
+                { "id": "restaurant_injera_house", "title": "Injera House", "description": "Ethiopian & Eritrean · Myrha" },
+                { "id": "back_menu", "title": "🏠 Main Menu", "description": "Back to the start" }
+              ]
+            }
           ],
-          "saveAs": "restaurantFollowChoice",
-          "next": "restaurant_route"
+          "saveAs": "restaurantChoice",
+          "next": "restaurant_list_route"
         },
         {
-          "id": "restaurant_route",
+          "id": "restaurant_list_route",
           "type": "action",
           "action": "route",
           "params": {
-            "from": "restaurantFollowChoice",
+            "from": "restaurantChoice",
             "map": {
-              "recipes": "recipes_hub",
+              "restaurant_baobab_kitchen": "restaurant_detail_baobab_kitchen",
+              "restaurant_le_maquis": "restaurant_detail_le_maquis",
+              "restaurant_injera_house": "restaurant_detail_injera_house",
+              "back_menu": "welcome",
               "menu": "welcome"
             },
-            "default": "welcome"
+            "default": "afro_restaurant_list"
+          }
+        },
+
+        {
+          "id": "restaurant_detail_baobab_kitchen",
+          "type": "buttons",
+          "template": "🍽️ *Baobab Kitchen*\nSenegalese cuisine\n\n📍 Address: 22 Rue de Belleville, 75020 Paris, France\n📞 Phone: +33 1 42 11 22 33\n🕐 Opening Hours:\nMon–Sat: 12:00–22:30\nSun: Closed",
+          "buttons": [
+            { "id": "back_restaurants", "title": "⬅️ Restaurants" },
+            { "id": "menu", "title": "🏠 Main Menu" }
+          ],
+          "saveAs": "restaurantDetailChoice",
+          "next": "restaurant_detail_route"
+        },
+        {
+          "id": "restaurant_detail_le_maquis",
+          "type": "buttons",
+          "template": "🍽️ *Le Maquis*\nIvorian cuisine\n\n📍 Address: 8 Rue du Faubourg Saint-Denis, 75010 Paris, France\n📞 Phone: +33 1 45 67 89 10\n🕐 Opening Hours:\nTue–Sun: 12:00–23:00\nMon: Closed",
+          "buttons": [
+            { "id": "back_restaurants", "title": "⬅️ Restaurants" },
+            { "id": "menu", "title": "🏠 Main Menu" }
+          ],
+          "saveAs": "restaurantDetailChoice",
+          "next": "restaurant_detail_route"
+        },
+        {
+          "id": "restaurant_detail_injera_house",
+          "type": "buttons",
+          "template": "🍽️ *Injera House*\nEthiopian & Eritrean cuisine\n\n📍 Address: 15 Rue Myrha, 75018 Paris, France\n📞 Phone: +33 1 53 41 22 09\n🕐 Opening Hours:\nMon–Sun: 11:30–22:00",
+          "buttons": [
+            { "id": "back_restaurants", "title": "⬅️ Restaurants" },
+            { "id": "menu", "title": "🏠 Main Menu" }
+          ],
+          "saveAs": "restaurantDetailChoice",
+          "next": "restaurant_detail_route"
+        },
+        {
+          "id": "restaurant_detail_route",
+          "type": "action",
+          "action": "route",
+          "params": {
+            "from": "restaurantDetailChoice",
+            "map": {
+              "back_restaurants": "afro_restaurant_list",
+              "menu": "welcome"
+            },
+            "default": "afro_restaurant_list"
           }
         },
 

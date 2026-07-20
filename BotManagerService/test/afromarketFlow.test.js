@@ -178,6 +178,39 @@ test('AfroMarket: recipe detail can add its mapped ingredients to the cart', asy
   );
 });
 
+test('AfroMarket: every recipe_detail_* state always chains straight into recipe_actions', () => {
+  // Structural invariant: the "Bon appetit! Want to keep exploring?" message
+  // with Buy ingredients/More recipes/Main menu must always immediately
+  // follow the recipe description, for every recipe, with no gap in between.
+  const flow = botConfig.flows.main_menu;
+  const recipeDetailStates = flow.states.filter((s) => s.type === 'image' && s.recipeId);
+
+  assert.ok(recipeDetailStates.length >= 8, 'expected at least 8 recipe_detail_* states');
+  for (const state of recipeDetailStates) {
+    assert.equal(state.next, 'recipe_actions', `${state.id} must chain directly into recipe_actions`);
+  }
+});
+
+test('AfroMarket: Tonight\'s Dinner recipes also show Bon appetit + buttons right after the description', async () => {
+  const step = createStepper();
+
+  await step('hi');
+  await step('recipes');
+  let result = await step('dinner_ideas');
+  assert.match(result.outboundIntents[0].body, /Dinner Ideas/);
+
+  result = await step('recipe_shakshuka');
+  assert.equal(result.outboundIntents.length, 2);
+  assert.equal(result.outboundIntents[0].type, 'image');
+  assert.match(result.outboundIntents[0].caption, /Shakshuka/);
+  assert.equal(result.outboundIntents[1].type, 'buttons');
+  assert.match(result.outboundIntents[1].body, /Bon app.tit/);
+  assert.deepEqual(
+    result.outboundIntents[1].buttons.map((b) => b.id),
+    ['buy_ingredients', 'more_recipes', 'menu']
+  );
+});
+
 test('AfroMarket: every recipe in recipeIngredients maps to real product ids', () => {
   const productIds = new Set(botConfig.products.map((p) => p.id));
   for (const [recipeId, ingredientIds] of Object.entries(botConfig.recipeIngredients)) {
@@ -196,17 +229,46 @@ test('AfroMarket: current promo, restaurant info and store info are reachable an
   result = await step('menu');
   assert.equal(result.outboundIntents[0].type, 'list');
 
-  result = await step('afro_restaurant');
-  assert.match(result.outboundIntents[0].body, /Afro Restaurant/);
-  assert.match(result.outboundIntents[0].body, /Rue de la Diaspora/);
-  assert.match(result.outboundIntents[0].body, /Opening Hours/);
-  result = await step('menu');
-  assert.equal(result.outboundIntents[0].type, 'list');
-
   result = await step('afromarket_store');
   assert.match(result.outboundIntents[0].body, /AfroMarket Store/);
   assert.match(result.outboundIntents[0].body, /Avenue des Épices/);
   assert.match(result.outboundIntents[0].body, /Opening Hours/);
+});
+
+test('AfroMarket: Afro Restaurant is a directory - list first, then per-restaurant detail', async () => {
+  const step = createStepper();
+
+  await step('hi');
+  let result = await step('afro_restaurant');
+  assert.equal(result.outboundIntents[0].type, 'list');
+  assert.match(result.outboundIntents[0].body, /Afro Restaurants/);
+
+  const rowIds = result.outboundIntents[0].sections.flatMap((s) => s.rows.map((r) => r.id));
+  assert.deepEqual(rowIds, [
+    'restaurant_baobab_kitchen',
+    'restaurant_le_maquis',
+    'restaurant_injera_house',
+    'back_menu'
+  ]);
+
+  result = await step('restaurant_baobab_kitchen');
+  assert.equal(result.outboundIntents[0].type, 'buttons');
+  assert.match(result.outboundIntents[0].body, /Baobab Kitchen/);
+  assert.match(result.outboundIntents[0].body, /Senegalese/);
+  assert.match(result.outboundIntents[0].body, /Rue de Belleville/);
+  assert.match(result.outboundIntents[0].body, /Opening Hours/);
+
+  result = await step('back_restaurants');
+  assert.equal(result.outboundIntents[0].type, 'list');
+  assert.match(result.outboundIntents[0].body, /Afro Restaurants/);
+
+  result = await step('restaurant_le_maquis');
+  assert.match(result.outboundIntents[0].body, /Le Maquis/);
+  assert.match(result.outboundIntents[0].body, /Ivorian/);
+
+  result = await step('menu');
+  assert.equal(result.outboundIntents[0].type, 'list');
+  assert.match(result.outboundIntents[0].body, /Welcome to \*AfroMarket\*/);
 });
 
 test('AfroMarket: recipes hub still exposes meal plans, dinner ideas and shopping tips', async () => {

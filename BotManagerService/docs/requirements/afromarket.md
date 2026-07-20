@@ -54,7 +54,7 @@ hi/menu → Main menu (list, Jasper-style wording)
   │     ├─ Tonight's Dinner (3 quick recipes, unchanged from v1)
   │     └─ Shopping Tips → can jump straight into Shop online
   ├─ 🎉 Current promo → weekly deal + shop/recipe shortcuts
-  ├─ 🍽️ Afro Restaurant → address, phone, opening hours (info only, no reservation)
+  ├─ 🍽️ Afro Restaurant → directory list (3 restaurants) → pick one → its address, phone, opening hours
   └─ 🏬 AfroMarket Store → address, phone, opening hours (info only)
 ```
 
@@ -62,6 +62,21 @@ hi/menu → Main menu (list, Jasper-style wording)
 Seasoning, Fresh & Frozen), priced in EUR. 8 recipes carried over from v1,
 each mapped in `recipeIngredients` to 1–3 of those products for the "buy
 ingredients" shortcut. All images are verified `upload.wikimedia.org` links.
+
+**Afro Restaurant is a directory, not AfroMarket's own restaurant**: it lists
+African restaurants AfroMarket knows/recommends around Paris (Baobab Kitchen –
+Senegalese, Le Maquis – Ivorian, Injera House – Ethiopian & Eritrean), not a
+location AfroMarket runs. All three currently use **placeholder** names/
+addresses/phones/hours in `configs/bots/afromarket.bot.json` — replace with
+real restaurants before going live. AfroMarket Store (the grocery shop) is
+unrelated and still a single info card, since AfroMarket only has the one
+physical store.
+
+**Recipe follow-up invariant**: every `recipe_detail_*` state's `next` must
+point straight to `recipe_actions` (the "Bon appétit! Want to keep exploring?"
+message with Buy ingredients/More recipes/Main menu buttons) so it always
+appears immediately after the recipe description, with no gap — enforced by
+a test in `test/afromarketFlow.test.js` that scans every recipe state.
 
 ## Deliberate deviations from Jasper's Market
 
