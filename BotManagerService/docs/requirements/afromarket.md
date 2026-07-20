@@ -63,6 +63,40 @@ Seasoning, Fresh & Frozen), priced in EUR. 8 recipes carried over from v1,
 each mapped in `recipeIngredients` to 1–3 of those products for the "buy
 ingredients" shortcut. All images are verified `upload.wikimedia.org` links.
 
+## Recipe browsing: visual dish cards (interim) + real carousel (pending)
+
+Choosing a region (West/East/North/Central) sends one photo+button message
+per dish (see the new `cards` state type in `flowEngine.js`) instead of a
+text-only list, since list message headers can't carry per-row photos. Each
+card has its own "➡️ Get this recipe" button — tapping any one of them (not
+just the last rendered) opens that dish's full recipe. This ships today, no
+Meta approval needed, but the cards stack vertically rather than scrolling
+horizontally.
+
+**True horizontal scrolling** (matching Jasper's Market exactly) requires a
+Meta-approved WhatsApp Carousel Template — this is a hard platform
+constraint, not a code choice; freeform interactive messages can never
+scroll horizontally. Submitted a pilot template for the West African region
+on 2026-07-20:
+
+- Template name: `afromarket_west_african_recipes`, template ID
+  `1063703219418196`, category `MARKETING` (Meta rejects `UTILITY` for
+  carousel templates), language `en_US`.
+- 3 cards (Jollof Rice, Egusi Soup, Suya Skewers), each with its dish photo
+  (uploaded via the Resumable Upload API → `header_handle`, not a public URL)
+  and a "Get this recipe" quick-reply button.
+- **Status as of submission: `PENDING`** Meta review. Check current status:
+  `GET /4464369590494418/message_templates?name=afromarket_west_african_recipes`
+  with the `WHATSAPP_ACCESS_TOKEN_AFROMARKET` bearer token, or in WhatsApp
+  Manager → Message Templates.
+- Once approved: sending a template message requires
+  `WhatsAppCloudClient` to gain a `sendTemplate`/carousel-send method (not yet
+  built — the interim `cards` state still runs meanwhile) and `west_recipes`
+  would switch to firing that template instead of the vertical cards.
+- The other 3 regions (East/North/Central) aren't submitted yet — this was a
+  single pilot to prove the upload → create → review pipeline works before
+  repeating it 3 more times.
+
 **Afro Restaurant is a directory, not AfroMarket's own restaurant**: it lists
 African restaurants AfroMarket knows/recommends around Paris (Baobab Kitchen –
 Senegalese, Le Maquis – Ivorian, Injera House – Ethiopian & Eritrean), not a
