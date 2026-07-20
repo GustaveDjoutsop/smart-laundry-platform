@@ -5,6 +5,7 @@ const { loadBotConfig } = require('./configLoader');
 const { ConfigBot } = require('../bots/base/ConfigBot');
 const { LaundryBot } = require('../bots/laundry/LaundryBot');
 const { ThomasNetworkBot } = require('../bots/thomasNetwork/ThomasNetworkBot');
+const { AfroMarketBot } = require('../bots/afromarket/AfroMarketBot');
 const { validateFlowConfig } = require('./flows/flowEngine');
 const { logger } = require('../utils/logger');
 
@@ -65,6 +66,9 @@ function createBotInstanceForConfig(botConfig) {
   }
   if (botTypeKey === 'thomas_network' || botTypeKey === 'thomasnetwork' || botTypeKey === 'thomas-network') {
     return new ThomasNetworkBot(botConfig);
+  }
+  if (botTypeKey === 'afromarket') {
+    return new AfroMarketBot(botConfig);
   }
 
   // Any other botType runs as a pure configuration-driven bot: adding a new

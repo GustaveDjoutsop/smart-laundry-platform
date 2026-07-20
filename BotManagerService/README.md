@@ -47,7 +47,7 @@ Branching is config-driven via the `route` action:
 }
 ```
 
-Bots that need custom behavior (payments, MQTT, machine state) extend `ConfigBot` with a `FlowPlugin` — see `src/bots/laundry` and `src/bots/thomasNetwork`.
+Bots that need custom behavior (payments, MQTT, machine state, shopping carts) extend `ConfigBot` with a `FlowPlugin` — see `src/bots/laundry`, `src/bots/thomasNetwork` and `src/bots/afromarket`.
 
 ## Architecture references
 
@@ -56,4 +56,4 @@ See `docs/architecture/` for ADRs + PRD that guide this repo structure.
 ## Requirements
 
 - ThomasNetworkBot – Pressing service: [docs/requirements/thomas-network-pressing.md](docs/requirements/thomas-network-pressing.md)
-- AfroMarket – recipes & meal plans bot: [docs/requirements/afromarket.md](docs/requirements/afromarket.md)
+- AfroMarket – EU Afro-grocery shop, recipes & meal plans bot: [docs/requirements/afromarket.md](docs/requirements/afromarket.md)

@@ -1,28 +1,88 @@
 # AfroMarket WhatsApp Bot
 
-Recipes, healthy meal plans and dinner ideas for African cuisine, modeled on Meta's
-[Jasper's Market](https://github.com/fbsamples/whatsapp-business-jaspers-market) demo.
-Full source instructions: `AfroMarket_WhatsApp_Bot_Instructions.md` (Downloads).
+**v2 (`botVersion2`)**: AfroMarket is now a commerce bot — European Afro-grocery
+delivery, recipes with a "buy these ingredients" shortcut, plus info cards for
+a physical restaurant and store — modeled closely on Meta's own
+[Jasper's Market](https://github.com/fbsamples/whatsapp-business-jaspers-market)
+demo (cloned locally, and tried live on WhatsApp under the "Jasper's Market"
+business chat to match its tone/labels/flow shape).
 
-Unlike Laundry/ThomasNetwork, AfroMarket is a **pure configuration-driven bot**: the
-entire experience lives in `configs/bots/afromarket.bot.json`. There is no
-`AfroMarketBot` class and no plugin — it runs on the generic `ConfigBot`.
+**v1 (`botVersion1`, tag/branch)**: content-only bot (recipes, meal plans,
+dinner ideas, shopping tips, about) — kept as a reference/rollback point, no
+cart or checkout. See git history on that branch for its docs.
 
-## Conversation map
+Full original source instructions for v1: `AfroMarket_WhatsApp_Bot_Instructions.md`
+(Downloads).
+
+## Why AfroMarket is no longer a pure-config bot
+
+v1 ran on the generic `ConfigBot` with zero custom code. v2 adds a real
+shopping cart and checkout, which needs *stateful, computed* behavior no JSON
+config can express (running totals, order numbers, delivery dates). So v2
+introduces:
+
+- `src/bots/afromarket/AfroMarketBot.js` — thin `ConfigBot` subclass, wires in
+  the plugin.
+- `src/bots/afromarket/afromarketFlowPlugin.js` — the only custom logic:
+  - `beforeState` hook: whenever the flow enters a `product_detail_*` or
+    `recipe_detail_*` state, reads that state's `productId`/`categoryStateId`
+    or `recipeId`/`recipeName` field and stashes it in conversation context
+    (so one shared `product_actions` / `recipe_actions` state can serve *all*
+    15 products / 8 recipes instead of needing one per item). Whenever it
+    enters `cart_view`, it (re)computes the cart summary text.
+  - Three custom actions: `products.route` (add to cart / view cart / back),
+    `recipes.route` (buy this recipe's mapped ingredients / more recipes),
+    `cart.checkout` (generate order number, total, clear cart).
+- Everything else — menus, recipe photos, product photos/prices, the
+  restaurant/store info cards — is still plain JSON in
+  `configs/bots/afromarket.bot.json`.
+
+`botRegistry.js` now special-cases `botType: "afromarket"` to `AfroMarketBot`
+(previously it fell through to the generic `ConfigBot`, like Laundry/
+ThomasNetwork already did for their own custom needs).
+
+## Conversation map (v2)
 
 ```
-hi/menu → Main menu (list)
-  ├─ 🍲 Browse Recipes → region list (West/East/North/Central)
-  │     └─ recipe list → recipe detail (image + caption) → follow-up buttons
-  ├─ 🥗 Healthy Meal Plans → Balanced / High-Protein / Vegan (7-day breakdowns)
-  ├─ 🌙 Tonight's Dinner → 3 quick recipes (≤30 min)
-  ├─ 🛒 Shopping Tips → African pantry essentials
-  └─ ℹ️ About AfroMarket
+hi/menu → Main menu (list, Jasper-style wording)
+  ├─ 🛒 Shop online → category list (Grains/Pantry/Spices/Fresh)
+  │     └─ product list → product detail (image+price) → Add to Cart / View Cart / Back
+  │           → cart_view → Checkout (name → address → phone) → review & confirm → order confirmed
+  ├─ 🍲 Get recipe ideas → recipes hub
+  │     ├─ Browse Recipes → region → recipe detail → 🛒 Buy ingredients (adds to cart)
+  │     ├─ Healthy Meal Plans (7-day breakdowns, unchanged from v1)
+  │     ├─ Tonight's Dinner (3 quick recipes, unchanged from v1)
+  │     └─ Shopping Tips → can jump straight into Shop online
+  ├─ 🎉 Current promo → weekly deal + shop/recipe shortcuts
+  ├─ 🍽️ Afro Restaurant → address, phone, opening hours (info only, no reservation)
+  └─ 🏬 AfroMarket Store → address, phone, opening hours (info only)
 ```
 
-Recipes (8): Jollof Rice, Egusi Soup, Suya Skewers (West), Injera with Tibs,
-Ugali & Sukuma Wiki (East), Chicken Tagine, Shakshuka (North), Fufu with Ndolé
-(Central). Images are direct `upload.wikimedia.org` links (verified reachable).
+15 products across 4 categories (Grains & Starches, Pantry & Sauces, Spices &
+Seasoning, Fresh & Frozen), priced in EUR. 8 recipes carried over from v1,
+each mapped in `recipeIngredients` to 1–3 of those products for the "buy
+ingredients" shortcut. All images are verified `upload.wikimedia.org` links.
+
+## Deliberate deviations from Jasper's Market
+
+Jasper's Market uses **pre-approved WhatsApp message templates** (via
+`facebook-nodejs-business-sdk`) for its "Shop online" banner, its recipe
+media carousel, and its limited-time-offer message — plus a webhook
+**status callback** (delivered/read receipts) to fire a delayed follow-up
+message ("Is there anything else...?"). Both require Meta template review
+and status-webhook handling this codebase doesn't have (`whatsappHandler`
+only processes `messages`, not `statuses`).
+
+AfroMarket v2 deliberately does **not** replicate those two mechanics:
+- "Shop online" goes straight into a real, usable category/product list
+  (freeform interactive messages — no template approval needed, and actually
+  useful for buying groceries, unlike Jasper's dead-end banner image).
+- No read-receipt-triggered follow-up message; the bot always keeps a set of
+  buttons live after every message so the conversation self-continues.
+
+Everything else — the 3-then-list-extended main menu wording/order, the
+"Order confirmed / Hi {name} / order number / estimated delivery" copy — is
+copied close to verbatim from the real Jasper's Market chat we tested live.
 
 ## Meta setup
 
@@ -38,8 +98,7 @@ Remaining/recurring steps:
 2. **WhatsApp → API Setup**: note the **Phone Number ID** and WABA ID; add your own
    WhatsApp number as a test recipient (OTP verification).
 3. Replace `phoneNumberId` in `configs/bots/afromarket.bot.json` with the real
-   Phone Number ID. *(done — test number; swap again when a real Cameroonian
-   number is registered in Schritt 2/Produktionseinrichtung)*
+   Phone Number ID. *(done — test number; swap again for the EU production number)*
 4. Set `WHATSAPP_ACCESS_TOKEN_AFROMARKET` (temporary token for testing; for
    production create a System User in Business Manager with
    `whatsapp_business_messaging` + `whatsapp_business_management` scopes) and
@@ -47,10 +106,32 @@ Remaining/recurring steps:
    references it via `${META_VERIFY_TOKEN_AFROMARKET}`).
 5. **WhatsApp → Configuration → Webhooks**: Callback URL
    `https://<host>/api/whatsapp/webhook`, Verify Token = the value of
-   `META_VERIFY_TOKEN_AFROMARKET`, subscribe to the `messages` field.
-   (Local dev: `ngrok http 3000`.)
+   `META_VERIFY_TOKEN_AFROMARKET`, subscribe to the `messages` field. The test
+   WABA is shared across the whole Business portfolio — a newly created app is
+   **not** auto-subscribed; also call
+   `POST /<WABA_ID>/subscribed_apps` with the app's access token once, or the
+   webhook verifies but no messages ever arrive. (Local dev: `ngrok http 3000`,
+   then `npm start` — **not** `npm run dev`, whose `--watch` restart can drop
+   an in-flight webhook.)
 6. Production hardening: set `WHATSAPP_VERIFY_SIGNATURE=true` and
    `WHATSAPP_APP_SECRET` (App Settings → Basic → App Secret).
+
+## Known limitations / next steps
+
+- **Checkout is a stub**: it collects name/address/phone, shows a review
+  screen (Confirm / Start Over / Cancel) so a mistyped or reserved-word reply
+  can't silently place an order, then confirms an order number — but doesn't
+  take payment or persist orders anywhere; there's no order store, no
+  Stripe/CamPay integration yet. Add a real payment step before taking this
+  to real customers.
+- **Product data is duplicated 2–3x** (the `products` catalog array, each
+  category list row's price, and each `product_detail_*` caption) since prices
+  are baked into strings for simplicity. If prices change often, worth adding
+  Mustache templating driven from the `products` array instead.
+- **Cart is per-conversation, in Redis/in-memory** (same TTL as everything
+  else) — abandoned carts just expire, no recovery flow.
+- Restaurant/table reservation and physical-store loyalty features were
+  explicitly scoped out for v2 (info cards only, per Gustave's ask).
 
 ## Message templates (submit in WhatsApp Manager when going proactive)
 
@@ -61,4 +142,5 @@ Remaining/recurring steps:
 | `afromarket_mealplan_reminder` | UTILITY | Weekly meal-plan reminder |
 
 Templates are only needed for business-initiated (outbound) messages; the whole
-menu experience above works inside the 24h customer-service window without them.
+menu/shop/checkout experience above works inside the 24h customer-service
+window without them.
