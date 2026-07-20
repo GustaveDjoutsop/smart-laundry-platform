@@ -95,8 +95,20 @@ test('AfroMarket: full shop -> product -> cart -> checkout flow', async () => {
   assert.match(confirmation, /Total: \*€7\.00\*/);
   assert.match(confirmation, /Delivering to: 12 Main St, Berlin/);
   assert.match(confirmation, /Contact: \+49 170 1234567/);
+  assert.equal(result.outboundIntents[0].type, 'buttons');
+  assert.deepEqual(
+    result.outboundIntents[0].buttons.map((b) => b.id),
+    ['shop_again', 'menu']
+  );
 
   assert.deepEqual(result.conversationState.context.cart, []);
+
+  // The confirmation screen's own "Main Menu" button must show the menu
+  // immediately in the same tap — no silent swallowed message first.
+  result = await step('menu');
+  assert.equal(result.outboundIntents.length, 1);
+  assert.equal(result.outboundIntents[0].type, 'list');
+  assert.match(result.outboundIntents[0].body, /Welcome to \*AfroMarket\*/);
 });
 
 test('AfroMarket: checking out with an empty cart shows a warning instead of an order', async () => {

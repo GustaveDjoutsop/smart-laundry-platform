@@ -343,9 +343,27 @@
         },
         {
           "id": "order_confirmed",
-          "type": "message",
+          "type": "buttons",
           "template": "{{orderConfirmationText}}",
-          "next": "welcome"
+          "buttons": [
+            { "id": "shop_again", "title": "🛍 Shop Again" },
+            { "id": "menu", "title": "🏠 Main Menu" }
+          ],
+          "saveAs": "orderConfirmedChoice",
+          "next": "order_confirmed_route"
+        },
+        {
+          "id": "order_confirmed_route",
+          "type": "action",
+          "action": "route",
+          "params": {
+            "from": "orderConfirmedChoice",
+            "map": {
+              "shop_again": "groceries_categories",
+              "menu": "welcome"
+            },
+            "default": "welcome"
+          }
         },
 
         {
