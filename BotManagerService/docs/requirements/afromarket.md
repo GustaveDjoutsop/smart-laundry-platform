@@ -47,10 +47,12 @@ ThomasNetwork already did for their own custom needs).
 hi/menu → Main menu (list, Jasper-style wording)
   ├─ 🛒 Shop online → category list (Grains/Pantry/Spices/Fresh)
   │     └─ product list → product detail (image+price) → Add to Cart / View Cart / Back
-  │           → cart_view → Checkout (name → address → phone → email) → review & confirm
+  │           → cart_view → Checkout (one combined name+address+email message,
+  │                 phone auto-taken from WhatsApp) → review & confirm
   │                 → 💳 real Flutterwave payment link (cta_url) → order confirmed (async, on payment.completed)
   ├─ 🍲 Get recipe ideas → recipes hub
-  │     ├─ Browse Recipes → region → recipe detail → 🛒 Buy ingredients (adds to cart)
+  │     ├─ Browse Recipes → region → recipe detail → 🛒 Buy ingredients (adds to cart,
+  │     │     then recipe_actions swaps "Buy ingredients" for "👀 View Cart")
   │     ├─ Healthy Meal Plans (7-day breakdowns, unchanged from v1)
   │     ├─ Tonight's Dinner (3 quick recipes, unchanged from v1)
   │     └─ Shopping Tips → can jump straight into Shop online
@@ -193,6 +195,40 @@ Remaining/recurring steps:
    an in-flight webhook.)
 6. Production hardening: set `WHATSAPP_VERIFY_SIGNATURE=true` and
    `WHATSAPP_APP_SECRET` (App Settings → Basic → App Secret).
+
+## Cart visibility from recipes, and one-message checkout
+
+Added 2026-07-21, from live-testing feedback: after "🛒 Buy ingredients" on a
+recipe, there was no way to see the cart, pay, or keep shopping - `recipe_actions`
+always showed the same static [Buy ingredients, More recipes, Main menu] buttons,
+and the only path to the cart was Main Menu → Shop online → View Cart.
+
+- `recipe_actions` now uses `buttonsFromContext` instead of a static `buttons`
+  array. `AfroMarketFlowPlugin.beforeState` sets `recipeActionButtons` each time
+  the state is entered: `[Buy ingredients, More recipes, Main menu]` when the
+  cart is empty, `[👀 View Cart, More recipes, Main menu]` once it has anything
+  in it. "View Cart" opens `cart_view`, which already had exactly the three
+  things asked for: Checkout, Continue Shopping, Main menu - no new state
+  needed, just a route into the existing one (`_handleRecipeAction`'s new
+  `view_cart` branch).
+
+Checkout also asked for name/address/phone/email as four separate sequential
+prompts. Replaced with a single `checkout_details` input state asking for
+name + address + email (optional) in one message, in a recommended
+`Name: ...` / `Address: ...` / `Email: ...` format, parsed by
+`AfroMarketFlowPlugin._handleParseCheckoutDetails` (line-by-line
+`key: value` regex, case-insensitive, order-independent). **Phone is no
+longer asked at all** - it's taken directly from the WhatsApp sender number
+(`ctx.from`). If the parse can't find both a name and an address, the
+customer sees an error and the same prompt again (`checkoutDetailsError`
+templated into the prompt) rather than silently accepting garbage.
+
+Email is genuinely optional at this step, but Flutterwave's hosted checkout
+requires one - if payments are configured and the customer left it out,
+`_handleCheckout` routes to a small dedicated `checkout_email_required`
+prompt asking for just the email, then retries `cart.checkout`. This keeps
+the checkout message honest ("optional") without breaking payment, and only
+bothers the customer with an extra question when payment genuinely needs it.
 
 ## Payment: Flutterwave, not PayPal/Revolut/Meta Payments
 

@@ -48,10 +48,7 @@ async function driveToCheckoutReview(step) {
   await step('cart_add');
   await step('view_cart');
   await step('start_checkout');
-  await step('Jane Doe');
-  await step('12 Main St, Berlin');
-  await step('+49 170 1234567');
-  return step('jane@example.com');
+  return step('Name: Jane Doe\nAddress: 12 Main St, Berlin\nEmail: jane@example.com');
 }
 
 test('AfroMarket checkout: successful Flutterwave initiation sends a real payment link and does not confirm the order yet', async () => {
@@ -116,4 +113,34 @@ test('AfroMarket checkout: a network-level throw from initiatePayment is treated
   assert.equal(result.outboundIntents[0].type, 'text');
   assert.match(result.outboundIntents[0].body, /couldn't start the payment/);
   assert.equal(result.conversationState.context.cart.length, 1);
+});
+
+test('AfroMarket checkout: omitting the optional email is asked for specifically only once payment actually needs it', async () => {
+  currentFetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ status: 'success', data: { link: 'https://checkout.flutterwave.com/v3/hosted/pay/noemail' } })
+  });
+
+  const step = createStepper();
+  await step('hi');
+  await step('shop_online');
+  await step('cat_grains');
+  await step('product_rice_1kg');
+  await step('cart_add');
+  await step('view_cart');
+  await step('start_checkout');
+
+  const review = await step('Name: Jane Doe\nAddress: 12 Main St, Berlin');
+  assert.match(review.outboundIntents[0].body, /confirm your order/i);
+  assert.match(review.outboundIntents[0].body, /Email:\s*\n/);
+
+  const askedForEmail = await step('confirm_order');
+  assert.equal(askedForEmail.outboundIntents[0].type, 'text');
+  assert.match(askedForEmail.outboundIntents[0].body, /email address/);
+
+  const result = await step('jane@example.com');
+  assert.equal(result.outboundIntents[0].type, 'cta_url');
+  assert.equal(result.outboundIntents[0].url, 'https://checkout.flutterwave.com/v3/hosted/pay/noemail');
+  assert.deepEqual(result.conversationState.context.cart, []);
 });

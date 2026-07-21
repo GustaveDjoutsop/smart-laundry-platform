@@ -93,6 +93,25 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       return;
     }
 
+    if (stateDefinition.id === 'recipe_actions') {
+      const cart = ctx.get('cart') || [];
+      ctx.set(
+        'recipeActionButtons',
+        cart.length
+          ? [
+              { id: 'view_cart', title: '👀 View Cart' },
+              { id: 'more_recipes', title: '🍲 More recipes' },
+              { id: 'menu', title: '🏠 Main menu' }
+            ]
+          : [
+              { id: 'buy_ingredients', title: '🛒 Buy ingredients' },
+              { id: 'more_recipes', title: '🍲 More recipes' },
+              { id: 'menu', title: '🏠 Main menu' }
+            ]
+      );
+      return;
+    }
+
     if (stateDefinition.productId) {
       ctx.set('currentProductId', stateDefinition.productId);
       ctx.set('currentCategoryBackStateId', stateDefinition.categoryStateId || 'groceries_categories');
@@ -118,6 +137,10 @@ class AfroMarketFlowPlugin extends FlowPlugin {
 
     if (action === 'cart.checkout') {
       return this._handleCheckout(ctx);
+    }
+
+    if (action === 'checkout.parseDetails') {
+      return this._handleParseCheckoutDetails(ctx);
     }
 
     return false;
@@ -184,7 +207,58 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       return true;
     }
 
+    if (choice === 'view_cart') {
+      ctx.goto('cart_view');
+      return true;
+    }
+
     ctx.goto('welcome');
+    return true;
+  }
+
+  _handleParseCheckoutDetails(ctx) {
+    ctx.set('checkoutDetailsError', '');
+
+    const raw = String(ctx.get('checkoutDetailsRaw') || '');
+    const fields = { name: '', address: '', email: '' };
+    let lastField = null;
+
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmedLine = line.trim();
+      const match = trimmedLine.match(/^(name|address|email)\s*:\s*(.+)$/i);
+      if (match) {
+        const field = match[1].toLowerCase();
+        fields[field] = match[2].trim();
+        lastField = field;
+        continue;
+      }
+      // A line with no "Field:" prefix is a wrapped continuation of whichever
+      // field came last (e.g. a multi-line address) - not a new, unrelated line
+      // to silently drop.
+      if (trimmedLine && lastField) {
+        fields[lastField] = `${fields[lastField]} ${trimmedLine}`.trim();
+      }
+    }
+
+    const { name, address, email } = fields;
+
+    if (!name || !address) {
+      ctx.set(
+        'checkoutDetailsError',
+        `⚠️ I couldn't find both a name and an address in that message. Please resend using the exact format below:\n\n`
+      );
+      ctx.goto('checkout_details');
+      return true;
+    }
+
+    const fromDigits = String(ctx.from || '').trim();
+    const phone = fromDigits ? (fromDigits.startsWith('+') ? fromDigits : `+${fromDigits}`) : '';
+
+    ctx.set('checkoutName', name);
+    ctx.set('checkoutAddress', address);
+    ctx.set('checkoutEmail', email);
+    ctx.set('checkoutPhone', phone);
+    ctx.goto('checkout_review');
     return true;
   }
 
@@ -208,6 +282,14 @@ class AfroMarketFlowPlugin extends FlowPlugin {
     const { gateway } = getPaymentService();
     const flutterwave = gateway.getProvider('flutterwave');
     const paymentsConfigured = Boolean(flutterwave && flutterwave.isConfigured());
+
+    // Email is optional in the combined checkout_details message, but Flutterwave's
+    // hosted checkout requires one - ask for it specifically only when it's actually
+    // needed, rather than failing the whole payment with a generic error.
+    if (paymentsConfigured && !email) {
+      ctx.goto('checkout_email_required');
+      return true;
+    }
 
     // No payment provider configured at all (e.g. local dev without FLUTTERWAVE_SECRET_KEY) -
     // legacy instant confirmation, unchanged from before payments existed.

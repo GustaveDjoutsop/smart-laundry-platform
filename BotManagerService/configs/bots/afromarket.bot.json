@@ -280,7 +280,7 @@
           "params": {
             "from": "cartViewChoice",
             "map": {
-              "start_checkout": "checkout_name",
+              "start_checkout": "checkout_details",
               "continue_shopping": "groceries_categories",
               "menu": "welcome"
             },
@@ -289,32 +289,16 @@
         },
 
         {
-          "id": "checkout_name",
+          "id": "checkout_details",
           "type": "input",
-          "prompt": "🚚 Let's arrange delivery!\n\nWhat's your full name?",
-          "saveAs": "checkoutName",
-          "next": "checkout_address"
+          "prompt": "{{checkoutDetailsError}}🚚 Let's arrange delivery! Please reply with your details in *one message*, like this:\n\nName: Jane Doe\nAddress: 12 Main St, 10115 Berlin, Germany\nEmail: jane@example.com (optional)\n\nWe'll use your WhatsApp number for delivery contact - no need to type it.",
+          "saveAs": "checkoutDetailsRaw",
+          "next": "checkout_details_parse"
         },
         {
-          "id": "checkout_address",
-          "type": "input",
-          "prompt": "📍 What's your delivery address? (street, city, postal code, country)",
-          "saveAs": "checkoutAddress",
-          "next": "checkout_phone"
-        },
-        {
-          "id": "checkout_phone",
-          "type": "input",
-          "prompt": "📞 What's the best contact phone number?",
-          "saveAs": "checkoutPhone",
-          "next": "checkout_email"
-        },
-        {
-          "id": "checkout_email",
-          "type": "input",
-          "prompt": "📧 What's your email address? We'll send your payment receipt there.",
-          "saveAs": "checkoutEmail",
-          "next": "checkout_review"
+          "id": "checkout_details_parse",
+          "type": "action",
+          "action": "checkout.parseDetails"
         },
         {
           "id": "checkout_review",
@@ -336,7 +320,7 @@
             "from": "checkoutReviewChoice",
             "map": {
               "confirm_order": "checkout_confirm_action",
-              "restart_checkout": "checkout_name",
+              "restart_checkout": "checkout_details",
               "cancel_checkout": "cart_view",
               "menu": "welcome"
             },
@@ -347,6 +331,13 @@
           "id": "checkout_confirm_action",
           "type": "action",
           "action": "cart.checkout"
+        },
+        {
+          "id": "checkout_email_required",
+          "type": "input",
+          "prompt": "📧 To process payment securely we also need your email address (just for the payment receipt). Please reply with it now.",
+          "saveAs": "checkoutEmail",
+          "next": "checkout_confirm_action"
         },
         {
           "id": "order_confirmed",
@@ -544,11 +535,7 @@
           "id": "recipe_actions",
           "type": "buttons",
           "template": "{{recipeCartAddedText}}Bon appétit! 😋 Want to keep exploring?",
-          "buttons": [
-            { "id": "buy_ingredients", "title": "🛒 Buy ingredients" },
-            { "id": "more_recipes", "title": "🍲 More recipes" },
-            { "id": "menu", "title": "🏠 Main menu" }
-          ],
+          "buttonsFromContext": "recipeActionButtons",
           "saveAs": "recipeActionChoice",
           "next": "recipe_action_route"
         },
