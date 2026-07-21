@@ -86,6 +86,47 @@ function validateFlowConfig(botConfig) {
             throw new Error(`flow ${flowId} state ${state.id}: card item buttonUrl must be a string`);
           }
         }
+
+        if (state.carouselTemplate) {
+          const ct = state.carouselTemplate;
+          if (typeof ct.templateName !== 'string' || !ct.templateName.trim()) {
+            throw new Error(`flow ${flowId} state ${state.id}: carouselTemplate requires a non-empty templateName`);
+          }
+          if (!Array.isArray(ct.cards) || ct.cards.length === 0) {
+            throw new Error(`flow ${flowId} state ${state.id}: carouselTemplate requires a non-empty cards[]`);
+          }
+          // Meta requires 2-10 cards per carousel template; outside that range
+          // every live send would fail and silently fall back to vertical
+          // cards, masking a config error as a permanent runtime degradation.
+          if (ct.cards.length < 2 || ct.cards.length > 10) {
+            throw new Error(`flow ${flowId} state ${state.id}: carouselTemplate.cards must have between 2 and 10 cards`);
+          }
+          const quickReplyPayloads = new Set();
+          for (const card of ct.cards) {
+            if (!card || typeof card.imageLink !== 'string' || !card.imageLink.trim()) {
+              throw new Error(`flow ${flowId} state ${state.id}: every carouselTemplate card requires a non-empty imageLink`);
+            }
+            if (typeof card.quickReplyPayload !== 'string' || !card.quickReplyPayload.trim()) {
+              throw new Error(`flow ${flowId} state ${state.id}: every carouselTemplate card requires a non-empty quickReplyPayload`);
+            }
+            quickReplyPayloads.add(card.quickReplyPayload);
+          }
+
+          // The vertical items[] only ever renders when the carousel send
+          // fails, so a drift between the two card sets would silently break
+          // routing on that rarely-exercised fallback path. Both card sets
+          // route through the same buttonId/quickReplyPayload values, so they
+          // must match exactly.
+          const itemButtonIds = new Set(state.items.filter((item) => item.buttonId).map((item) => item.buttonId));
+          const setsMatch =
+            quickReplyPayloads.size === itemButtonIds.size &&
+            [...quickReplyPayloads].every((payload) => itemButtonIds.has(payload));
+          if (!setsMatch) {
+            throw new Error(
+              `flow ${flowId} state ${state.id}: carouselTemplate quickReplyPayload values must exactly match items[].buttonId values (fallback routing would drift otherwise)`
+            );
+          }
+        }
       }
 
       if (state.type !== 'action' || state.action !== 'route') continue;
@@ -427,6 +468,58 @@ class FlowEngine {
               });
             }
           };
+
+          // A carouselTemplate (a real, Meta-approved WhatsApp Carousel Template)
+          // replaces the whole intro+items+footer fan-out with a single native
+          // horizontal-scroll message when present. Unlike the items below, a
+          // failed send here is NOT swallowed by trySend - it falls through to
+          // the vertical items fan-out as a genuine fallback, so a template
+          // outage never leaves the customer with nothing.
+          let carouselSent = false;
+          if (stateDefinition.carouselTemplate) {
+            const ct = stateDefinition.carouselTemplate;
+            const carouselIntent = {
+              type: 'template_carousel',
+              to: from,
+              templateName: ct.templateName,
+              languageCode: ct.languageCode,
+              bodyParams: ct.bodyParams,
+              cards: ct.cards
+            };
+            try {
+              outboundIntents.push(carouselIntent);
+              if (typeof send === 'function') await send(carouselIntent);
+              carouselSent = true;
+            } catch (err) {
+              outboundIntents.pop();
+              // error, not warn: a template that keeps failing (bad name,
+              // disapproved, throttled WABA) degrades permanently and
+              // invisibly to the vertical fallback with no other signal -
+              // this line is the only thing that would surface it.
+              logger.error('cards state: carousel template send failed, falling back to vertical cards', {
+                stateId: stateDefinition.id,
+                templateName: ct.templateName,
+                to: from,
+                error: err && err.message ? err.message : String(err)
+              });
+            }
+          }
+
+          if (carouselSent) {
+            if (Array.isArray(stateDefinition.footerButtons) && stateDefinition.footerButtons.length) {
+              await trySend({
+                type: 'buttons',
+                to: from,
+                body: stateDefinition.footerText ? renderTemplate(stateDefinition.footerText, templateContext) : 'More options:',
+                buttons: stateDefinition.footerButtons
+              });
+            }
+
+            if (this.plugin && this.plugin.afterState) {
+              await this.plugin.afterState(flowContext);
+            }
+            break;
+          }
 
           if (stateDefinition.intro) {
             await trySend({ type: 'text', to: from, body: renderTemplate(stateDefinition.intro, templateContext) });

@@ -253,3 +253,142 @@ test('WhatsAppCloudClient sendCtaUrl rejects a missing url', async () => {
 
   await assert.rejects(() => client.sendCtaUrl({ to: '237670000000', body: 'x' }), /non-empty url/);
 });
+
+test('WhatsAppCloudClient uploadMedia downloads the image and uploads it to Meta, returning the media id', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    if (url === 'https://example.com/dish.jpg') {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'image/jpeg' },
+        arrayBuffer: async () => new ArrayBuffer(8)
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({ id: 'media_abc123' }) };
+  };
+
+  const client = new WhatsAppCloudClient({ accessToken: 'token', phoneNumberId: '123', fetchImpl });
+  const mediaId = await client.uploadMedia({ link: 'https://example.com/dish.jpg' });
+
+  assert.equal(mediaId, 'media_abc123');
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].url, 'https://example.com/dish.jpg');
+  assert.equal(calls[1].url, 'https://graph.facebook.com/v20.0/123/media');
+  assert.equal(calls[1].init.headers.Authorization, 'Bearer token');
+});
+
+test('WhatsAppCloudClient uploadMedia rejects when the image download fails', async () => {
+  const client = new WhatsAppCloudClient({
+    accessToken: 'token',
+    phoneNumberId: '123',
+    fetchImpl: async () => ({ ok: false, status: 404 })
+  });
+
+  await assert.rejects(() => client.uploadMedia({ link: 'https://example.com/missing.jpg' }), /failed to download/);
+});
+
+test('WhatsAppCloudClient uploadMedia rejects when Meta does not return a media id', async () => {
+  const client = new WhatsAppCloudClient({
+    accessToken: 'token',
+    phoneNumberId: '123',
+    fetchImpl: async (url) => {
+      if (url.includes('/media')) return { ok: true, status: 200, json: async () => ({}) };
+      return { ok: true, status: 200, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => new ArrayBuffer(4) };
+    }
+  });
+
+  await assert.rejects(() => client.uploadMedia({ link: 'https://example.com/dish.jpg' }), /uploadMedia failed/);
+});
+
+test('WhatsAppCloudClient sendCarouselTemplate uploads each card image and posts the correct carousel template payload', async () => {
+  const calls = [];
+  let mediaCounter = 0;
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    if (url === 'https://graph.facebook.com/v20.0/123/messages') {
+      return { ok: true, status: 200, json: async () => ({ messages: [{ id: 'wamid.carousel' }] }) };
+    }
+    if (url.endsWith('/media')) {
+      mediaCounter += 1;
+      return { ok: true, status: 200, json: async () => ({ id: `media_${mediaCounter}` }) };
+    }
+    // image download
+    return { ok: true, status: 200, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => new ArrayBuffer(4) };
+  };
+
+  const client = new WhatsAppCloudClient({ accessToken: 'token', phoneNumberId: '123', fetchImpl });
+
+  const result = await client.sendCarouselTemplate({
+    to: '237670000000',
+    templateName: 'afromarket_west_african_recipes',
+    languageCode: 'en_US',
+    bodyParams: ['there'],
+    cards: [
+      { imageLink: 'https://example.com/jollof.jpg', quickReplyPayload: 'recipe_jollof_rice' },
+      { imageLink: 'https://example.com/egusi.jpg', quickReplyPayload: 'recipe_egusi_soup' }
+    ]
+  });
+
+  assert.deepEqual(result, { messages: [{ id: 'wamid.carousel' }] });
+
+  const messagesCall = calls.find((c) => c.url === 'https://graph.facebook.com/v20.0/123/messages');
+  const payload = JSON.parse(messagesCall.init.body);
+  assert.equal(payload.messaging_product, 'whatsapp');
+  assert.equal(payload.type, 'template');
+  assert.equal(payload.template.name, 'afromarket_west_african_recipes');
+  assert.deepEqual(payload.template.language, { code: 'en_US' });
+
+  const [bodyComponent, carouselComponent] = payload.template.components;
+  assert.equal(bodyComponent.type, 'body');
+  assert.deepEqual(bodyComponent.parameters, [{ type: 'text', text: 'there' }]);
+
+  assert.equal(carouselComponent.type, 'carousel');
+  assert.equal(carouselComponent.cards.length, 2);
+  assert.equal(carouselComponent.cards[0].card_index, 0);
+  assert.deepEqual(carouselComponent.cards[0].components[0], {
+    type: 'header',
+    parameters: [{ type: 'image', image: { id: 'media_1' } }]
+  });
+  assert.deepEqual(carouselComponent.cards[0].components[1], {
+    type: 'button',
+    sub_type: 'quick_reply',
+    index: '0',
+    parameters: [{ type: 'payload', payload: 'recipe_jollof_rice' }]
+  });
+  assert.equal(carouselComponent.cards[1].card_index, 1);
+  assert.equal(carouselComponent.cards[1].components[0].parameters[0].image.id, 'media_2');
+  assert.equal(carouselComponent.cards[1].components[1].parameters[0].payload, 'recipe_egusi_soup');
+});
+
+test('WhatsAppCloudClient sendCarouselTemplate rejects an empty cards array', async () => {
+  const client = new WhatsAppCloudClient({
+    accessToken: 'token',
+    phoneNumberId: '123',
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) })
+  });
+
+  await assert.rejects(
+    () => client.sendCarouselTemplate({ to: '237670000000', templateName: 'x', cards: [] }),
+    /non-empty cards array/
+  );
+});
+
+test('WhatsAppCloudClient sendCarouselTemplate rejects a card missing quickReplyPayload', async () => {
+  const client = new WhatsAppCloudClient({
+    accessToken: 'token',
+    phoneNumberId: '123',
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) })
+  });
+
+  await assert.rejects(
+    () =>
+      client.sendCarouselTemplate({
+        to: '237670000000',
+        templateName: 'x',
+        cards: [{ imageLink: 'https://example.com/a.jpg' }]
+      }),
+    /missing quickReplyPayload/
+  );
+});

@@ -101,6 +101,17 @@ class ConfigBot extends BaseBot {
       return;
     }
 
+    if (outboundIntent.type === 'template_carousel') {
+      await this.whatsapp.sendCarouselTemplate({
+        to: outboundIntent.to,
+        templateName: outboundIntent.templateName,
+        languageCode: outboundIntent.languageCode,
+        bodyParams: outboundIntent.bodyParams,
+        cards: outboundIntent.cards
+      });
+      return;
+    }
+
     logger.warn('Unsupported outbound intent', outboundIntent);
   }
 }

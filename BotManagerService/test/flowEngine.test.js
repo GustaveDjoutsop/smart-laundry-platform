@@ -198,6 +198,83 @@ test('FlowEngine rejects cards state with an item missing an image', () => {
   assert.throws(() => new FlowEngine({ botConfig }), /every card item requires a non-empty image/);
 });
 
+function buildCarouselBotConfig({ carouselCards, itemButtonIds }) {
+  return {
+    botId: 't',
+    botName: 'TestBot',
+    defaultFlowId: 'main_menu',
+    flows: {
+      main_menu: {
+        states: [
+          {
+            id: 'picks',
+            type: 'cards',
+            carouselTemplate: {
+              templateName: 'test_carousel',
+              languageCode: 'en_US',
+              cards: carouselCards
+            },
+            items: itemButtonIds.map((buttonId, i) => ({
+              image: `https://example.com/${i}.jpg`,
+              caption: `card ${i}`,
+              buttonId
+            }))
+          }
+        ]
+      }
+    }
+  };
+}
+
+test('FlowEngine rejects a carouselTemplate with fewer than 2 cards', () => {
+  const botConfig = buildCarouselBotConfig({
+    carouselCards: [{ imageLink: 'https://example.com/a.jpg', quickReplyPayload: 'a' }],
+    itemButtonIds: ['a']
+  });
+
+  assert.throws(() => new FlowEngine({ botConfig }), /carouselTemplate\.cards must have between 2 and 10 cards/);
+});
+
+test('FlowEngine rejects a carouselTemplate with more than 10 cards', () => {
+  const carouselCards = Array.from({ length: 11 }, (_, i) => ({
+    imageLink: `https://example.com/${i}.jpg`,
+    quickReplyPayload: `p${i}`
+  }));
+  const botConfig = buildCarouselBotConfig({
+    carouselCards,
+    itemButtonIds: carouselCards.map((c) => c.quickReplyPayload)
+  });
+
+  assert.throws(() => new FlowEngine({ botConfig }), /carouselTemplate\.cards must have between 2 and 10 cards/);
+});
+
+test('FlowEngine rejects a carouselTemplate whose quickReplyPayload values drift from the fallback items[].buttonId values', () => {
+  const botConfig = buildCarouselBotConfig({
+    carouselCards: [
+      { imageLink: 'https://example.com/a.jpg', quickReplyPayload: 'recipe_a' },
+      { imageLink: 'https://example.com/b.jpg', quickReplyPayload: 'recipe_b' }
+    ],
+    itemButtonIds: ['recipe_a', 'recipe_DIFFERENT']
+  });
+
+  assert.throws(
+    () => new FlowEngine({ botConfig }),
+    /carouselTemplate quickReplyPayload values must exactly match items\[\]\.buttonId values/
+  );
+});
+
+test('FlowEngine accepts a carouselTemplate whose quickReplyPayload values match the fallback items[].buttonId values', () => {
+  const botConfig = buildCarouselBotConfig({
+    carouselCards: [
+      { imageLink: 'https://example.com/a.jpg', quickReplyPayload: 'recipe_a' },
+      { imageLink: 'https://example.com/b.jpg', quickReplyPayload: 'recipe_b' }
+    ],
+    itemButtonIds: ['recipe_a', 'recipe_b']
+  });
+
+  assert.doesNotThrow(() => new FlowEngine({ botConfig }));
+});
+
 test('FlowEngine cards state sends intro + one image-button message per item + footer, then gates on the reply', async () => {
   const botConfig = {
     botId: 't',

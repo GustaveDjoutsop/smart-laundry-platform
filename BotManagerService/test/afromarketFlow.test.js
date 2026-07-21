@@ -430,18 +430,20 @@ test('AfroMarket: WhatsApp UI limits respected across the whole config', () => {
 test('AfroMarket: recipe_actions dynamic buttonsFromContext sets also respect WhatsApp UI limits', async () => {
   // recipe_actions builds its buttons in JS (buttonsFromContext), not the static
   // JSON `buttons` array the generic scan above covers - check both variants here.
+  // Uses East African (still the interim vertical-cards mechanism) since West
+  // African now fires the real carousel template, covered separately below.
   const step = createStepper();
 
   await step('hi');
   await step('recipes');
   await step('browse_recipes');
-  const emptyCart = await step('region_west');
-  for (const dish of emptyCart.outboundIntents.slice(1, 4)) {
+  const emptyCart = await step('region_east');
+  for (const dish of emptyCart.outboundIntents.slice(1, 3)) {
     assert.ok(dish.buttons.length <= 3);
     for (const button of dish.buttons) assert.ok(button.title.length <= 20);
   }
 
-  const freshRecipeView = await step('recipe_jollof_rice');
+  const freshRecipeView = await step('recipe_injera_tibs');
   const freshButtons = freshRecipeView.outboundIntents[1].buttons;
   assert.deepEqual(freshButtons.map((b) => b.id), ['buy_ingredients', 'more_recipes', 'menu']);
   assert.ok(freshButtons.length <= 3);
@@ -454,7 +456,39 @@ test('AfroMarket: recipe_actions dynamic buttonsFromContext sets also respect Wh
   for (const button of purchaseButtons) assert.ok(button.title.length <= 20, `'${button.title}' exceeds 20 chars`);
 });
 
-test('AfroMarket: region cards states fan out one image+button message per dish, then footer controls', async () => {
+test('AfroMarket: East/North/Central region cards still fan out one image+button message per dish', async () => {
+  const step = createStepper();
+
+  await step('hi');
+  await step('recipes');
+  await step('browse_recipes');
+
+  const result = await step('region_east');
+  assert.equal(result.outboundIntents.length, 4);
+  assert.equal(result.outboundIntents[0].type, 'text');
+  assert.match(result.outboundIntents[0].body, /East African Recipes/);
+
+  const dishMessages = result.outboundIntents.slice(1, 3);
+  for (const dish of dishMessages) {
+    assert.equal(dish.type, 'buttons');
+    assert.ok(dish.image, `${dish.body} card is missing its image`);
+    assert.equal(dish.buttons.length, 1);
+    assert.match(dish.buttons[0].title, /Get this recipe/);
+  }
+  assert.match(dishMessages[0].body, /Injera with Tibs/);
+  assert.match(dishMessages[1].body, /Ugali/);
+
+  const footer = result.outboundIntents[3];
+  assert.equal(footer.type, 'buttons');
+  assert.deepEqual(footer.buttons.map((b) => b.id), ['back_regions', 'menu']);
+
+  // Tapping a specific dish's own card button still opens its full recipe.
+  const detail = await step('recipe_ugali_sukuma');
+  assert.equal(detail.outboundIntents[0].type, 'image');
+  assert.match(detail.outboundIntents[0].caption, /Ugali/);
+});
+
+test('AfroMarket: West African region fires the real approved carousel template, and a card tap opens the recipe', async () => {
   const step = createStepper();
 
   await step('hi');
@@ -462,27 +496,58 @@ test('AfroMarket: region cards states fan out one image+button message per dish,
   await step('browse_recipes');
 
   const result = await step('region_west');
-  assert.equal(result.outboundIntents.length, 5);
-  assert.equal(result.outboundIntents[0].type, 'text');
-  assert.match(result.outboundIntents[0].body, /West African Recipes/);
-
-  const dishMessages = result.outboundIntents.slice(1, 4);
-  for (const dish of dishMessages) {
-    assert.equal(dish.type, 'buttons');
-    assert.ok(dish.image, `${dish.body} card is missing its image`);
-    assert.equal(dish.buttons.length, 1);
-    assert.match(dish.buttons[0].title, /Get this recipe/);
+  assert.equal(result.outboundIntents.length, 2);
+  const carousel = result.outboundIntents[0];
+  assert.equal(carousel.type, 'template_carousel');
+  assert.equal(carousel.templateName, 'afromarket_west_african_recipes');
+  assert.equal(carousel.languageCode, 'en_US');
+  assert.equal(carousel.cards.length, 3);
+  assert.deepEqual(
+    carousel.cards.map((c) => c.quickReplyPayload),
+    ['recipe_jollof_rice', 'recipe_egusi_soup', 'recipe_suya_skewers']
+  );
+  for (const card of carousel.cards) {
+    assert.match(card.imageLink, /^https:\/\//);
   }
-  assert.match(dishMessages[0].body, /Jollof Rice/);
-  assert.match(dishMessages[1].body, /Egusi Soup/);
-  assert.match(dishMessages[2].body, /Suya Skewers/);
 
-  const footer = result.outboundIntents[4];
+  const footer = result.outboundIntents[1];
   assert.equal(footer.type, 'buttons');
   assert.deepEqual(footer.buttons.map((b) => b.id), ['back_regions', 'menu']);
 
-  // Tapping a specific dish's own card button still opens its full recipe.
+  // A quick-reply tap arrives as plain text (message.button.payload) - typing
+  // the payload directly must open that recipe's full detail + Bon appetit.
   const detail = await step('recipe_egusi_soup');
+  assert.equal(detail.outboundIntents.length, 2);
   assert.equal(detail.outboundIntents[0].type, 'image');
   assert.match(detail.outboundIntents[0].caption, /Egusi Soup/);
+  assert.equal(detail.outboundIntents[1].type, 'buttons');
+});
+
+test('AfroMarket: West African carousel falls back to vertical cards if the template send fails', async () => {
+  const flowEngine = new FlowEngine({ botConfig, plugin: new AfroMarketFlowPlugin({ botConfig }) });
+  let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
+  const step = async (text) => {
+    const outboundIntents = [];
+    ({ state: conversationState } = await flowEngine.step({
+      from: '+33600000000',
+      message: { text: { body: text } },
+      state: conversationState,
+      send: async (outboundIntent) => {
+        if (outboundIntent.type === 'template_carousel') {
+          throw new Error('simulated WhatsApp template send failure');
+        }
+        outboundIntents.push(outboundIntent);
+      }
+    }));
+    return { outboundIntents, conversationState };
+  };
+
+  await step('hi');
+  await step('recipes');
+  await step('browse_recipes');
+  const result = await step('region_west');
+
+  assert.equal(result.outboundIntents[0].type, 'text');
+  assert.match(result.outboundIntents[0].body, /West African Recipes/);
+  assert.match(result.outboundIntents[1].caption ?? result.outboundIntents[1].body ?? '', /Jollof Rice/i);
 });

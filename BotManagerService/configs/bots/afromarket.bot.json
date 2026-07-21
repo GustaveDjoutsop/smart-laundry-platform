@@ -444,6 +444,16 @@
           "id": "west_recipes",
           "type": "cards",
           "intro": "🌴 *West African Recipes*\n\nOur favorite West African dishes — tap \"Get this recipe\" on the one that looks good:",
+          "carouselTemplate": {
+            "templateName": "afromarket_west_african_recipes",
+            "languageCode": "en_US",
+            "bodyParams": ["there"],
+            "cards": [
+              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Jollof_rice_with_vegetable.jpg/960px-Jollof_rice_with_vegetable.jpg", "quickReplyPayload": "recipe_jollof_rice" },
+              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/89/Egusi_soup_in_a_plate.jpg/960px-Egusi_soup_in_a_plate.jpg", "quickReplyPayload": "recipe_egusi_soup" },
+              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b4/Suya_with_pepper_sauce.jpg/960px-Suya_with_pepper_sauce.jpg", "quickReplyPayload": "recipe_suya_skewers" }
+            ]
+          },
           "items": [
             { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Jollof_rice_with_vegetable.jpg/960px-Jollof_rice_with_vegetable.jpg", "caption": "*Jollof Rice*\n45 min · 380 kcal · Easy", "buttonId": "recipe_jollof_rice", "buttonTitle": "➡️ Get this recipe" },
             { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/89/Egusi_soup_in_a_plate.jpg/960px-Egusi_soup_in_a_plate.jpg", "caption": "*Egusi Soup*\n50 min · 510 kcal · Medium", "buttonId": "recipe_egusi_soup", "buttonTitle": "➡️ Get this recipe" },

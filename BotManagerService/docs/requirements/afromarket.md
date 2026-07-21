@@ -97,39 +97,59 @@ Seasoning, Fresh & Frozen), priced in EUR. 8 recipes carried over from v1,
 each mapped in `recipeIngredients` to 1–3 of those products for the "buy
 ingredients" shortcut. All images are verified `upload.wikimedia.org` links.
 
-## Recipe browsing: visual dish cards (interim) + real carousel (pending)
+## Recipe browsing: real horizontal carousel for West Africa, vertical cards elsewhere
 
-Choosing a region (West/East/North/Central) sends one photo+button message
-per dish (see the new `cards` state type in `flowEngine.js`) instead of a
-text-only list, since list message headers can't carry per-row photos. Each
-card has its own "➡️ Get this recipe" button — tapping any one of them (not
-just the last rendered) opens that dish's full recipe. This ships today, no
-Meta approval needed, but the cards stack vertically rather than scrolling
-horizontally.
+East/North/Central regions still send one photo+button message per dish (the
+`cards` state type in `flowEngine.js`) instead of a text-only list, since list
+message headers can't carry per-row photos. No Meta approval needed, but the
+cards stack vertically rather than scrolling horizontally.
 
-**True horizontal scrolling** (matching Jasper's Market exactly) requires a
-Meta-approved WhatsApp Carousel Template — this is a hard platform
-constraint, not a code choice; freeform interactive messages can never
-scroll horizontally. Submitted a pilot template for the West African region
-on 2026-07-20:
+**West Africa gets true horizontal scrolling**, via a Meta-approved WhatsApp
+Carousel Template — this was a hard platform constraint, not a code choice;
+freeform interactive messages can never scroll horizontally.
 
-- Template name: `afromarket_west_african_recipes`, template ID
-  `1063703219418196`, category `MARKETING` (Meta rejects `UTILITY` for
-  carousel templates), language `en_US`.
-- 3 cards (Jollof Rice, Egusi Soup, Suya Skewers), each with its dish photo
-  (uploaded via the Resumable Upload API → `header_handle`, not a public URL)
-  and a "Get this recipe" quick-reply button.
-- **Status as of submission: `PENDING`** Meta review. Check current status:
-  `GET /4464369590494418/message_templates?name=afromarket_west_african_recipes`
-  with the `WHATSAPP_ACCESS_TOKEN_AFROMARKET` bearer token, or in WhatsApp
-  Manager → Message Templates.
-- Once approved: sending a template message requires
-  `WhatsAppCloudClient` to gain a `sendTemplate`/carousel-send method (not yet
-  built — the interim `cards` state still runs meanwhile) and `west_recipes`
-  would switch to firing that template instead of the vertical cards.
-- The other 3 regions (East/North/Central) aren't submitted yet — this was a
-  single pilot to prove the upload → create → review pipeline works before
-  repeating it 3 more times.
+- Template `afromarket_west_african_recipes` (id `1063703219418196`,
+  category `MARKETING`, language `en_US`), submitted 2026-07-20 as a pilot,
+  **approved 2026-07-21**.
+- `flowEngine.js`'s `cards` state gained an optional `carouselTemplate` block
+  (`configs/bots/afromarket.bot.json`'s `west_recipes` state). When present,
+  the render branch sends ONE `template_carousel` intent instead of the
+  intro+items fan-out; on failure it catches the error and falls through to
+  the *same, unchanged* vertical-items code as a genuine fallback — a
+  template outage never leaves the customer with nothing. Verified live: a
+  real transient Wikimedia 429 while re-downloading an image for re-upload
+  triggered exactly this fallback, visually confirmed on WhatsApp.
+- `WhatsAppCloudClient` gained `uploadMedia({ link })` (downloads a public
+  image URL and re-uploads it to Meta's Media API to get an `id` — carousel
+  headers reference an uploaded media id, not a public link, unlike
+  `sendImage`/`sendButtons`) and `sendCarouselTemplate({...})` (builds the
+  `template.components = [body?, carousel]` payload per Meta's docs, one
+  `quick_reply` button per card with a distinct `payload` string so
+  identical-looking buttons still route differently — verified against
+  Meta's own carousel-template docs, not guessed from memory).
+- The reply-routing side needed **zero changes**: a quick-reply tap arrives
+  as plain text via `message.button.payload` (already handled by
+  `normalizeInbound`), and the SAME `saveAs: recipeChoice` / `next:
+  recipe_route` mechanism the vertical cards already used handles it,
+  since both card sets use identical `quickReplyPayload`/`buttonId` values
+  (`recipe_jollof_rice` etc). `validateFlowConfig` now enforces those two
+  sets stay in sync, so a future edit to one without the other fails fast at
+  startup instead of silently breaking the rarely-exercised fallback path.
+- **First attempt at this used two separate custom `action`-type plugin
+  states** (send, then wait-and-route) instead of extending `cards` — this
+  broke, because a plain `action` state chaining into an image→buttons
+  sequence within one turn never sets flowEngine's internal
+  `hasConsumedInboundText` flag, so the downstream `buttons` state
+  misinterpreted the still-fresh quick-reply payload as an answer to its own
+  prompt and routed to the main menu instead of the recipe. Abandoned that
+  design in favor of extending the already-proven `cards` mechanism instead.
+- Verified live end-to-end: genuine horizontally-scrolling cards rendered in
+  WhatsApp, and tapping a card's button correctly opened that recipe's full
+  detail + the "Bon appétit" follow-up.
+- The other 3 regions (East/North/Central) aren't submitted as carousel
+  templates yet — West Africa was the pilot to prove the whole pipeline
+  (upload → create → review → send → fallback) before repeating it 3 more
+  times.
 
 **Afro Restaurant is a directory, not AfroMarket's own restaurant**: it lists
 real African restaurants AfroMarket recommends around Berlin (see above), not

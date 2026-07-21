@@ -245,6 +245,117 @@ class WhatsAppCloudClient {
     return this._postWithRetry(messagesUrl, payload);
   }
 
+  // Carousel template headers reference an uploaded media id, not a public URL
+  // (unlike sendImage/sendButtons' image headers) - download the asset and
+  // re-upload it to Meta's Media API to get that id.
+  async uploadMedia({ link } = {}) {
+    if (!this.isConfigured()) {
+      throw new Error('WhatsApp client not configured (missing accessToken/phoneNumberId)');
+    }
+
+    const sourceUrl = String(link || '').trim();
+    if (!sourceUrl) {
+      throw new Error('uploadMedia requires a non-empty link');
+    }
+
+    const imageRes = await this.fetchImpl(sourceUrl);
+    if (!imageRes.ok) {
+      throw new Error(`uploadMedia: failed to download ${sourceUrl} (status=${imageRes.status})`);
+    }
+    const arrayBuffer = await imageRes.arrayBuffer();
+    const contentType = (imageRes.headers && imageRes.headers.get && imageRes.headers.get('content-type')) || 'image/jpeg';
+
+    const base = String(this.apiBase || 'https://graph.facebook.com').replace(/\/$/, '');
+    const version = String(this.apiVersion || 'v20.0').replace(/^\//, '');
+    const uploadUrl = `${base}/${version}/${encodeURIComponent(this.phoneNumberId)}/media`;
+
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('file', new Blob([arrayBuffer], { type: contentType }), 'image.jpg');
+
+    const res = await this.fetchImpl(uploadUrl, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.accessToken}` },
+      body: form
+    });
+
+    const data = await res.json().catch(async () => ({ raw: await res.text().catch(() => '') }));
+    if (!res.ok || !data.id) {
+      logger.warn('WhatsApp media upload failed', data);
+      throw new Error(`uploadMedia failed (status=${res.status})`);
+    }
+
+    return data.id;
+  }
+
+  async sendCarouselTemplate({ to, templateName, languageCode, bodyParams, cards } = {}) {
+    if (!this.isConfigured()) {
+      throw new Error('WhatsApp client not configured (missing accessToken/phoneNumberId)');
+    }
+
+    const name = String(templateName || '').trim();
+    if (!name) {
+      throw new Error('sendCarouselTemplate requires a non-empty templateName');
+    }
+    if (!Array.isArray(cards) || cards.length === 0) {
+      throw new Error('sendCarouselTemplate requires a non-empty cards array');
+    }
+
+    const cardComponents = [];
+    for (let index = 0; index < cards.length; index += 1) {
+      const card = cards[index] || {};
+      const payload = String(card.quickReplyPayload || '').trim();
+      if (!payload) {
+        throw new Error(`sendCarouselTemplate: card ${index} is missing quickReplyPayload`);
+      }
+
+      // eslint-disable-next-line no-await-in-loop
+      const mediaId = card.imageMediaId || (card.imageLink ? await this.uploadMedia({ link: card.imageLink }) : null);
+      if (!mediaId) {
+        throw new Error(`sendCarouselTemplate: card ${index} is missing imageLink/imageMediaId`);
+      }
+
+      cardComponents.push({
+        card_index: index,
+        components: [
+          { type: 'header', parameters: [{ type: 'image', image: { id: mediaId } }] },
+          {
+            type: 'button',
+            sub_type: 'quick_reply',
+            index: '0',
+            parameters: [{ type: 'payload', payload }]
+          }
+        ]
+      });
+    }
+
+    const messagesUrl = buildMessagesUrl({
+      apiBase: this.apiBase,
+      apiVersion: this.apiVersion,
+      phoneNumberId: this.phoneNumberId
+    });
+
+    const safeBodyParams = Array.isArray(bodyParams) ? bodyParams : [];
+
+    const templatePayload = {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'template',
+      template: {
+        name,
+        language: { code: languageCode || 'en_US' },
+        components: [
+          ...(safeBodyParams.length
+            ? [{ type: 'body', parameters: safeBodyParams.map((text) => ({ type: 'text', text: String(text) })) }]
+            : []),
+          { type: 'carousel', cards: cardComponents }
+        ]
+      }
+    };
+
+    return this._postWithRetry(messagesUrl, templatePayload);
+  }
+
   async _postWithRetry(url, payload) {
     const maxAttempts = 3;
 
