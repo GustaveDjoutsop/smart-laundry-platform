@@ -1,4 +1,6 @@
 const { FlowPlugin } = require('../../core/flows/flowPlugin');
+const { getPaymentService } = require('../../core/payments/paymentService');
+const { logger } = require('../../utils/logger');
 
 function formatEuro(amount) {
   const value = Number(amount) || 0;
@@ -49,6 +51,24 @@ function generateOrderNumber() {
 function estimatedDeliveryDate() {
   const deliveryDate = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
   return deliveryDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function buildOrderConfirmationText({ orderNumber, cart, name, address, phone }) {
+  const grandTotal = cart.reduce((sum, line) => sum + line.unitPrice * line.qty, 0);
+  const itemLines = cart.map((line) => `• ${line.qty}x ${line.name}`).join('\n');
+
+  return (
+    `✅ *Order confirmed*\n\n` +
+    `Hi ${name},\n\n` +
+    `Thank you for your purchase! Your order number is *${orderNumber}*.\n\n` +
+    `${itemLines}\n\n` +
+    `Total: *${formatEuro(grandTotal)}*\n` +
+    `Delivering to: ${address}\n` +
+    `Contact: ${phone}\n\n` +
+    `We'll start getting your fresh African groceries ready to ship.\n` +
+    `Estimated delivery: ${estimatedDeliveryDate()}.\n\n` +
+    `We will let you know when your order ships.`
+  );
 }
 
 // AfroMarketFlowPlugin adds the two pieces of behavior that a pure JSON config
@@ -168,11 +188,12 @@ class AfroMarketFlowPlugin extends FlowPlugin {
     return true;
   }
 
-  _handleCheckout(ctx) {
+  async _handleCheckout(ctx) {
     const cart = ctx.get('cart') || [];
     const name = ctx.get('checkoutName') || 'there';
     const address = ctx.get('checkoutAddress') || '';
     const phone = ctx.get('checkoutPhone') || '';
+    const email = ctx.get('checkoutEmail') || '';
 
     if (!cart.length) {
       ctx.set(
@@ -184,27 +205,90 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       return true;
     }
 
-    const orderNumber = generateOrderNumber();
-    const grandTotal = cart.reduce((sum, line) => sum + line.unitPrice * line.qty, 0);
-    const itemLines = cart.map((line) => `• ${line.qty}x ${line.name}`).join('\n');
+    const { gateway } = getPaymentService();
+    const flutterwave = gateway.getProvider('flutterwave');
+    const paymentsConfigured = Boolean(flutterwave && flutterwave.isConfigured());
 
-    ctx.set(
-      'orderConfirmationText',
-      `✅ *Order confirmed*\n\n` +
-        `Hi ${name},\n\n` +
-        `Thank you for your purchase! Your order number is *${orderNumber}*.\n\n` +
-        `${itemLines}\n\n` +
-        `Total: *${formatEuro(grandTotal)}*\n` +
-        `Delivering to: ${address}\n` +
-        `Contact: ${phone}\n\n` +
-        `We'll start getting your fresh African groceries ready to ship.\n` +
-        `Estimated delivery: ${estimatedDeliveryDate()}.\n\n` +
-        `We will let you know when your order ships.`
-    );
-    ctx.set('cart', []);
-    ctx.goto('order_confirmed');
-    return true;
+    // No payment provider configured at all (e.g. local dev without FLUTTERWAVE_SECRET_KEY) -
+    // legacy instant confirmation, unchanged from before payments existed.
+    if (!paymentsConfigured) {
+      const orderNumber = generateOrderNumber();
+      const cartSnapshot = cart.map((line) => ({ ...line }));
+      ctx.set('cart', []);
+      ctx.set('orderConfirmationText', buildOrderConfirmationText({ orderNumber, cart: cartSnapshot, name, address, phone }));
+      ctx.goto('order_confirmed');
+      return true;
+    }
+
+    const orderNumber = generateOrderNumber();
+    const cartSnapshot = cart.map((line) => ({ ...line }));
+    const grandTotal = cartSnapshot.reduce((sum, line) => sum + line.unitPrice * line.qty, 0);
+
+    try {
+      const payment = await gateway.initiatePayment({
+        botId: 'afromarket',
+        amount: grandTotal,
+        currency: this.botConfig.currency || 'EUR',
+        phoneNumber: ctx.from,
+        reference: orderNumber,
+        description: `AfroMarket order ${orderNumber}`,
+        preferredProvider: 'flutterwave',
+        customerEmail: email,
+        customerName: name,
+        metadata: { service: 'afromarket_order', orderNumber, cart: cartSnapshot, name, address, phone }
+      });
+
+      if (!payment.checkoutUrl) {
+        throw new Error('Flutterwave initiatePayment returned no checkoutUrl');
+      }
+
+      // Only clear the cart once a real payment session actually exists - a
+      // failed initiatePayment call above must never drop the customer's cart.
+      ctx.set('cart', []);
+
+      const payText =
+        `📝 Order *${orderNumber}* is ready — *${formatEuro(grandTotal)}*.\n\n` +
+        `Tap below to pay securely. We'll confirm right here as soon as your payment goes through.`;
+      ctx.set('orderConfirmationText', payText);
+
+      try {
+        await ctx.send({
+          type: 'cta_url',
+          to: ctx.from,
+          body: `💳 Pay for order ${orderNumber}`,
+          buttonText: 'Pay Now',
+          url: payment.checkoutUrl
+        });
+      } catch (sendErr) {
+        // The payment session already exists - losing the rich message must not
+        // lose the link itself, so fall back to a plain-text URL the customer
+        // still receives via the state's own outbound message.
+        logger.warn('AfroMarket: failed to send payment link message, including link in fallback text', {
+          error: sendErr && sendErr.message ? sendErr.message : String(sendErr)
+        });
+        ctx.set('orderConfirmationText', `${payText}\n\n💳 Pay here: ${payment.checkoutUrl}`);
+      }
+
+      ctx.goto('order_confirmed');
+      return true;
+    } catch (err) {
+      // A real payment provider is configured but initiation failed (bad email,
+      // outage, network error, ...) - never confirm an unpaid order as if it
+      // were paid. Keep the cart intact and let the customer retry.
+      logger.warn('AfroMarket: Flutterwave initiatePayment failed', {
+        error: err && err.message ? err.message : String(err)
+      });
+      await ctx.send({
+        type: 'text',
+        to: ctx.from,
+        body:
+          `⚠️ We couldn't start the payment for this order. Nothing has been charged and your cart is safe.\n\n` +
+          `Please check your email address and tap *Confirm Order* to try again.`
+      });
+      ctx.goto('checkout_review');
+      return true;
+    }
   }
 }
 
-module.exports = { AfroMarketFlowPlugin, formatEuro, buildCartSummaryText, generateOrderNumber };
+module.exports = { AfroMarketFlowPlugin, formatEuro, buildCartSummaryText, generateOrderNumber, buildOrderConfirmationText };

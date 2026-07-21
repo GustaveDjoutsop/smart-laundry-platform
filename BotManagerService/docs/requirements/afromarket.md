@@ -1,8 +1,8 @@
 # AfroMarket WhatsApp Bot
 
-**v2 (`botVersion2`)**: AfroMarket is now a commerce bot — European Afro-grocery
-delivery, recipes with a "buy these ingredients" shortcut, plus info cards for
-a physical restaurant and store — modeled closely on Meta's own
+**v2 (`botVersion2`)**: AfroMarket is now a commerce bot — Afro-grocery
+delivery for Germany, recipes with a "buy these ingredients" shortcut, plus
+info cards for a physical restaurant and store — modeled closely on Meta's own
 [Jasper's Market](https://github.com/fbsamples/whatsapp-business-jaspers-market)
 demo (cloned locally, and tried live on WhatsApp under the "Jasper's Market"
 business chat to match its tone/labels/flow shape).
@@ -47,7 +47,8 @@ ThomasNetwork already did for their own custom needs).
 hi/menu → Main menu (list, Jasper-style wording)
   ├─ 🛒 Shop online → category list (Grains/Pantry/Spices/Fresh)
   │     └─ product list → product detail (image+price) → Add to Cart / View Cart / Back
-  │           → cart_view → Checkout (name → address → phone) → review & confirm → order confirmed
+  │           → cart_view → Checkout (name → address → phone → email) → review & confirm
+  │                 → 💳 real Flutterwave payment link (cta_url) → order confirmed (async, on payment.completed)
   ├─ 🍲 Get recipe ideas → recipes hub
   │     ├─ Browse Recipes → region → recipe detail → 🛒 Buy ingredients (adds to cart)
   │     ├─ Healthy Meal Plans (7-day breakdowns, unchanged from v1)
@@ -79,15 +80,15 @@ things by testing directly against Meta's API rather than assuming:
   restaurant websites) instead of `buttonId` (quick-reply, routes back into
   the flow, e.g. recipes) — validated to require exactly one of the two.
 
-**The 3 restaurants are real** (found via web search, addresses/phones
-cross-checked against multiple sources, websites verified reachable):
-Le Petit Dakar (Senegalese, lepetitdakar.com), Ohinéné (Ivorian, ohinene.fr),
-BMK Paris-Bamako (West African/Mali, bmkparis.com). Ohinéné's and BMK's
-opening hours weren't confirmably found, so those cards say "Check website
-for current hours" rather than guessing — replace with confirmed hours
-whenever available. Verified live: tapping "Visit Website" shows WhatsApp's
-own "You're about to leave WhatsApp and go to https://..." confirmation with
-the correct restaurant URL, and actually opens that real site.
+**The 3 restaurants are real, Berlin-based** (AfroMarket's actual market is
+Germany, not France — corrected 2026-07-20; found via web search,
+addresses/phones/hours cross-checked against multiple sources, websites
+verified reachable): Bantabaa (Gambian, Kreuzberg, bantabaafooddealer.eu),
+Yajee (Nigerian & Caribbean, Charlottenburg, yajee.de), Afropot Berlin
+(Ghanaian, Manifesto Market at Potsdamer Platz, afropotberlin.de). Verified
+live: tapping "Visit Website" shows WhatsApp's own "You're about to leave
+WhatsApp and go to https://..." confirmation with the correct restaurant URL,
+and actually opens that real site.
 
 15 products across 4 categories (Grains & Starches, Pantry & Sauces, Spices &
 Seasoning, Fresh & Frozen), priced in EUR. 8 recipes carried over from v1,
@@ -129,13 +130,10 @@ on 2026-07-20:
   repeating it 3 more times.
 
 **Afro Restaurant is a directory, not AfroMarket's own restaurant**: it lists
-African restaurants AfroMarket knows/recommends around Paris (Baobab Kitchen –
-Senegalese, Le Maquis – Ivorian, Injera House – Ethiopian & Eritrean), not a
-location AfroMarket runs. All three currently use **placeholder** names/
-addresses/phones/hours in `configs/bots/afromarket.bot.json` — replace with
-real restaurants before going live. AfroMarket Store (the grocery shop) is
-unrelated and still a single info card, since AfroMarket only has the one
-physical store.
+real African restaurants AfroMarket recommends around Berlin (see above), not
+a location AfroMarket runs. AfroMarket Store (the grocery shop) is unrelated
+and still a single info card with a Berlin placeholder address, since
+AfroMarket only has the one physical store.
 
 **Recipe follow-up invariant**: every `recipe_detail_*` state's `next` must
 point straight to `recipe_actions` (the "Bon appétit! Want to keep exploring?"
@@ -196,14 +194,75 @@ Remaining/recurring steps:
 6. Production hardening: set `WHATSAPP_VERIFY_SIGNATURE=true` and
    `WHATSAPP_APP_SECRET` (App Settings → Basic → App Secret).
 
+## Payment: Flutterwave, not PayPal/Revolut/Meta Payments
+
+Added 2026-07-20. Three options were evaluated against the real constraint —
+Gustave's business is Cameroon-registered, AfroMarket's customers are in
+Germany:
+
+- **Meta's native WhatsApp Payments API** (in-chat `order_details` messages)
+  is Brazil/Singapore-only per Meta's own docs — not available in Europe.
+  Ruled out outright; any EU payment has to leave the chat via a link.
+- **Revolut Business**: requires the account-holding company to be
+  UK/EEA-registered with physical presence there. A Cameroon entity cannot
+  open one. Ruled out.
+- **PayPal**: Cameroon-registered PayPal accounts are send-only — they
+  cannot *receive* money. Ruled out for the same underlying reason as
+  Revolut (receiving-account eligibility, not API quality).
+- **Flutterwave** (chosen): fully licensed and operating directly in
+  Cameroon; a Cameroon-registered Flutterwave for Business account can
+  accept international Visa/Mastercard/Amex payments from European
+  customers after a one-time "enable international cards" request
+  (~48h turnaround). No foreign entity required.
+
+**Architecture** (mirrors the existing CamPay pattern exactly — same
+`PaymentGateway`/provider-interface/`PaymentStatusWorker` machinery already
+used for the laundromat, just a different provider):
+
+- `src/core/payments/providers/flutterwaveProvider.js` — `isConfigured` /
+  `initiatePayment` (POST `/v3/payments`, Standard hosted checkout, returns
+  a `checkoutUrl`) / `checkStatus` (`GET /v3/transactions/verify_by_reference`)
+  / `verifyWebhook` / `parseWebhook`. Registered in `paymentService.js` when
+  `FLUTTERWAVE_SECRET_KEY` is set.
+- **Webhook verification is a plain timing-safe string comparison**, not an
+  HMAC: Flutterwave's classic Standard/Collections webhook returns the
+  dashboard-configured Secret Hash back verbatim in the `verif-hash` header
+  (unlike CamPay's HMAC-SHA256). `webhookSignature.js` now exports `safeEqual`
+  for this.
+- `POST /api/payments/webhooks/flutterwave/:botId` in `routes/payments.js`
+  mirrors the CamPay webhook route: verify → `gateway.handleWebhook` →
+  persist → emit `payment.status`. The existing `PaymentStatusWorker`
+  (already running, provider-agnostic) picks that up, dedupes, and emits
+  `payment.completed` on the PENDING→COMPLETED transition — no new polling
+  logic needed.
+- **Checkout flow** (`afromarketFlowPlugin.js::_handleCheckout`): added a
+  `checkout_email` input step (Flutterwave's hosted checkout requires a
+  customer email) between phone and review. On confirm, if Flutterwave is
+  configured, it calls `gateway.initiatePayment(...)` with the order as
+  `metadata` and sends the real hosted checkout link via the existing
+  `cta_url` message type ("💳 Pay for order AM-XXXX") — it no longer
+  confirms the order instantly. If Flutterwave isn't configured (e.g. local
+  dev with no `FLUTTERWAVE_SECRET_KEY`), it falls back to the old
+  instant-confirmation behavior so local testing still works without live
+  payment credentials.
+- **Order confirmation now happens async**: `AfroMarketBot` registers a
+  `payment.completed` listener (same shape as `ThomasNetworkBot`'s access-code
+  listener, including a Redis `setnx` idempotency lock so a duplicate webhook
+  can't double-send) that fires the real "✅ Order confirmed" WhatsApp message
+  — built from the cart/name/address/phone snapshotted in the payment's
+  `metadata` at initiation time — once the webhook confirms payment actually
+  went through.
+- Env vars: `FLUTTERWAVE_SECRET_KEY` (Bearer key for the REST API),
+  `FLUTTERWAVE_WEBHOOK_SECRET_HASH` (the Settings → Webhooks Secret Hash,
+  **not** the same value as the secret key), `FLUTTERWAVE_REDIRECT_URL`
+  (where Flutterwave sends the customer back after paying), optional
+  `FLUTTERWAVE_BASE_URL` override for testing.
+- **Not yet tested live** — needs real Flutterwave sandbox/test credentials
+  from Gustave before a payment link can actually be sent and confirmed on
+  WhatsApp.
+
 ## Known limitations / next steps
 
-- **Checkout is a stub**: it collects name/address/phone, shows a review
-  screen (Confirm / Start Over / Cancel) so a mistyped or reserved-word reply
-  can't silently place an order, then confirms an order number — but doesn't
-  take payment or persist orders anywhere; there's no order store, no
-  Stripe/CamPay integration yet. Add a real payment step before taking this
-  to real customers.
 - **Product data is duplicated 2–3x** (the `products` catalog array, each
   category list row's price, and each `product_detail_*` caption) since prices
   are baked into strings for simplicity. If prices change often, worth adding

@@ -17,4 +17,4 @@ function verifyHmacSha256Hex({ secret, rawBody, signatureHex }) {
   return safeEqual(expected, signatureHex);
 }
 
-module.exports = { computeHmacSha256Hex, verifyHmacSha256Hex };
+module.exports = { computeHmacSha256Hex, verifyHmacSha256Hex, safeEqual };

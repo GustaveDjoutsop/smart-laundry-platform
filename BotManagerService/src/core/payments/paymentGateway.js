@@ -19,7 +19,19 @@ class PaymentGateway {
     return this.providers[name] || null;
   }
 
-  async initiatePayment({ botId, amount, currency, phoneNumber, reference, description, preferredProvider, metadata } = {}) {
+  async initiatePayment({
+    botId,
+    amount,
+    currency,
+    phoneNumber,
+    reference,
+    description,
+    preferredProvider,
+    metadata,
+    customerEmail,
+    customerName,
+    redirectUrl
+  } = {}) {
     const providerName = this.selectProvider({ preferredProvider });
     const provider = this.getProvider(providerName);
     if (!provider) throw new Error('No payment provider available');
@@ -30,7 +42,10 @@ class PaymentGateway {
       phoneNumber,
       reference,
       description,
-      preferredProvider
+      preferredProvider,
+      customerEmail,
+      customerName,
+      redirectUrl
     });
 
     const record = {
@@ -42,6 +57,7 @@ class PaymentGateway {
       amount,
       currency: currency || 'XAF',
       status: normalizeStatus(result.status),
+      checkoutUrl: result.checkoutUrl || null,
       metadata: metadata && typeof metadata === 'object' ? metadata : null,
       createdAt: new Date().toISOString(),
       raw: result.raw || null

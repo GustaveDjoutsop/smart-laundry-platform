@@ -77,10 +77,14 @@ test('AfroMarket: full shop -> product -> cart -> checkout flow', async () => {
   assert.match(result.outboundIntents[0].body, /phone number/);
 
   result = await step('+49 170 1234567');
+  assert.match(result.outboundIntents[0].body, /email address/);
+
+  result = await step('jane@example.com');
   assert.match(result.outboundIntents[0].body, /confirm your order/i);
   assert.match(result.outboundIntents[0].body, /Name: Jane Doe/);
   assert.match(result.outboundIntents[0].body, /Address: 12 Main St, Berlin/);
   assert.match(result.outboundIntents[0].body, /Phone: \+49 170 1234567/);
+  assert.match(result.outboundIntents[0].body, /Email: jane@example\.com/);
   assert.deepEqual(
     result.outboundIntents[0].buttons.map((b) => b.id),
     ['confirm_order', 'restart_checkout', 'cancel_checkout']
@@ -123,6 +127,7 @@ test('AfroMarket: checking out with an empty cart shows a warning instead of an 
   await step('Jane Doe');
   await step('Some Address');
   await step('+49123456');
+  await step('jane@example.com');
   const result = await step('confirm_order');
 
   assert.match(result.outboundIntents[0].body, /cart was empty/);
@@ -144,10 +149,11 @@ test('AfroMarket: typing a reserved word mid-checkout does not silently place an
   await step('start_checkout');
   await step('Jane Doe');
   await step('menu');
-  const afterPhone = await step('cancel');
+  await step('cancel');
+  const afterEmail = await step('back');
 
-  assert.match(afterPhone.outboundIntents[0].body, /confirm your order/i);
-  assert.notEqual(afterPhone.outboundIntents[0].body, undefined);
+  assert.match(afterEmail.outboundIntents[0].body, /confirm your order/i);
+  assert.notEqual(afterEmail.outboundIntents[0].body, undefined);
 
   const result = await step('cancel_checkout');
   assert.match(result.outboundIntents[0].body, /Your Cart/);
@@ -231,7 +237,7 @@ test('AfroMarket: current promo, restaurant info and store info are reachable an
 
   result = await step('afromarket_store');
   assert.match(result.outboundIntents[0].body, /AfroMarket Store/);
-  assert.match(result.outboundIntents[0].body, /Avenue des Épices/);
+  assert.match(result.outboundIntents[0].body, /Gewürzstraße/);
   assert.match(result.outboundIntents[0].body, /Opening Hours/);
 });
 
@@ -252,12 +258,12 @@ test('AfroMarket: Afro Restaurant sends real restaurants as cards with working V
     assert.match(card.url, /^https:\/\//);
     assert.match(card.buttonText, /Visit Website/);
   }
-  assert.match(cards[0].body, /Le Petit Dakar/);
-  assert.equal(cards[0].url, 'https://www.lepetitdakar.com/en');
-  assert.match(cards[1].body, /Ohinéné/);
-  assert.equal(cards[1].url, 'https://www.ohinene.fr/');
-  assert.match(cards[2].body, /BMK Paris-Bamako/);
-  assert.equal(cards[2].url, 'https://www.bmkparis.com/');
+  assert.match(cards[0].body, /Bantabaa/);
+  assert.equal(cards[0].url, 'https://bantabaafooddealer.eu/');
+  assert.match(cards[1].body, /Yajee/);
+  assert.equal(cards[1].url, 'https://www.yajee.de/');
+  assert.match(cards[2].body, /Afropot Berlin/);
+  assert.equal(cards[2].url, 'https://www.afropotberlin.de/en');
 
   const footer = result.outboundIntents[4];
   assert.equal(footer.type, 'buttons');

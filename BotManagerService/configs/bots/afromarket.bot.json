@@ -307,12 +307,19 @@
           "type": "input",
           "prompt": "📞 What's the best contact phone number?",
           "saveAs": "checkoutPhone",
+          "next": "checkout_email"
+        },
+        {
+          "id": "checkout_email",
+          "type": "input",
+          "prompt": "📧 What's your email address? We'll send your payment receipt there.",
+          "saveAs": "checkoutEmail",
           "next": "checkout_review"
         },
         {
           "id": "checkout_review",
           "type": "buttons",
-          "template": "📝 *Please confirm your order:*\n\nName: {{checkoutName}}\nAddress: {{checkoutAddress}}\nPhone: {{checkoutPhone}}\n\n{{cartSummaryText}}",
+          "template": "📝 *Please confirm your order:*\n\nName: {{checkoutName}}\nAddress: {{checkoutAddress}}\nPhone: {{checkoutPhone}}\nEmail: {{checkoutEmail}}\n\n{{cartSummaryText}}",
           "buttons": [
             { "id": "confirm_order", "title": "✅ Confirm Order" },
             { "id": "restart_checkout", "title": "✏️ Start Over" },
@@ -707,24 +714,24 @@
         {
           "id": "afro_restaurant_list",
           "type": "cards",
-          "intro": "🍽️ *Afro Restaurants*\n\nReal African restaurants we recommend around Paris — tap Visit Website for their menu, hours and reservations:",
+          "intro": "🍽️ *Afro Restaurants*\n\nReal African restaurants we recommend around Berlin — tap Visit Website for their menu, hours and reservations:",
           "items": [
             {
-              "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cf/Senegalese_Thieboudienne.JPG/960px-Senegalese_Thieboudienne.JPG",
-              "caption": "*Le Petit Dakar* — Senegalese\n📍 6 Rue Elzévir, 75003 Paris (Le Marais)\n📞 +33 1 44 59 34 74\n🕐 Tue–Sat 12:30–14:30 & 19:30–22:30 (closed Sun–Mon)",
-              "buttonUrl": "https://www.lepetitdakar.com/en",
+              "image": "https://upload.wikimedia.org/wikipedia/commons/8/8e/Domoda.jpg",
+              "caption": "*Bantabaa* — Gambian\n📍 Wrangelstraße 82, 10997 Berlin (Kreuzberg)\n📞 +49 152 14657388\n🕐 Mon–Thu 12:00–22:00, Fri–Sun 12:00–22:30",
+              "buttonUrl": "https://bantabaafooddealer.eu/",
               "buttonTitle": "🌐 Visit Website"
             },
             {
-              "image": "https://upload.wikimedia.org/wikipedia/commons/9/94/Attieke_and_chicken.jpg",
-              "caption": "*Ohinéné* — Ivorian\n📍 14 Rue de la Chine, 75020 Paris\n📞 +33 6 43 62 32 19\n🕐 Check website for current hours",
-              "buttonUrl": "https://www.ohinene.fr/",
+              "image": "https://upload.wikimedia.org/wikipedia/commons/4/44/Original_Nigerian_Egusi_soup_and_yellow_garri_%28Eba%29.jpg",
+              "caption": "*Yajee* — Nigerian & Caribbean\n📍 Lietzenburger Str. 20b, 10789 Berlin (Charlottenburg)\n📞 +49 30 695 66 666\n🕐 Tue–Sat 15:00–22:00, Sun 16:00–22:00 (closed Mon)",
+              "buttonUrl": "https://www.yajee.de/",
               "buttonTitle": "🌐 Visit Website"
             },
             {
-              "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/Maaf%C3%A9.jpg/960px-Maaf%C3%A9.jpg",
-              "caption": "*BMK Paris-Bamako* — West African (Mali)\n📍 14 Rue de la Fidélité, 75010 Paris (Canal Saint-Martin)\n🕐 Check website for current hours & contact",
-              "buttonUrl": "https://www.bmkparis.com/",
+              "image": "https://upload.wikimedia.org/wikipedia/commons/8/81/Ghanaian_Wache_%28Waakye%29_cuisine_food.jpg",
+              "caption": "*Afropot Berlin* — Ghanaian\n📍 Alte Potsdamer Str. 7, 10785 Berlin (Manifesto Market, Potsdamer Platz)\n📞 +49 1516 7700776\n🕐 Daily 11:00–20:00",
+              "buttonUrl": "https://www.afropotberlin.de/en",
               "buttonTitle": "🌐 Visit Website"
             }
           ],
@@ -738,7 +745,7 @@
         {
           "id": "afromarket_store_info",
           "type": "buttons",
-          "template": "🏬 *AfroMarket Store*\n\nOur physical grocery store — browse the freshest African produce & pantry staples in person.\n\n📍 Address: 45 Avenue des Épices, 75011 Paris, France\n📞 Phone: +33 1 98 76 54 32\n🕐 Opening Hours:\nMon–Sat: 09:00–20:00\nSun: 10:00–18:00\n\nCan't visit? Shop online right here on WhatsApp!",
+          "template": "🏬 *AfroMarket Store*\n\nOur physical grocery store — browse the freshest African produce & pantry staples in person.\n\n📍 Address: 12 Gewürzstraße, 10999 Berlin, Germany\n📞 Phone: +49 30 1234 5678\n🕐 Opening Hours:\nMon–Sat: 09:00–20:00\nSun: 10:00–18:00\n\nCan't visit? Shop online right here on WhatsApp!",
           "buttons": [
             { "id": "shop_online", "title": "🛒 Shop online" },
             { "id": "menu", "title": "🏠 Main menu" }

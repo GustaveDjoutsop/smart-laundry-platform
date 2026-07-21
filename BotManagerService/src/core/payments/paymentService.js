@@ -4,6 +4,7 @@ const { PaymentStore } = require('./paymentStore');
 const { paymentEvents } = require('./paymentEvents');
 const { CamPayProvider } = require('./providers/campayProvider');
 const { MtnMomoProvider } = require('./providers/mtnMomoProvider');
+const { FlutterwaveProvider } = require('./providers/flutterwaveProvider');
 
 let cached;
 
@@ -25,6 +26,23 @@ function getPaymentService() {
 
   // MTN is currently a stub (real integration comes later)
   providers.mtn = new MtnMomoProvider({ logger });
+
+  if (process.env.FLUTTERWAVE_SECRET_KEY) {
+    if (!process.env.FLUTTERWAVE_WEBHOOK_SECRET_HASH) {
+      logger.warn(
+        'FLUTTERWAVE_SECRET_KEY is set but FLUTTERWAVE_WEBHOOK_SECRET_HASH is not - ' +
+          'every Flutterwave webhook will be rejected (fail-closed) until it is configured'
+      );
+    }
+
+    providers.flutterwave = new FlutterwaveProvider({
+      secretKey: process.env.FLUTTERWAVE_SECRET_KEY,
+      webhookSecretHash: process.env.FLUTTERWAVE_WEBHOOK_SECRET_HASH,
+      baseUrl: process.env.FLUTTERWAVE_BASE_URL || 'https://api.flutterwave.com/v3',
+      redirectUrl: process.env.FLUTTERWAVE_REDIRECT_URL,
+      logger
+    });
+  }
 
   const store = new PaymentStore({
     ttlSeconds: Number(process.env.PAYMENT_TTL_SECONDS || 60 * 60 * 24)
