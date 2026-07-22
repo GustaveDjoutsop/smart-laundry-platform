@@ -294,8 +294,54 @@ test('AfroMarket: current promo, restaurant info and store info are reachable an
   assert.match(result.outboundIntents[0].body, /Opening Hours/);
 });
 
-test('AfroMarket: Afro Restaurant sends real restaurants as cards with working Visit Website buttons', async () => {
+test('AfroMarket: Afro Restaurant fires its real approved carousel template, with URL buttons and footer after it', async () => {
   const step = createStepper();
+
+  await step('hi');
+  const result = await step('afro_restaurant');
+
+  assert.equal(result.outboundIntents.length, 2);
+  const carousel = result.outboundIntents[0];
+  assert.equal(carousel.type, 'template_carousel');
+  assert.equal(carousel.templateName, 'afromarket_restaurants_v1');
+  assert.equal(carousel.cards.length, 3);
+  for (const card of carousel.cards) {
+    assert.equal(card.buttonType, 'url');
+    assert.match(card.imageLink, /^https:\/\//);
+    assert.match(card.url, /^https:\/\//);
+  }
+  assert.equal(carousel.cards[0].url, 'https://bantabaafooddealer.eu/');
+  assert.equal(carousel.cards[1].url, 'https://www.yajee.de/');
+  assert.equal(carousel.cards[2].url, 'https://www.afropotberlin.de/en');
+
+  // "More options:" must always come after the carousel, never before it.
+  const footer = result.outboundIntents[1];
+  assert.equal(footer.type, 'buttons');
+  assert.deepEqual(footer.buttons.map((b) => b.id), ['menu']);
+
+  const afterTap = await step('menu');
+  assert.equal(afterTap.outboundIntents[0].type, 'list');
+  assert.match(afterTap.outboundIntents[0].body, /Welcome to \*AfroMarket\*/);
+});
+
+test('AfroMarket: Afro Restaurant falls back to cta_url cards (still followed by the footer) if the template send fails', async () => {
+  const flowEngine = new FlowEngine({ botConfig, plugin: new AfroMarketFlowPlugin({ botConfig }) });
+  let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
+  const step = async (text) => {
+    const outboundIntents = [];
+    ({ state: conversationState } = await flowEngine.step({
+      from: '+33600000000',
+      message: { text: { body: text } },
+      state: conversationState,
+      send: async (outboundIntent) => {
+        if (outboundIntent.type === 'template_carousel') {
+          throw new Error('simulated WhatsApp template send failure');
+        }
+        outboundIntents.push(outboundIntent);
+      }
+    }));
+    return { outboundIntents, conversationState };
+  };
 
   await step('hi');
   const result = await step('afro_restaurant');
@@ -321,13 +367,6 @@ test('AfroMarket: Afro Restaurant sends real restaurants as cards with working V
   const footer = result.outboundIntents[4];
   assert.equal(footer.type, 'buttons');
   assert.deepEqual(footer.buttons.map((b) => b.id), ['menu']);
-
-  // A cta_url button never sends a reply back to the bot - there's nothing to
-  // route to for it. The only way forward is the footer's Main Menu button
-  // (or any other message, self-healing back to the menu either way).
-  const afterTap = await step('menu');
-  assert.equal(afterTap.outboundIntents[0].type, 'list');
-  assert.match(afterTap.outboundIntents[0].body, /Welcome to \*AfroMarket\*/);
 });
 
 test('AfroMarket: recipes hub still exposes meal plans, dinner ideas and shopping tips', async () => {
@@ -456,98 +495,114 @@ test('AfroMarket: recipe_actions dynamic buttonsFromContext sets also respect Wh
   for (const button of purchaseButtons) assert.ok(button.title.length <= 20, `'${button.title}' exceeds 20 chars`);
 });
 
-test('AfroMarket: East/North/Central region cards still fan out one image+button message per dish', async () => {
-  const step = createStepper();
-
-  await step('hi');
-  await step('recipes');
-  await step('browse_recipes');
-
-  const result = await step('region_east');
-  assert.equal(result.outboundIntents.length, 4);
-  assert.equal(result.outboundIntents[0].type, 'text');
-  assert.match(result.outboundIntents[0].body, /East African Recipes/);
-
-  const dishMessages = result.outboundIntents.slice(1, 3);
-  for (const dish of dishMessages) {
-    assert.equal(dish.type, 'buttons');
-    assert.ok(dish.image, `${dish.body} card is missing its image`);
-    assert.equal(dish.buttons.length, 1);
-    assert.match(dish.buttons[0].title, /Get this recipe/);
+const REGION_CAROUSELS = [
+  {
+    regionId: 'region_west',
+    introMatch: /West African Recipes/,
+    templateName: 'afromarket_west_african_recipes',
+    payloads: ['recipe_jollof_rice', 'recipe_egusi_soup', 'recipe_suya_skewers'],
+    sampleDetailPayload: 'recipe_egusi_soup',
+    sampleDetailMatch: /Egusi Soup/
+  },
+  {
+    regionId: 'region_east',
+    introMatch: /East African Recipes/,
+    templateName: 'afromarket_east_african_recipes',
+    payloads: ['recipe_injera_tibs', 'recipe_ugali_sukuma'],
+    sampleDetailPayload: 'recipe_ugali_sukuma',
+    sampleDetailMatch: /Ugali/
+  },
+  {
+    regionId: 'region_north',
+    introMatch: /North African Recipes/,
+    templateName: 'afromarket_north_african_recipes',
+    payloads: ['recipe_tagine_chicken', 'recipe_shakshuka'],
+    sampleDetailPayload: 'recipe_shakshuka',
+    sampleDetailMatch: /Shakshuka/
+  },
+  {
+    regionId: 'region_central',
+    introMatch: /Central African Recipes/,
+    templateName: 'afromarket_central_african_recipes',
+    payloads: ['recipe_fufu_ndole', 'recipe_poulet_dg'],
+    sampleDetailPayload: 'recipe_poulet_dg',
+    sampleDetailMatch: /Poulet DG/
   }
-  assert.match(dishMessages[0].body, /Injera with Tibs/);
-  assert.match(dishMessages[1].body, /Ugali/);
+];
 
-  const footer = result.outboundIntents[3];
-  assert.equal(footer.type, 'buttons');
-  assert.deepEqual(footer.buttons.map((b) => b.id), ['back_regions', 'menu']);
+for (const region of REGION_CAROUSELS) {
+  test(`AfroMarket: ${region.regionId} fires its real approved carousel template, footer comes after it, and a card tap opens the recipe`, async () => {
+    const step = createStepper();
 
-  // Tapping a specific dish's own card button still opens its full recipe.
-  const detail = await step('recipe_ugali_sukuma');
-  assert.equal(detail.outboundIntents[0].type, 'image');
-  assert.match(detail.outboundIntents[0].caption, /Ugali/);
-});
+    await step('hi');
+    await step('recipes');
+    await step('browse_recipes');
 
-test('AfroMarket: West African region fires the real approved carousel template, and a card tap opens the recipe', async () => {
-  const step = createStepper();
+    const result = await step(region.regionId);
+    assert.equal(result.outboundIntents.length, 2);
 
-  await step('hi');
-  await step('recipes');
-  await step('browse_recipes');
+    const carousel = result.outboundIntents[0];
+    assert.equal(carousel.type, 'template_carousel');
+    assert.equal(carousel.templateName, region.templateName);
+    assert.equal(carousel.languageCode, 'en_US');
+    assert.deepEqual(
+      carousel.cards.map((c) => c.quickReplyPayload),
+      region.payloads
+    );
+    for (const card of carousel.cards) {
+      assert.match(card.imageLink, /^https:\/\//);
+    }
 
-  const result = await step('region_west');
-  assert.equal(result.outboundIntents.length, 2);
-  const carousel = result.outboundIntents[0];
-  assert.equal(carousel.type, 'template_carousel');
-  assert.equal(carousel.templateName, 'afromarket_west_african_recipes');
-  assert.equal(carousel.languageCode, 'en_US');
-  assert.equal(carousel.cards.length, 3);
-  assert.deepEqual(
-    carousel.cards.map((c) => c.quickReplyPayload),
-    ['recipe_jollof_rice', 'recipe_egusi_soup', 'recipe_suya_skewers']
-  );
-  for (const card of carousel.cards) {
-    assert.match(card.imageLink, /^https:\/\//);
-  }
+    // "More options:" must always come after the carousel, never before it.
+    const footer = result.outboundIntents[1];
+    assert.equal(footer.type, 'buttons');
+    assert.deepEqual(footer.buttons.map((b) => b.id), ['back_regions', 'menu']);
 
-  const footer = result.outboundIntents[1];
-  assert.equal(footer.type, 'buttons');
-  assert.deepEqual(footer.buttons.map((b) => b.id), ['back_regions', 'menu']);
+    // A quick-reply tap arrives as plain text (message.button.payload) - typing
+    // the payload directly must open that recipe's full detail + Bon appetit.
+    const detail = await step(region.sampleDetailPayload);
+    assert.equal(detail.outboundIntents.length, 2);
+    assert.equal(detail.outboundIntents[0].type, 'image');
+    assert.match(detail.outboundIntents[0].caption, region.sampleDetailMatch);
+    assert.equal(detail.outboundIntents[1].type, 'buttons');
+  });
 
-  // A quick-reply tap arrives as plain text (message.button.payload) - typing
-  // the payload directly must open that recipe's full detail + Bon appetit.
-  const detail = await step('recipe_egusi_soup');
-  assert.equal(detail.outboundIntents.length, 2);
-  assert.equal(detail.outboundIntents[0].type, 'image');
-  assert.match(detail.outboundIntents[0].caption, /Egusi Soup/);
-  assert.equal(detail.outboundIntents[1].type, 'buttons');
-});
-
-test('AfroMarket: West African carousel falls back to vertical cards if the template send fails', async () => {
-  const flowEngine = new FlowEngine({ botConfig, plugin: new AfroMarketFlowPlugin({ botConfig }) });
-  let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
-  const step = async (text) => {
-    const outboundIntents = [];
-    ({ state: conversationState } = await flowEngine.step({
-      from: '+33600000000',
-      message: { text: { body: text } },
-      state: conversationState,
-      send: async (outboundIntent) => {
-        if (outboundIntent.type === 'template_carousel') {
-          throw new Error('simulated WhatsApp template send failure');
+  test(`AfroMarket: ${region.regionId} falls back to vertical cards (still followed by the footer) if the template send fails`, async () => {
+    const flowEngine = new FlowEngine({ botConfig, plugin: new AfroMarketFlowPlugin({ botConfig }) });
+    let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
+    const step = async (text) => {
+      const outboundIntents = [];
+      ({ state: conversationState } = await flowEngine.step({
+        from: '+33600000000',
+        message: { text: { body: text } },
+        state: conversationState,
+        send: async (outboundIntent) => {
+          if (outboundIntent.type === 'template_carousel') {
+            throw new Error('simulated WhatsApp template send failure');
+          }
+          outboundIntents.push(outboundIntent);
         }
-        outboundIntents.push(outboundIntent);
-      }
-    }));
-    return { outboundIntents, conversationState };
-  };
+      }));
+      return { outboundIntents, conversationState };
+    };
 
-  await step('hi');
-  await step('recipes');
-  await step('browse_recipes');
-  const result = await step('region_west');
+    await step('hi');
+    await step('recipes');
+    await step('browse_recipes');
+    const result = await step(region.regionId);
 
-  assert.equal(result.outboundIntents[0].type, 'text');
-  assert.match(result.outboundIntents[0].body, /West African Recipes/);
-  assert.match(result.outboundIntents[1].caption ?? result.outboundIntents[1].body ?? '', /Jollof Rice/i);
-});
+    assert.equal(result.outboundIntents[0].type, 'text');
+    assert.match(result.outboundIntents[0].body, region.introMatch);
+
+    const dishMessages = result.outboundIntents.slice(1, -1);
+    assert.equal(dishMessages.length, region.payloads.length);
+    for (const dish of dishMessages) {
+      assert.equal(dish.type, 'buttons');
+      assert.ok(dish.image, `${dish.body} card is missing its image`);
+    }
+
+    const footer = result.outboundIntents[result.outboundIntents.length - 1];
+    assert.equal(footer.type, 'buttons');
+    assert.deepEqual(footer.buttons.map((b) => b.id), ['back_regions', 'menu']);
+  });
+}

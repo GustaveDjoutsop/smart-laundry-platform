@@ -1,8 +1,9 @@
 /**
  * One-off tool to submit a WhatsApp Carousel Template for AfroMarket recipe
- * browsing. Real horizontal scrolling (matching Jasper's Market) can only be
- * achieved via a Meta-approved carousel template - freeform interactive
- * messages never scroll horizontally, regardless of how they're built.
+ * or restaurant browsing. Real horizontal scrolling (matching Jasper's
+ * Market) can only be achieved via a Meta-approved carousel template -
+ * freeform interactive messages never scroll horizontally, regardless of how
+ * they're built.
  *
  * Usage:
  *   node scripts/submitCarouselTemplate.js <name> <images-dir> <cards.json>
@@ -10,12 +11,14 @@
  * <images-dir> must contain one .jpg per card, named to match the "image"
  * field in cards.json (e.g. "jollof.jpg").
  *
- * cards.json shape:
+ * cards.json shape (introText/introExample optional - omit for a carousel
+ * with no top-level body, e.g. a restaurant directory):
  * {
  *   "introText": "Our favorite {{region}} dishes, {{1}} - swipe through and tap Get this recipe on the one that looks good!",
  *   "introExample": "there",
  *   "cards": [
- *     { "image": "jollof.jpg", "body": "Jollof Rice - 45 min, 380 kcal, Easy", "buttonText": "Get this recipe" },
+ *     { "image": "jollof.jpg", "body": "Jollof Rice - 45 min, 380 kcal, Easy", "buttonType": "QUICK_REPLY", "buttonText": "Get this recipe" },
+ *     { "image": "bantabaa.jpg", "body": "Bantabaa - Gambian\n...", "buttonType": "URL", "buttonText": "Visit Website", "buttonUrl": "https://bantabaafooddealer.eu/" },
  *     ...
  *   ]
  * }
@@ -73,11 +76,20 @@ async function main() {
   for (const card of spec.cards) {
     // eslint-disable-next-line no-await-in-loop
     const handle = await uploadImage(token, path.join(imagesDir, card.image));
+    const buttonType = card.buttonType === 'URL' ? 'URL' : 'QUICK_REPLY';
+    if (buttonType === 'URL' && !card.buttonUrl) {
+      throw new Error(`card "${card.image}" has buttonType URL but no buttonUrl`);
+    }
+    const button =
+      buttonType === 'URL'
+        ? { type: 'URL', text: card.buttonText || 'Visit Website', url: card.buttonUrl }
+        : { type: 'QUICK_REPLY', text: card.buttonText || 'Get this recipe' };
+
     cardsWithHandles.push({
       components: [
         { type: 'HEADER', format: 'IMAGE', example: { header_handle: [handle] } },
         { type: 'BODY', text: card.body },
-        { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: card.buttonText || 'Get this recipe' }] }
+        { type: 'BUTTONS', buttons: [button] }
       ]
     });
   }
@@ -89,11 +101,17 @@ async function main() {
     // the only category that currently supports the CAROUSEL component.
     category: 'MARKETING',
     components: [
-      {
-        type: 'BODY',
-        text: spec.introText,
-        example: { body_text: [[spec.introExample || 'there']] }
-      },
+      ...(spec.introText
+        ? [
+            {
+              type: 'BODY',
+              text: spec.introText,
+              // An `example` is only meaningful (and only accepted by Meta)
+              // when the body actually has a {{1}} variable to demonstrate.
+              ...(spec.introText.includes('{{') ? { example: { body_text: [[spec.introExample || 'there']] } } : {})
+            }
+          ]
+        : []),
       { type: 'CAROUSEL', cards: cardsWithHandles }
     ]
   };

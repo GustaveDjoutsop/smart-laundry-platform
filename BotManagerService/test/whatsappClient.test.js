@@ -392,3 +392,41 @@ test('WhatsAppCloudClient sendCarouselTemplate rejects a card missing quickReply
     /missing quickReplyPayload/
   );
 });
+
+test('WhatsAppCloudClient sendCarouselTemplate builds a static URL-button carousel (no button parameters) for cards with buttonType "url"', async () => {
+  const calls = [];
+  let mediaCounter = 0;
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    if (url === 'https://graph.facebook.com/v20.0/123/messages') {
+      return { ok: true, status: 200, json: async () => ({ messages: [{ id: 'wamid.restaurants' }] }) };
+    }
+    if (url.endsWith('/media')) {
+      mediaCounter += 1;
+      return { ok: true, status: 200, json: async () => ({ id: `media_${mediaCounter}` }) };
+    }
+    return { ok: true, status: 200, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => new ArrayBuffer(4) };
+  };
+
+  const client = new WhatsAppCloudClient({ accessToken: 'token', phoneNumberId: '123', fetchImpl });
+
+  await client.sendCarouselTemplate({
+    to: '237670000000',
+    templateName: 'afromarket_restaurants_v1',
+    languageCode: 'en_US',
+    cards: [
+      { imageLink: 'https://example.com/bantabaa.jpg', buttonType: 'url', url: 'https://bantabaafooddealer.eu/' },
+      { imageLink: 'https://example.com/yajee.jpg', buttonType: 'url', url: 'https://www.yajee.de/' }
+    ]
+  });
+
+  const messagesCall = calls.find((c) => c.url === 'https://graph.facebook.com/v20.0/123/messages');
+  const payload = JSON.parse(messagesCall.init.body);
+  const [carouselComponent] = payload.template.components;
+
+  assert.equal(carouselComponent.type, 'carousel');
+  assert.deepEqual(carouselComponent.cards[0].components[1], { type: 'button', sub_type: 'url', index: '0' });
+  assert.deepEqual(carouselComponent.cards[1].components[1], { type: 'button', sub_type: 'url', index: '0' });
+  // A static URL button has nothing to substitute, so no `parameters` key at all.
+  assert.equal('parameters' in carouselComponent.cards[0].components[1], false);
+});

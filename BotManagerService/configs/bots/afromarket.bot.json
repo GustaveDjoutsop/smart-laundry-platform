@@ -22,7 +22,8 @@
     { "id": "crayfish_powder_200g", "name": "Dried Crayfish Powder 200g", "category": "spices", "priceEur": 5.5, "unit": "200 g", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ad/Dried_crayfish_on_a_tray.jpg/960px-Dried_crayfish_on_a_tray.jpg", "description": "Smoky umami boost for soups and stews." },
     { "id": "scotch_bonnet_250g", "name": "Fresh Scotch Bonnet Peppers 250g", "category": "fresh", "priceEur": 2.5, "unit": "250 g", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/97/Scotch_bonnet_chili_pepper.jpg/960px-Scotch_bonnet_chili_pepper.jpg", "description": "Fiery, fruity heat for Jollof and shakshuka." },
     { "id": "collard_greens_bunch", "name": "Collard Greens (Sukuma Wiki) Bunch", "category": "fresh", "priceEur": 2.2, "unit": "1 bunch", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/Collard_Greens_and_Gravy_2.jpg/960px-Collard_Greens_and_Gravy_2.jpg", "description": "Fresh leafy greens for ugali & sukuma wiki." },
-    { "id": "bitterleaf_frozen_400g", "name": "Frozen Bitterleaf (Ndolé) 400g", "category": "fresh", "priceEur": 4.8, "unit": "400 g", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f7/Bitter_leaf%2C.jpg/960px-Bitter_leaf%2C.jpg", "description": "Washed and frozen, ready for ndolé." }
+    { "id": "bitterleaf_frozen_400g", "name": "Frozen Bitterleaf (Ndolé) 400g", "category": "fresh", "priceEur": 4.8, "unit": "400 g", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f7/Bitter_leaf%2C.jpg/960px-Bitter_leaf%2C.jpg", "description": "Washed and frozen, ready for ndolé." },
+    { "id": "plantain_1kg", "name": "Ripe Plantains 1kg", "category": "fresh", "priceEur": 3.0, "unit": "1 kg", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/57/Plantains.jpg/960px-Plantains.jpg", "description": "Sweet ripe plantains for frying and Poulet DG." }
   ],
 
   "recipeIngredients": {
@@ -33,7 +34,8 @@
     "ugali_sukuma": ["maize_flour_1kg", "collard_greens_bunch"],
     "tagine_chicken": ["ras_el_hanout_100g"],
     "shakshuka": ["canned_tomatoes_400g", "scotch_bonnet_250g"],
-    "fufu_ndole": ["garri_1kg", "bitterleaf_frozen_400g", "groundnuts_500g"]
+    "fufu_ndole": ["garri_1kg", "bitterleaf_frozen_400g", "groundnuts_500g"],
+    "poulet_dg": ["plantain_1kg"]
   },
 
   "defaultFlowId": "main_menu",
@@ -191,6 +193,7 @@
                 { "id": "product_scotch_bonnet_250g", "title": "Scotch Bonnet Peppers", "description": "250 g · €2.50" },
                 { "id": "product_collard_greens_bunch", "title": "Collard Greens Bunch", "description": "€2.20" },
                 { "id": "product_bitterleaf_frozen_400g", "title": "Frozen Bitterleaf 400g", "description": "€4.80" },
+                { "id": "product_plantain_1kg", "title": "Ripe Plantains 1kg", "description": "€3.00" },
                 { "id": "back_categories", "title": "⬅️ Categories", "description": "Back to category list" }
               ]
             }
@@ -220,6 +223,7 @@
               "product_scotch_bonnet_250g": "product_detail_scotch_bonnet_250g",
               "product_collard_greens_bunch": "product_detail_collard_greens_bunch",
               "product_bitterleaf_frozen_400g": "product_detail_bitterleaf_frozen_400g",
+              "product_plantain_1kg": "product_detail_plantain_1kg",
               "back_categories": "groceries_categories",
               "menu": "welcome"
             },
@@ -242,6 +246,7 @@
         { "id": "product_detail_scotch_bonnet_250g", "type": "image", "productId": "scotch_bonnet_250g", "categoryStateId": "fresh_products", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/97/Scotch_bonnet_chili_pepper.jpg/960px-Scotch_bonnet_chili_pepper.jpg", "caption": "*Fresh Scotch Bonnet Peppers 250g* — €2.50 / 250 g\n\nFiery, fruity heat for Jollof and shakshuka.", "next": "product_actions" },
         { "id": "product_detail_collard_greens_bunch", "type": "image", "productId": "collard_greens_bunch", "categoryStateId": "fresh_products", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/Collard_Greens_and_Gravy_2.jpg/960px-Collard_Greens_and_Gravy_2.jpg", "caption": "*Collard Greens (Sukuma Wiki) Bunch* — €2.20 / bunch\n\nFresh leafy greens for ugali & sukuma wiki.", "next": "product_actions" },
         { "id": "product_detail_bitterleaf_frozen_400g", "type": "image", "productId": "bitterleaf_frozen_400g", "categoryStateId": "fresh_products", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f7/Bitter_leaf%2C.jpg/960px-Bitter_leaf%2C.jpg", "caption": "*Frozen Bitterleaf (Ndolé) 400g* — €4.80 / 400 g\n\nWashed and frozen, ready for ndolé.", "next": "product_actions" },
+        { "id": "product_detail_plantain_1kg", "type": "image", "productId": "plantain_1kg", "categoryStateId": "fresh_products", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/57/Plantains.jpg/960px-Plantains.jpg", "caption": "*Ripe Plantains 1kg* — €3.00 / 1 kg\n\nSweet ripe plantains for frying and Poulet DG.", "next": "product_actions" },
 
         {
           "id": "product_actions",
@@ -470,6 +475,15 @@
           "id": "east_recipes",
           "type": "cards",
           "intro": "☕ *East African Recipes*\n\nOur favorite East African dishes — tap \"Get this recipe\" on the one that looks good:",
+          "carouselTemplate": {
+            "templateName": "afromarket_east_african_recipes",
+            "languageCode": "en_US",
+            "bodyParams": ["there"],
+            "cards": [
+              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/20/Tibs_and_Injera.jpg/960px-Tibs_and_Injera.jpg", "quickReplyPayload": "recipe_injera_tibs" },
+              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/4/48/Ugali_%26_Sukuma_Wiki.jpg", "quickReplyPayload": "recipe_ugali_sukuma" }
+            ]
+          },
           "items": [
             { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/20/Tibs_and_Injera.jpg/960px-Tibs_and_Injera.jpg", "caption": "*Injera with Tibs*\n60 min · 450 kcal · Medium", "buttonId": "recipe_injera_tibs", "buttonTitle": "➡️ Get this recipe" },
             { "image": "https://upload.wikimedia.org/wikipedia/commons/4/48/Ugali_%26_Sukuma_Wiki.jpg", "caption": "*Ugali & Sukuma Wiki*\n20 min · 290 kcal · Easy", "buttonId": "recipe_ugali_sukuma", "buttonTitle": "➡️ Get this recipe" }
@@ -485,6 +499,15 @@
           "id": "north_recipes",
           "type": "cards",
           "intro": "🏜 *North African Recipes*\n\nOur favorite North African dishes — tap \"Get this recipe\" on the one that looks good:",
+          "carouselTemplate": {
+            "templateName": "afromarket_north_african_recipes",
+            "languageCode": "en_US",
+            "bodyParams": ["there"],
+            "cards": [
+              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Chicken_Veg_Tagine_Rabat_Nov25_A7CR_08908.jpg/960px-Chicken_Veg_Tagine_Rabat_Nov25_A7CR_08908.jpg", "quickReplyPayload": "recipe_tagine_chicken" },
+              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/Shakshuka_by_Calliopejen1.jpg/960px-Shakshuka_by_Calliopejen1.jpg", "quickReplyPayload": "recipe_shakshuka" }
+            ]
+          },
           "items": [
             { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Chicken_Veg_Tagine_Rabat_Nov25_A7CR_08908.jpg/960px-Chicken_Veg_Tagine_Rabat_Nov25_A7CR_08908.jpg", "caption": "*Chicken Tagine*\n90 min · 420 kcal · Medium", "buttonId": "recipe_tagine_chicken", "buttonTitle": "➡️ Get this recipe" },
             { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/Shakshuka_by_Calliopejen1.jpg/960px-Shakshuka_by_Calliopejen1.jpg", "caption": "*Shakshuka*\n25 min · 310 kcal · Easy", "buttonId": "recipe_shakshuka", "buttonTitle": "➡️ Get this recipe" }
@@ -499,9 +522,19 @@
         {
           "id": "central_recipes",
           "type": "cards",
-          "intro": "🌳 *Central African Recipes*\n\nOur favorite Central African dish — tap \"Get this recipe\" for the details:",
+          "intro": "🌳 *Central African Recipes*\n\nOur favorite Central African dishes — tap \"Get this recipe\" on the one that looks good:",
+          "carouselTemplate": {
+            "templateName": "afromarket_central_african_recipes",
+            "languageCode": "en_US",
+            "bodyParams": ["there"],
+            "cards": [
+              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Ndol%C3%A9_camerounais.JPG/960px-Ndol%C3%A9_camerounais.JPG", "quickReplyPayload": "recipe_fufu_ndole" },
+              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Poulet_DG.JPG/960px-Poulet_DG.JPG", "quickReplyPayload": "recipe_poulet_dg" }
+            ]
+          },
           "items": [
-            { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Ndol%C3%A9_camerounais.JPG/960px-Ndol%C3%A9_camerounais.JPG", "caption": "*Fufu with Ndolé*\n55 min · 490 kcal · Medium", "buttonId": "recipe_fufu_ndole", "buttonTitle": "➡️ Get this recipe" }
+            { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Ndol%C3%A9_camerounais.JPG/960px-Ndol%C3%A9_camerounais.JPG", "caption": "*Fufu with Ndolé*\n55 min · 490 kcal · Medium", "buttonId": "recipe_fufu_ndole", "buttonTitle": "➡️ Get this recipe" },
+            { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Poulet_DG.JPG/960px-Poulet_DG.JPG", "caption": "*Poulet DG*\n50 min · 520 kcal · Medium", "buttonId": "recipe_poulet_dg", "buttonTitle": "➡️ Get this recipe" }
           ],
           "footerButtons": [
             { "id": "back_regions", "title": "⬅️ Regions" },
@@ -525,6 +558,7 @@
               "recipe_tagine_chicken": "recipe_tagine_chicken",
               "recipe_shakshuka": "recipe_shakshuka",
               "recipe_fufu_ndole": "recipe_fufu_ndole",
+              "recipe_poulet_dg": "recipe_poulet_dg",
               "back_regions": "region_menu",
               "menu": "welcome"
             },
@@ -540,6 +574,7 @@
         { "id": "recipe_tagine_chicken", "type": "image", "recipeId": "tagine_chicken", "recipeName": "Chicken Tagine", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Chicken_Veg_Tagine_Rabat_Nov25_A7CR_08908.jpg/960px-Chicken_Veg_Tagine_Rabat_Nov25_A7CR_08908.jpg", "caption": "*Chicken Tagine* 🏜 North African (Morocco)\n\n📋 *Ingredients:*\n• 1 whole chicken, cut up\n• 2 onions, 3 garlic cloves, preserved lemon\n• Green olives, ginger, turmeric, saffron, cinnamon\n• Olive oil, fresh coriander + parsley\n\n👨‍🍳 *Steps:*\n1. Marinate chicken in spices, garlic and herbs 30 min.\n2. Brown in olive oil in the tagine or heavy pot.\n3. Add onions and a little water; cover, simmer low 1 hour.\n4. Add olives and preserved lemon for the last 10 min.\n\n⏱ 90 min | 🔥 ~420 kcal | 💪 Medium", "next": "recipe_actions" },
         { "id": "recipe_shakshuka", "type": "image", "recipeId": "shakshuka", "recipeName": "Shakshuka", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/Shakshuka_by_Calliopejen1.jpg/960px-Shakshuka_by_Calliopejen1.jpg", "caption": "*Shakshuka* 🏜 North African brunch star\n\n📋 *Ingredients:*\n• 4–6 eggs\n• 400g crushed tomatoes, 1 red bell pepper\n• 1 onion, 3 garlic cloves\n• Cumin, paprika, harissa or chilli, olive oil, feta (optional)\n\n👨‍🍳 *Steps:*\n1. Sauté onion and pepper in olive oil; add garlic and spices.\n2. Pour in tomatoes; simmer 10 min until thick.\n3. Make wells, crack in eggs; cover and cook 5–8 min.\n4. Finish with herbs (and feta); serve with crusty bread.\n\n⏱ 25 min | 🔥 ~310 kcal | 💪 Easy", "next": "recipe_actions" },
         { "id": "recipe_fufu_ndole", "type": "image", "recipeId": "fufu_ndole", "recipeName": "Fufu with Ndolé", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Ndol%C3%A9_camerounais.JPG/960px-Ndol%C3%A9_camerounais.JPG", "caption": "*Fufu with Ndolé* 🌳 Central African (Cameroon 🇨🇲)\n\n📋 *Ingredients:*\n• Ndolé (bitterleaf), washed several times\n• 250g groundnuts (peanuts), boiled and blended\n• Beef, smoked fish and/or shrimp\n• 2 onions, garlic, crayfish, palm oil\n• Fufu: cassava or plantain, pounded\n\n👨‍🍳 *Steps:*\n1. Cook meat/fish with onions and garlic; keep stock.\n2. Simmer blended groundnuts in the stock 15 min.\n3. Add washed ndolé leaves, crayfish and shrimp; cook 15 min.\n4. Fry garnish onions in oil, fold in; serve with hot fufu.\n\n⏱ 55 min | 🔥 ~490 kcal | 💪 Medium", "next": "recipe_actions" },
+        { "id": "recipe_poulet_dg", "type": "image", "recipeId": "poulet_dg", "recipeName": "Poulet DG", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Poulet_DG.JPG/960px-Poulet_DG.JPG", "caption": "*Poulet DG* 🌳 Central African (Cameroon 🇨🇲) — \"Chicken for the Director General\"\n\n📋 *Ingredients:*\n• 1 chicken, cut into pieces\n• 3 ripe plantains, sliced and fried\n• Carrots, green beans, bell peppers\n• Garlic, ginger, soy sauce\n• Tomato paste, chicken stock, vegetable oil\n\n👨‍🍳 *Steps:*\n1. Marinate chicken in garlic, ginger and soy sauce 20 min; fry until golden.\n2. Fry plantain slices separately until caramelised; set aside.\n3. Sauté carrots, green beans and peppers in a little oil.\n4. Stir in tomato paste and stock, add the chicken, simmer 10 min.\n5. Fold in the fried plantains just before serving.\n\n⏱ 50 min | 🔥 ~520 kcal | 💪 Medium", "next": "recipe_actions" },
 
         {
           "id": "recipe_actions",
@@ -712,6 +747,15 @@
           "id": "afro_restaurant_list",
           "type": "cards",
           "intro": "🍽️ *Afro Restaurants*\n\nReal African restaurants we recommend around Berlin — tap Visit Website for their menu, hours and reservations:",
+          "carouselTemplate": {
+            "templateName": "afromarket_restaurants_v1",
+            "languageCode": "en_US",
+            "cards": [
+              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/8/8e/Domoda.jpg", "buttonType": "url", "url": "https://bantabaafooddealer.eu/" },
+              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/4/44/Original_Nigerian_Egusi_soup_and_yellow_garri_%28Eba%29.jpg", "buttonType": "url", "url": "https://www.yajee.de/" },
+              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/8/81/Ghanaian_Wache_%28Waakye%29_cuisine_food.jpg", "buttonType": "url", "url": "https://www.afropotberlin.de/en" }
+            ]
+          },
           "items": [
             {
               "image": "https://upload.wikimedia.org/wikipedia/commons/8/8e/Domoda.jpg",

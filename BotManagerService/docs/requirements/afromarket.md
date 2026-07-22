@@ -146,10 +146,44 @@ freeform interactive messages can never scroll horizontally.
 - Verified live end-to-end: genuine horizontally-scrolling cards rendered in
   WhatsApp, and tapping a card's button correctly opened that recipe's full
   detail + the "Bon appétit" follow-up.
-- The other 3 regions (East/North/Central) aren't submitted as carousel
-  templates yet — West Africa was the pilot to prove the whole pipeline
-  (upload → create → review → send → fallback) before repeating it 3 more
-  times.
+- East/North/Central submitted 2026-07-21, same pipeline proven by the West
+  Africa pilot, all already wired into their `cards` states'
+  `carouselTemplate` blocks (config-only change, no code changes needed -
+  the flowEngine.js extension is fully generic):
+  - `afromarket_east_african_recipes` (id `1003461869227729`): Injera with
+    Tibs, Ugali & Sukuma Wiki.
+  - `afromarket_north_african_recipes` (id `1490130603152484`): Chicken
+    Tagine, Shakshuka.
+  - `afromarket_central_african_recipes` (id `1710010093594224`): Fufu with
+    Ndolé, **Poulet DG** (added as Central Africa's 2nd dish - Meta requires
+    ≥2 cards per carousel and Central only had 1; new product
+    `plantain_1kg` added to the catalog for its "Buy ingredients" mapping).
+  - All **`PENDING`** as of submission - check status with
+    `node scripts/checkTemplateStatus.js <name>`.
+- **Afro Restaurant also got a carousel**: `afromarket_restaurants_v1`
+  (id `4228275444136640`, **`PENDING`**; Bantabaa/Yajee/Afropot Berlin).
+  Unlike the recipe carousels, its cards use **`URL`-type buttons** (real
+  restaurant websites), not `QUICK_REPLY` - each button is fully static (no
+  `{{1}}` variable) since restaurant links never change, so
+  `WhatsAppCloudClient.sendCarouselTemplate` needed a `buttonType: 'url'`
+  card option (omits the `parameters` array entirely at send time - nothing
+  to substitute for a static URL, mirroring how any WhatsApp template button
+  with zero variables works - **unverified until this template is approved
+  and actually sent**, unlike the recipe carousels which have live
+  confirmation). `validateFlowConfig` was extended to enforce all cards in
+  one carouselTemplate share the same button type (Meta requires uniform
+  button composition across cards) and to drift-check `card.url` against
+  `items[].buttonUrl` for URL-type carousels, same protection as the
+  existing quickReplyPayload/buttonId check for quick-reply carousels.
+  - **Submission gotcha**: the first submission attempt (no top-level intro
+    text, since a restaurant directory has no personalized greeting) was
+    rejected by Meta - `"Komponente des Typs BODY ist erforderlich"`
+    ("a BODY component is required"). A top-level `BODY` is mandatory on
+    every carousel template even with zero cards needing one; fixed by
+    adding a static intro line with no `{{1}}` variable. `submitCarouselTemplate.js`
+    now also only attaches an `example.body_text` when the intro text
+    actually contains `{{` - passing an example for a variable-free body was
+    untested and the failure mode wasn't worth risking on a 4th resubmission.
 
 **Afro Restaurant is a directory, not AfroMarket's own restaurant**: it lists
 real African restaurants AfroMarket recommends around Berlin (see above), not

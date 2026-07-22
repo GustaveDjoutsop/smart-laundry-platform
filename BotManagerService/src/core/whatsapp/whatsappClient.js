@@ -304,9 +304,26 @@ class WhatsAppCloudClient {
     const cardComponents = [];
     for (let index = 0; index < cards.length; index += 1) {
       const card = cards[index] || {};
-      const payload = String(card.quickReplyPayload || '').trim();
-      if (!payload) {
-        throw new Error(`sendCarouselTemplate: card ${index} is missing quickReplyPayload`);
+      const buttonType = card.buttonType === 'url' ? 'url' : 'quick_reply';
+
+      let buttonComponent;
+      if (buttonType === 'quick_reply') {
+        const payload = String(card.quickReplyPayload || '').trim();
+        if (!payload) {
+          throw new Error(`sendCarouselTemplate: card ${index} is missing quickReplyPayload`);
+        }
+        buttonComponent = {
+          type: 'button',
+          sub_type: 'quick_reply',
+          index: '0',
+          parameters: [{ type: 'payload', payload }]
+        };
+      } else {
+        // A fully static URL button (no {{1}} variable) has nothing to
+        // substitute, so it carries no `parameters` - the URL itself is
+        // baked into the approved template at card-definition time, same as
+        // any other WhatsApp template button with zero variables.
+        buttonComponent = { type: 'button', sub_type: 'url', index: '0' };
       }
 
       // eslint-disable-next-line no-await-in-loop
@@ -317,15 +334,7 @@ class WhatsAppCloudClient {
 
       cardComponents.push({
         card_index: index,
-        components: [
-          { type: 'header', parameters: [{ type: 'image', image: { id: mediaId } }] },
-          {
-            type: 'button',
-            sub_type: 'quick_reply',
-            index: '0',
-            parameters: [{ type: 'payload', payload }]
-          }
-        ]
+        components: [{ type: 'header', parameters: [{ type: 'image', image: { id: mediaId } }] }, buttonComponent]
       });
     }
 

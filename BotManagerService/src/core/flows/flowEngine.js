@@ -101,29 +101,56 @@ function validateFlowConfig(botConfig) {
           if (ct.cards.length < 2 || ct.cards.length > 10) {
             throw new Error(`flow ${flowId} state ${state.id}: carouselTemplate.cards must have between 2 and 10 cards`);
           }
+          // Meta requires every card in a carousel to have the same button
+          // combination (type and count) - never a quick_reply on one card
+          // and a URL button on another within the same template.
+          const buttonTypes = new Set(ct.cards.map((card) => (card && card.buttonType === 'url' ? 'url' : 'quick_reply')));
+          if (buttonTypes.size > 1) {
+            throw new Error(`flow ${flowId} state ${state.id}: carouselTemplate cards must all use the same buttonType`);
+          }
+          const carouselButtonType = [...buttonTypes][0];
+
           const quickReplyPayloads = new Set();
+          const cardUrls = new Set();
           for (const card of ct.cards) {
             if (!card || typeof card.imageLink !== 'string' || !card.imageLink.trim()) {
               throw new Error(`flow ${flowId} state ${state.id}: every carouselTemplate card requires a non-empty imageLink`);
             }
-            if (typeof card.quickReplyPayload !== 'string' || !card.quickReplyPayload.trim()) {
-              throw new Error(`flow ${flowId} state ${state.id}: every carouselTemplate card requires a non-empty quickReplyPayload`);
+            if (carouselButtonType === 'quick_reply') {
+              if (typeof card.quickReplyPayload !== 'string' || !card.quickReplyPayload.trim()) {
+                throw new Error(`flow ${flowId} state ${state.id}: every carouselTemplate card requires a non-empty quickReplyPayload`);
+              }
+              quickReplyPayloads.add(card.quickReplyPayload);
+            } else {
+              if (typeof card.url !== 'string' || !card.url.trim()) {
+                throw new Error(`flow ${flowId} state ${state.id}: every url-buttonType carouselTemplate card requires a non-empty url`);
+              }
+              cardUrls.add(card.url);
             }
-            quickReplyPayloads.add(card.quickReplyPayload);
           }
 
           // The vertical items[] only ever renders when the carousel send
           // fails, so a drift between the two card sets would silently break
-          // routing on that rarely-exercised fallback path. Both card sets
-          // route through the same buttonId/quickReplyPayload values, so they
-          // must match exactly.
-          const itemButtonIds = new Set(state.items.filter((item) => item.buttonId).map((item) => item.buttonId));
+          // routing/links on that rarely-exercised fallback path. Both card
+          // sets must reference the same set of values, whichever mechanism
+          // this state uses (quick-reply routing or external links).
           const setsMatch =
-            quickReplyPayloads.size === itemButtonIds.size &&
-            [...quickReplyPayloads].every((payload) => itemButtonIds.has(payload));
+            carouselButtonType === 'quick_reply'
+              ? (() => {
+                  const itemButtonIds = new Set(state.items.filter((item) => item.buttonId).map((item) => item.buttonId));
+                  return (
+                    quickReplyPayloads.size === itemButtonIds.size &&
+                    [...quickReplyPayloads].every((payload) => itemButtonIds.has(payload))
+                  );
+                })()
+              : (() => {
+                  const itemButtonUrls = new Set(state.items.filter((item) => item.buttonUrl).map((item) => item.buttonUrl));
+                  return cardUrls.size === itemButtonUrls.size && [...cardUrls].every((url) => itemButtonUrls.has(url));
+                })();
           if (!setsMatch) {
+            const fieldName = carouselButtonType === 'quick_reply' ? 'quickReplyPayload values must exactly match items[].buttonId' : 'url values must exactly match items[].buttonUrl';
             throw new Error(
-              `flow ${flowId} state ${state.id}: carouselTemplate quickReplyPayload values must exactly match items[].buttonId values (fallback routing would drift otherwise)`
+              `flow ${flowId} state ${state.id}: carouselTemplate ${fieldName} values (fallback routing would drift otherwise)`
             );
           }
         }
