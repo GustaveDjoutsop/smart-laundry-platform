@@ -10,6 +10,13 @@ try {
   createClient = null;
 }
 
+// setTimeout's delay is a 32-bit signed int internally; anything past ~24.8
+// days silently overflows to a 1ms timeout instead of throwing, which would
+// expire an in-memory fallback cache entry almost immediately for any caller
+// using a longer TTL (observed with a 25-day media-id cache). Real Redis's
+// EX/setEx isn't affected - this only clamps the in-memory fallback's timer.
+const MAX_SETTIMEOUT_DELAY_MS = 2 ** 31 - 1;
+
 class RedisManager {
   constructor() {
     this.connected = false;
@@ -74,9 +81,10 @@ class RedisManager {
     }
 
     this.fallbackCache.set(key, value);
+    const delayMs = Math.min(Math.max(1, Number(ttlSeconds) || 1) * 1000, MAX_SETTIMEOUT_DELAY_MS);
     setTimeout(() => {
       this.fallbackCache.delete(key);
-    }, Math.max(1, Number(ttlSeconds) || 1) * 1000).unref?.();
+    }, delayMs).unref?.();
   }
 
   async setnx(key, value, ttlSeconds) {
@@ -94,9 +102,10 @@ class RedisManager {
 
     if (this.fallbackCache.has(key)) return false;
     this.fallbackCache.set(key, value);
+    const delayMs = Math.min(Math.max(1, Number(ttlSeconds) || 1) * 1000, MAX_SETTIMEOUT_DELAY_MS);
     setTimeout(() => {
       this.fallbackCache.delete(key);
-    }, Math.max(1, Number(ttlSeconds) || 1) * 1000).unref?.();
+    }, delayMs).unref?.();
     return true;
   }
 
