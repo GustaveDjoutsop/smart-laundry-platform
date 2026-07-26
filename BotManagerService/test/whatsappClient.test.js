@@ -279,6 +279,33 @@ test('WhatsAppCloudClient uploadMedia downloads the image and uploads it to Meta
   assert.equal(calls[1].init.headers.Authorization, 'Bearer token');
 });
 
+test('WhatsAppCloudClient uploadMedia caches the media id and skips re-downloading/re-uploading on a repeat call', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    if (url === 'https://example.com/cache-test-unique.jpg') {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'image/jpeg' },
+        arrayBuffer: async () => new ArrayBuffer(8)
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({ id: 'media_cached_1' }) };
+  };
+
+  const client = new WhatsAppCloudClient({ accessToken: 'token', phoneNumberId: '123', fetchImpl });
+
+  const first = await client.uploadMedia({ link: 'https://example.com/cache-test-unique.jpg' });
+  assert.equal(first, 'media_cached_1');
+  assert.equal(calls.length, 2);
+
+  const second = await client.uploadMedia({ link: 'https://example.com/cache-test-unique.jpg' });
+  assert.equal(second, 'media_cached_1');
+  // No new fetch calls - served entirely from the cache.
+  assert.equal(calls.length, 2);
+});
+
 test('WhatsAppCloudClient uploadMedia rejects when the image download fails', async () => {
   const client = new WhatsAppCloudClient({
     accessToken: 'token',
@@ -299,7 +326,7 @@ test('WhatsAppCloudClient uploadMedia rejects when Meta does not return a media 
     }
   });
 
-  await assert.rejects(() => client.uploadMedia({ link: 'https://example.com/dish.jpg' }), /uploadMedia failed/);
+  await assert.rejects(() => client.uploadMedia({ link: 'https://example.com/no-media-id.jpg' }), /uploadMedia failed/);
 });
 
 test('WhatsAppCloudClient sendCarouselTemplate uploads each card image and posts the correct carousel template payload', async () => {

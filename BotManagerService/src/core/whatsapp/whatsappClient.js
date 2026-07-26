@@ -1,4 +1,12 @@
 const { logger } = require('../../utils/logger');
+const { redisManager } = require('../redisManager');
+
+// Meta keeps an uploaded media id valid and reusable for 30 days; cache with
+// a safety margin so a carousel send never depends on re-fetching the same
+// static image from its source URL (e.g. Wikimedia) on every single send -
+// a real rate-limit there was observed to falsely trigger the carousel
+// fallback in production testing.
+const MEDIA_ID_CACHE_TTL_SECONDS = 25 * 24 * 60 * 60;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -258,6 +266,12 @@ class WhatsAppCloudClient {
       throw new Error('uploadMedia requires a non-empty link');
     }
 
+    const cacheKey = `wa:media-id:${this.phoneNumberId}:${sourceUrl}`;
+    const cachedMediaId = await redisManager.get(cacheKey).catch(() => null);
+    if (cachedMediaId) {
+      return cachedMediaId;
+    }
+
     const imageRes = await this.fetchImpl(sourceUrl);
     if (!imageRes.ok) {
       throw new Error(`uploadMedia: failed to download ${sourceUrl} (status=${imageRes.status})`);
@@ -284,6 +298,8 @@ class WhatsAppCloudClient {
       logger.warn('WhatsApp media upload failed', data);
       throw new Error(`uploadMedia failed (status=${res.status})`);
     }
+
+    await redisManager.setex(cacheKey, MEDIA_ID_CACHE_TTL_SECONDS, data.id).catch(() => {});
 
     return data.id;
   }
