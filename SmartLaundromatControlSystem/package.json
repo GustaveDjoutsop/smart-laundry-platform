@@ -63,7 +63,7 @@
     "ioredis": "^5.9.2",
     "js-yaml": "^4.2.0",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.0.1",
+    "mongoose": "^9.7.2",
     "mqtt": "^5.14.1",
     "uuid": "^9.0.1",
     "winston": "^3.19.0"
