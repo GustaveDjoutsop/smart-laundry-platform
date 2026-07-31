@@ -47,13 +47,14 @@ test('AfroMarket: full shop -> product -> cart -> checkout flow', async () => {
   assert.match(result.outboundIntents[0].body, /Grains & Starches/);
 
   result = await step('product_rice_1kg');
-  assert.equal(result.outboundIntents.length, 2);
-  assert.equal(result.outboundIntents[0].type, 'image');
-  assert.match(result.outboundIntents[0].caption, /Long-Grain Rice 1kg/);
-  assert.match(result.outboundIntents[0].caption, /€3\.50/);
-  assert.equal(result.outboundIntents[1].type, 'buttons');
+  assert.equal(result.outboundIntents.length, 1);
+  assert.equal(result.outboundIntents[0].type, 'buttons');
+  assert.match(result.outboundIntents[0].image, /rice/);
+  assert.match(result.outboundIntents[0].body, /Long-Grain Rice 1kg/);
+  assert.match(result.outboundIntents[0].body, /€3\.50/);
+  assert.match(result.outboundIntents[0].body, /What would you like to do\?/);
   assert.deepEqual(
-    result.outboundIntents[1].buttons.map((b) => b.id),
+    result.outboundIntents[0].buttons.map((b) => b.id),
     ['cart_add', 'view_cart', 'back_category']
   );
 
@@ -250,7 +251,7 @@ test('AfroMarket: every recipe_detail_* state always chains straight into recipe
   }
 });
 
-test('AfroMarket: Tonight\'s Dinner recipes also show Bon appetit + buttons right after the description', async () => {
+test('AfroMarket: Tonight\'s Dinner recipes send one merged recipe+Bon appetit message, recipe content first', async () => {
   const step = createStepper();
 
   await step('hi');
@@ -259,13 +260,14 @@ test('AfroMarket: Tonight\'s Dinner recipes also show Bon appetit + buttons righ
   assert.match(result.outboundIntents[0].body, /Dinner Ideas/);
 
   result = await step('recipe_shakshuka');
-  assert.equal(result.outboundIntents.length, 2);
-  assert.equal(result.outboundIntents[0].type, 'image');
-  assert.match(result.outboundIntents[0].caption, /Shakshuka/);
-  assert.equal(result.outboundIntents[1].type, 'buttons');
-  assert.match(result.outboundIntents[1].body, /Bon app.tit/);
+  assert.equal(result.outboundIntents.length, 1);
+  assert.equal(result.outboundIntents[0].type, 'buttons');
+  assert.match(result.outboundIntents[0].image, /Shakshuka/i);
+  const recipeIndex = result.outboundIntents[0].body.indexOf('Shakshuka');
+  const bonAppetitIndex = result.outboundIntents[0].body.search(/Bon app.tit/);
+  assert.ok(recipeIndex >= 0 && bonAppetitIndex > recipeIndex, 'recipe content must come before the Bon appetit follow-up');
   assert.deepEqual(
-    result.outboundIntents[1].buttons.map((b) => b.id),
+    result.outboundIntents[0].buttons.map((b) => b.id),
     ['buy_ingredients', 'more_recipes', 'menu']
   );
 });
@@ -363,6 +365,81 @@ test('AfroMarket: Afro Restaurant falls back to cta_url cards (still followed by
   assert.equal(cards[1].url, 'https://www.yajee.de/');
   assert.match(cards[2].body, /Afropot Berlin/);
   assert.equal(cards[2].url, 'https://www.afropotberlin.de/en');
+
+  const footer = result.outboundIntents[4];
+  assert.equal(footer.type, 'buttons');
+  assert.deepEqual(footer.buttons.map((b) => b.id), ['menu']);
+});
+
+test('AfroMarket: Store screen offers Partner Stores, which fires its real approved carousel template with quick-reply buttons', async () => {
+  const step = createStepper();
+
+  await step('hi');
+  const storeResult = await step('afromarket_store');
+  assert.match(storeResult.outboundIntents[0].body, /AfroMarket Store/);
+  assert.deepEqual(
+    storeResult.outboundIntents[0].buttons.map((b) => b.id),
+    ['shop_online', 'partner_stores', 'menu']
+  );
+
+  const result = await step('partner_stores');
+  assert.equal(result.outboundIntents.length, 2);
+
+  const carousel = result.outboundIntents[0];
+  assert.equal(carousel.type, 'template_carousel');
+  assert.equal(carousel.templateName, 'afromarket_partner_stores_v1');
+  assert.equal(carousel.cards.length, 3);
+  for (const card of carousel.cards) {
+    assert.equal(card.buttonType, 'quick_reply');
+    assert.match(card.imageLink, /^https:\/\//);
+    assert.ok(card.quickReplyPayload);
+  }
+
+  // "Main Menu" footer must always come after the carousel, never before it.
+  const footer = result.outboundIntents[1];
+  assert.equal(footer.type, 'buttons');
+  assert.deepEqual(footer.buttons.map((b) => b.id), ['menu']);
+
+  // Tapping a store's quick-reply loops back to the AfroMarket Store screen.
+  const afterTap = await step('partner_mama_africa');
+  assert.match(afterTap.outboundIntents[0].body, /AfroMarket Store/);
+});
+
+test('AfroMarket: Partner Stores falls back to vertical cards (still followed by the footer) if the template send fails', async () => {
+  const flowEngine = new FlowEngine({ botConfig, plugin: new AfroMarketFlowPlugin({ botConfig }) });
+  let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
+  const step = async (text) => {
+    const outboundIntents = [];
+    ({ state: conversationState } = await flowEngine.step({
+      from: '+33600000000',
+      message: { text: { body: text } },
+      state: conversationState,
+      send: async (outboundIntent) => {
+        if (outboundIntent.type === 'template_carousel') {
+          throw new Error('simulated WhatsApp template send failure');
+        }
+        outboundIntents.push(outboundIntent);
+      }
+    }));
+    return { outboundIntents, conversationState };
+  };
+
+  await step('hi');
+  await step('afromarket_store');
+  const result = await step('partner_stores');
+
+  assert.equal(result.outboundIntents.length, 5);
+  assert.equal(result.outboundIntents[0].type, 'text');
+  assert.match(result.outboundIntents[0].body, /Partner Stores/);
+
+  const cards = result.outboundIntents.slice(1, 4);
+  for (const card of cards) {
+    assert.equal(card.type, 'buttons');
+    assert.ok(card.image, `${card.body} card is missing its image`);
+  }
+  assert.match(cards[0].body, /Mama Africa Foodmarket/);
+  assert.match(cards[1].body, /Kilimanjaro Grocery/);
+  assert.match(cards[2].body, /Sankofa Market/);
 
   const footer = result.outboundIntents[4];
   assert.equal(footer.type, 'buttons');
@@ -483,7 +560,7 @@ test('AfroMarket: recipe_actions dynamic buttonsFromContext sets also respect Wh
   }
 
   const freshRecipeView = await step('recipe_injera_tibs');
-  const freshButtons = freshRecipeView.outboundIntents[1].buttons;
+  const freshButtons = freshRecipeView.outboundIntents[0].buttons;
   assert.deepEqual(freshButtons.map((b) => b.id), ['buy_ingredients', 'more_recipes', 'menu']);
   assert.ok(freshButtons.length <= 3);
   for (const button of freshButtons) assert.ok(button.title.length <= 20, `'${button.title}' exceeds 20 chars`);
@@ -559,12 +636,14 @@ for (const region of REGION_CAROUSELS) {
     assert.deepEqual(footer.buttons.map((b) => b.id), ['back_regions', 'menu']);
 
     // A quick-reply tap arrives as plain text (message.button.payload) - typing
-    // the payload directly must open that recipe's full detail + Bon appetit.
+    // the payload directly must open that recipe's full detail + Bon appetit,
+    // merged into one image+buttons message so the recipe content can never
+    // display after the "Bon appetit, want to explore more?" follow-up.
     const detail = await step(region.sampleDetailPayload);
-    assert.equal(detail.outboundIntents.length, 2);
-    assert.equal(detail.outboundIntents[0].type, 'image');
-    assert.match(detail.outboundIntents[0].caption, region.sampleDetailMatch);
-    assert.equal(detail.outboundIntents[1].type, 'buttons');
+    assert.equal(detail.outboundIntents.length, 1);
+    assert.equal(detail.outboundIntents[0].type, 'buttons');
+    assert.match(detail.outboundIntents[0].body, region.sampleDetailMatch);
+    assert.match(detail.outboundIntents[0].body, /Bon app.tit/);
   });
 
   test(`AfroMarket: ${region.regionId} falls back to vertical cards (still followed by the footer) if the template send fails`, async () => {

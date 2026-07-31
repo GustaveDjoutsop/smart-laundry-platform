@@ -75,7 +75,12 @@ test('FlowEngine route action branches on saved context value', async () => {
   assert.equal((await runWithInput('nonsense'))[0].body, 'went fallback');
 });
 
-test('FlowEngine image state sends image then continues to next state in same turn', async () => {
+test('FlowEngine image state chaining into a buttons state sends one merged image+buttons message, not two separate sends', async () => {
+  // Regression test: two sequential sends (image, then buttons) don't have a
+  // guaranteed display order on the WhatsApp client - the heavier image
+  // message can visibly render after the lighter buttons message sent right
+  // behind it. Merging into a single interactive image+buttons message
+  // removes that reordering risk entirely.
   const botConfig = {
     botId: 't',
     botName: 'TestBot',
@@ -112,12 +117,76 @@ test('FlowEngine image state sends image then continues to next state in same tu
     send: async (intent) => sent.push(intent)
   });
 
-  assert.equal(sent.length, 2);
-  assert.equal(sent[0].type, 'image');
-  assert.equal(sent[0].link, 'https://example.com/jollof.jpg');
-  assert.equal(sent[0].caption, 'Here is jollof');
-  assert.equal(sent[1].type, 'buttons');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].type, 'buttons');
+  assert.equal(sent[0].image, 'https://example.com/jollof.jpg');
+  assert.equal(sent[0].body, 'Here is jollof\n\nWhat next?');
+  assert.deepEqual(sent[0].buttons, [{ id: 'menu', title: 'Menu' }]);
   assert.equal(res.state.currentStateId, 'follow_up');
+});
+
+test('FlowEngine image state chaining into a buttons state resolves buttonsFromContext via the plugin before sending', async () => {
+  const botConfig = {
+    botId: 't',
+    botName: 'TestBot',
+    defaultFlowId: 'main_menu',
+    flows: {
+      main_menu: {
+        states: [
+          { id: 'pic', type: 'image', link: 'https://example.com/dish.jpg', caption: 'Dish', next: 'follow_up' },
+          { id: 'follow_up', type: 'buttons', template: 'What next?', buttonsFromContext: 'dynamicButtons' }
+        ]
+      }
+    }
+  };
+
+  const plugin = {
+    beforeState: async (ctx) => {
+      if (ctx.stateId === 'follow_up') {
+        ctx.set('dynamicButtons', [{ id: 'a', title: 'A' }, { id: 'b', title: 'B' }]);
+      }
+    }
+  };
+
+  const engine = new FlowEngine({ botConfig, plugin });
+  const sent = [];
+
+  await engine.step({
+    from: '237670000000',
+    message: { text: { body: 'hi' } },
+    state: { currentFlowId: null, currentStateId: null, context: {} },
+    send: async (intent) => sent.push(intent)
+  });
+
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].buttons, [{ id: 'a', title: 'A' }, { id: 'b', title: 'B' }]);
+});
+
+test('FlowEngine image state without a next buttons state still sends a standalone image message', async () => {
+  const botConfig = {
+    botId: 't',
+    botName: 'TestBot',
+    defaultFlowId: 'main_menu',
+    flows: {
+      main_menu: {
+        states: [{ id: 'pic', type: 'image', link: 'https://example.com/dish.jpg', caption: 'Dish' }]
+      }
+    }
+  };
+
+  const engine = new FlowEngine({ botConfig });
+  const sent = [];
+
+  await engine.step({
+    from: '237670000000',
+    message: { text: { body: 'hi' } },
+    state: { currentFlowId: null, currentStateId: null, context: {} },
+    send: async (intent) => sent.push(intent)
+  });
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].type, 'image');
+  assert.equal(sent[0].caption, 'Dish');
 });
 
 test('FlowEngine rejects route action without params.default or next at construction', () => {

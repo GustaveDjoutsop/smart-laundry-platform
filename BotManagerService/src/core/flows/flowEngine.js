@@ -329,6 +329,61 @@ class FlowEngine {
         const link = renderTemplate(stateDefinition.link || '', templateContext);
         const caption = renderTemplate(stateDefinition.caption || '', templateContext);
 
+        // When the very next state is a 'buttons' menu, fold the image straight
+        // into that message (image header + combined body + its buttons)
+        // instead of sending two separate messages. WhatsApp clients don't
+        // guarantee display order between two rapid sequential sends - the
+        // heavier image message can visibly render after the lighter
+        // buttons-only message sent right behind it, so a customer could see
+        // "Bon appétit, want to explore more?" before the recipe/product it's
+        // about. A single interactive image+buttons message can't reorder
+        // relative to itself.
+        const nextStateDefinition = stateDefinition.next
+          ? this.getStateDef(conversationState.currentFlowId, stateDefinition.next)
+          : null;
+
+        if (nextStateDefinition && nextStateDefinition.type === 'buttons') {
+          if (this.plugin && this.plugin.beforeTransition) {
+            await this.plugin.beforeTransition(flowContext, { to: stateDefinition.next });
+          }
+          conversationState.currentStateId = stateDefinition.next;
+
+          if (this.plugin && this.plugin.beforeState) {
+            await this.plugin.beforeState(flowContext);
+          }
+
+          const menuTemplateContext = {
+            ...flowContext.context,
+            user: { phone: from },
+            bot: { name: this.botConfig.botName }
+          };
+          const menuBody = renderTemplate(nextStateDefinition.template || nextStateDefinition.body || '', menuTemplateContext);
+          const combinedBody = [caption, menuBody].filter((part) => part && part.trim()).join('\n\n');
+
+          let buttons = [];
+          if (Array.isArray(nextStateDefinition.buttons)) {
+            buttons = nextStateDefinition.buttons;
+          } else if (
+            typeof nextStateDefinition.buttonsFromContext === 'string' &&
+            nextStateDefinition.buttonsFromContext.trim()
+          ) {
+            const fromContextButtons = flowContext.get(nextStateDefinition.buttonsFromContext);
+            buttons = Array.isArray(fromContextButtons) ? fromContextButtons : [];
+          }
+
+          const outboundIntent = { type: 'buttons', to: from, body: combinedBody, buttons, image: link };
+          outboundIntents.push(outboundIntent);
+          if (typeof send === 'function') {
+            await send(outboundIntent);
+          }
+
+          if (this.plugin && this.plugin.afterState) {
+            await this.plugin.afterState(flowContext);
+          }
+
+          break;
+        }
+
         const outboundIntent = { type: 'image', to: from, link, caption };
         outboundIntents.push(outboundIntent);
         if (typeof send === 'function') {
