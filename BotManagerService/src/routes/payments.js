@@ -43,8 +43,10 @@ function paymentsRouter() {
         return res.status(200).json({ ok: true });
       }
 
-      // Verify signature AND dedupe by event id before appending to the
-      // ledger - webhooks are untrusted input until both checks pass.
+      // Dedupe by event id before appending to the ledger. Signature
+      // verification above is CamPay's pre-existing, opt-in behavior (only
+      // enforced when CAMPAY_WEBHOOK_SECRET is set, unlike Stripe's
+      // fail-closed verifyWebhook below) - unchanged by this diff.
       const { duplicate } = await store.appendEvent({
         botId,
         transactionId: normalized.transactionId,

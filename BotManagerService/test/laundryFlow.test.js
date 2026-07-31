@@ -1,7 +1,7 @@
 // laundry.bot.json pays via preferredProvider: 'campay' - register a real
 // CamPay provider (with a stubbed fetch) instead of relying on the MTN stub
-// PaymentGateway.selectProvider used to silently fall through to whenever
-// CamPay wasn't actually configured. That silent fallback is exactly the
+// PaymentGateway.selectProvider used to silently fall through to the MTN
+// stub whenever CamPay wasn't actually configured. That silent fallback is exactly the
 // cross-tenant footgun PaymentGateway.selectProvider was hardened against
 // (see paymentGateway.js), so this bot's own tests must configure CamPay for
 // real rather than depend on the old accidental MTN-stub routing.

@@ -168,6 +168,28 @@ test('StripeProvider verifyWebhook accepts a correctly-signed payload and reject
   assert.equal(provider.verifyWebhook(rawBody, undefined), false);
 });
 
+test('StripeProvider verifyWebhook accepts a match against any v1 signature during a secret rotation (multiple v1= values, and tolerates whitespace after commas)', () => {
+  const oldSecret = 'whsec_old';
+  const newSecret = 'whsec_new';
+  const rawBody = '{"id":"evt_rotation"}';
+  const timestamp = Math.floor(Date.now() / 1000);
+
+  const oldSig = crypto.createHmac('sha256', oldSecret).update(`${timestamp}.${rawBody}`).digest('hex');
+  const newSig = crypto.createHmac('sha256', newSecret).update(`${timestamp}.${rawBody}`).digest('hex');
+  // Stripe sends one v1= per active secret during rotation, with a space
+  // after each comma - both must be tolerated.
+  const header = `t=${timestamp}, v1=${oldSig}, v1=${newSig}`;
+
+  const providerWithNewSecret = new StripeProvider({ secretKey: 'sk_test', webhookSecret: newSecret, fetchImpl: async () => ({}) });
+  assert.equal(providerWithNewSecret.verifyWebhook(rawBody, header), true);
+
+  const providerWithOldSecret = new StripeProvider({ secretKey: 'sk_test', webhookSecret: oldSecret, fetchImpl: async () => ({}) });
+  assert.equal(providerWithOldSecret.verifyWebhook(rawBody, header), true);
+
+  const providerWithUnrelatedSecret = new StripeProvider({ secretKey: 'sk_test', webhookSecret: 'whsec_unrelated', fetchImpl: async () => ({}) });
+  assert.equal(providerWithUnrelatedSecret.verifyWebhook(rawBody, header), false);
+});
+
 test('StripeProvider verifyWebhook rejects a signature outside the replay-tolerance window', () => {
   const secret = 'whsec_test';
   const rawBody = '{"id":"evt_1"}';
