@@ -397,6 +397,28 @@ class PaymentServiceTest {
 
             verifyNoInteractions(campayService);
         }
+
+        @Test
+        void shouldRethrowUnrelatedIntegrityViolationOnIdempotencyKeySave() {
+            // A DataIntegrityViolationException unrelated to the idempotency_key unique
+            // constraint (e.g. the external_reference FK) is a real bug and must not be
+            // masked as a routine concurrency conflict.
+            request.setIdempotencyKey("IDEMP-004");
+            when(idempotencyKeyRepository.findByIdempotencyKey("IDEMP-004")).thenReturn(Optional.empty());
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
+                    .thenReturn(Collections.emptyList());
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(idempotencyKeyRepository.save(any(IdempotencyKey.class)))
+                    .thenThrow(new DataIntegrityViolationException(
+                            "insert or update on table \"idempotency_keys\" violates foreign key constraint"));
+
+            assertThatThrownBy(() -> paymentService.initiatePayment(request))
+                    .isInstanceOf(DataIntegrityViolationException.class)
+                    .isNotInstanceOf(PaymentException.class);
+
+            verifyNoInteractions(campayService);
+        }
     }
 
     // ── processWebhook ───────────────────────────────────────────────────────

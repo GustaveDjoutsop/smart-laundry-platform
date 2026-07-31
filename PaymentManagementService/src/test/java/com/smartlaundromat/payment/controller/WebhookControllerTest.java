@@ -177,9 +177,15 @@ class WebhookControllerTest {
 
     @Test
     void shouldNotRouteToPaymentServiceForRemovedMtnWebhookEndpoint() throws Exception {
+        // No handler exists for this path anymore; GlobalExceptionHandler's catch-all
+        // resolves the resulting NoResourceFoundException to 500 rather than a clean 404
+        // (a separate, pre-existing broad-exception-handling behavior, not introduced by
+        // this change and out of scope here) — asserted concretely so this test actually
+        // fails if the route is ever accidentally reinstated and starts returning 200.
         mockMvc.perform(post("/api/webhook/mtn")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{}"));
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isInternalServerError());
 
         verifyNoInteractions(paymentService);
     }
@@ -187,8 +193,9 @@ class WebhookControllerTest {
     @Test
     void shouldNotRouteToPaymentServiceForRemovedOrangeWebhookEndpoint() throws Exception {
         mockMvc.perform(post("/api/webhook/orange")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{}"));
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isInternalServerError());
 
         verifyNoInteractions(paymentService);
     }

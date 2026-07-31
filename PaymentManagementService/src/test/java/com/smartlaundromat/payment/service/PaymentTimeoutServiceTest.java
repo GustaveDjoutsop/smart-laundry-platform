@@ -14,6 +14,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -38,6 +39,9 @@ class PaymentTimeoutServiceTest {
 
     @Spy
     ObjectMapper objectMapper;
+
+    @Mock
+    PlatformTransactionManager transactionManager;
 
     @InjectMocks
     PaymentTimeoutService paymentTimeoutService;

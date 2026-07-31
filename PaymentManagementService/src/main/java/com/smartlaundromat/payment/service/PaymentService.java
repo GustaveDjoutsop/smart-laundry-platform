@@ -322,15 +322,21 @@ public class PaymentService {
      * Registers the idempotency key against the just-created transaction, before any
      * provider call is made.
      *
-     * <p>On a unique-constraint violation (a concurrent request for the same key won the
-     * race), this deliberately does <strong>not</strong> try to recover in-transaction by
-     * reading back the winner's row: on Postgres, a failed statement aborts the whole
-     * surrounding transaction, so any further read here would itself fail against the
-     * now-aborted transaction. Instead this rethrows as a plain {@code PaymentException},
-     * rolling back this whole request's transaction cleanly (including the just-created
-     * PENDING row — no orphan left behind, unlike a recover-in-place approach would leave).
-     * The caller retries the same idempotency key in a fresh request/transaction, at which
-     * point {@link #replayIfIdempotencyKeyKnown} finds the winner's now-committed row.
+     * <p>On a unique-constraint violation on {@code idempotency_key} (a concurrent request
+     * for the same key won the race), this deliberately does <strong>not</strong> try to
+     * recover in-transaction by reading back the winner's row: on Postgres, a failed
+     * statement aborts the whole surrounding transaction, so any further read here would
+     * itself fail against the now-aborted transaction. Instead this rethrows as a plain
+     * {@code PaymentException}, rolling back this whole request's transaction cleanly
+     * (including the just-created PENDING row — no orphan left behind, unlike a
+     * recover-in-place approach would leave). The caller retries the same idempotency key
+     * in a fresh request/transaction, at which point {@link #replayIfIdempotencyKeyKnown}
+     * finds the winner's now-committed row.
+     *
+     * <p>Only the {@code idempotency_key} unique-constraint violation means "concurrency
+     * conflict" — any other integrity violation (e.g. the {@code external_reference} FK)
+     * is a real bug and must not be masked as a routine conflict, same reasoning as the
+     * pending-payment race guard above.
      */
     private void registerIdempotencyKey(String idempotencyKey, String externalReference) {
         try {
@@ -340,6 +346,10 @@ public class PaymentService {
                     .expiresAt(OffsetDateTime.now().plusHours(24))
                     .build());
         } catch (DataIntegrityViolationException exception) {
+            String cause = String.valueOf(exception.getMostSpecificCause().getMessage());
+            if (!cause.contains("idempotency_keys_idempotency_key_key")) {
+                throw exception;
+            }
             log.warn("Idempotency key {} registered concurrently by another request", idempotencyKey);
             throw new PaymentException("IDEMPOTENCY_KEY_CONFLICT",
                     "A payment with idempotency key " + idempotencyKey + " is already being processed — retry shortly");
