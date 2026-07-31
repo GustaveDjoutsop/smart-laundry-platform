@@ -49,7 +49,7 @@ hi/menu → Main menu (list, Jasper-style wording)
   │     └─ product list → product detail (image+price) → Add to Cart / View Cart / Back
   │           → cart_view → Checkout (one combined name+address+email message,
   │                 phone auto-taken from WhatsApp) → review & confirm
-  │                 → 💳 real Flutterwave payment link (cta_url) → order confirmed (async, on payment.completed)
+  │                 → 💳 real Stripe Checkout link (cta_url) → order confirmed (async, on payment.completed)
   ├─ 🍲 Get recipe ideas → recipes hub
   │     ├─ Browse Recipes → region → recipe detail → 🛒 Buy ingredients (adds to cart,
   │     │     then recipe_actions swaps "Buy ingredients" for "👀 View Cart")
@@ -277,79 +277,148 @@ longer asked at all** - it's taken directly from the WhatsApp sender number
 customer sees an error and the same prompt again (`checkoutDetailsError`
 templated into the prompt) rather than silently accepting garbage.
 
-Email is genuinely optional at this step, but Flutterwave's hosted checkout
+Email is genuinely optional at this step, but Stripe's hosted checkout
 requires one - if payments are configured and the customer left it out,
 `_handleCheckout` routes to a small dedicated `checkout_email_required`
 prompt asking for just the email, then retries `cart.checkout`. This keeps
 the checkout message honest ("optional") without breaking payment, and only
 bothers the customer with an extra question when payment genuinely needs it.
 
-## Payment: Flutterwave, not PayPal/Revolut/Meta Payments
+## Payment: Stripe Checkout Sessions
 
-Added 2026-07-20. Three options were evaluated against the real constraint —
-Gustave's business is Cameroon-registered, AfroMarket's customers are in
-Germany:
+**AfroMarket is a Germany/EU business with an EU-eligible payout account —
+it is not, and has never been, a Cameroon-market product.** An earlier
+version of this section chose Flutterwave specifically because the payout
+entity was Cameroon-registered at the time; that constraint no longer
+applies, and Flutterwave has been fully removed (provider file, webhook
+route, env vars, tests — nothing else in the repo referenced it). **CamPay,
+MTN MoMo, and Orange Money are not used by, and are not applicable to,
+AfroMarket** — those exist for the `laundry`/`pharmacy`/`thomas_network`
+bots in this same monorepo, which legitimately serve a Cameroon-based
+laundromat business in XAF. The shared `PaymentGateway`
+(`src/core/payments/paymentGateway.js`) is hardened so it can never silently
+default a bot to a provider/currency it didn't explicitly ask for (see
+below) — this is what actually keeps AfroMarket and the Cameroon bots from
+ever cross-contaminating, not just convention.
 
-- **Meta's native WhatsApp Payments API** (in-chat `order_details` messages)
-  is Brazil/Singapore-only per Meta's own docs — not available in Europe.
-  Ruled out outright; any EU payment has to leave the chat via a link.
-- **Revolut Business**: requires the account-holding company to be
-  UK/EEA-registered with physical presence there. A Cameroon entity cannot
-  open one. Ruled out.
-- **PayPal**: Cameroon-registered PayPal accounts are send-only — they
-  cannot *receive* money. Ruled out for the same underlying reason as
-  Revolut (receiving-account eligibility, not API quality).
-- **Flutterwave** (chosen): fully licensed and operating directly in
-  Cameroon; a Cameroon-registered Flutterwave for Business account can
-  accept international Visa/Mastercard/Amex payments from European
-  customers after a one-time "enable international cards" request
-  (~48h turnaround). No foreign entity required.
+Provider options considered for AfroMarket's EU/Germany market: **Stripe**
+(chosen), Mollie, PayPal, Klarna (standalone), Adyen, Revolut. Stripe won
+because:
+- One Checkout Session covers card + Klarna + SEPA direct debit + giropay
+  (`automatic_payment_methods`), rather than needing a separate Klarna
+  integration.
+- `Stripe-Signature` is a real HMAC-SHA256 signature
+  (`t=<timestamp>,v1=<hex>` over `${timestamp}.${rawBody}`) — reuses this
+  codebase's existing `computeHmacSha256Hex`/`safeEqual` primitives
+  (`webhookSignature.js`), the same pattern CamPay's webhook already uses.
+  Mollie's webhook, by contrast, carries no signature at all and requires an
+  API callback to fetch real status — a different, weaker trust model.
+- Stripe's REST API natively accepts an `Idempotency-Key` header and dedupes
+  server-side for ~24h — free defense-in-depth on top of this codebase's own
+  idempotency-key mechanism (below).
+- Hosted Checkout Sessions are a plain REST endpoint
+  (`POST /v1/checkout/sessions`), hand-rollable with `fetch` — no SDK, same
+  as every other provider in this codebase.
 
-**Architecture** (mirrors the existing CamPay pattern exactly — same
-`PaymentGateway`/provider-interface/`PaymentStatusWorker` machinery already
-used for the laundromat, just a different provider):
+**Architecture** (same `PaymentGateway`/provider-interface/
+`PaymentStatusWorker` machinery already used for CamPay/MTN, just a
+different provider):
 
-- `src/core/payments/providers/flutterwaveProvider.js` — `isConfigured` /
-  `initiatePayment` (POST `/v3/payments`, Standard hosted checkout, returns
-  a `checkoutUrl`) / `checkStatus` (`GET /v3/transactions/verify_by_reference`)
-  / `verifyWebhook` / `parseWebhook`. Registered in `paymentService.js` when
-  `FLUTTERWAVE_SECRET_KEY` is set.
-- **Webhook verification is a plain timing-safe string comparison**, not an
-  HMAC: Flutterwave's classic Standard/Collections webhook returns the
-  dashboard-configured Secret Hash back verbatim in the `verif-hash` header
-  (unlike CamPay's HMAC-SHA256). `webhookSignature.js` now exports `safeEqual`
-  for this.
-- `POST /api/payments/webhooks/flutterwave/:botId` in `routes/payments.js`
-  mirrors the CamPay webhook route: verify → `gateway.handleWebhook` →
-  persist → emit `payment.status`. The existing `PaymentStatusWorker`
-  (already running, provider-agnostic) picks that up, dedupes, and emits
-  `payment.completed` on the PENDING→COMPLETED transition — no new polling
-  logic needed.
-- **Checkout flow** (`afromarketFlowPlugin.js::_handleCheckout`): added a
-  `checkout_email` input step (Flutterwave's hosted checkout requires a
-  customer email) between phone and review. On confirm, if Flutterwave is
-  configured, it calls `gateway.initiatePayment(...)` with the order as
-  `metadata` and sends the real hosted checkout link via the existing
-  `cta_url` message type ("💳 Pay for order AM-XXXX") — it no longer
-  confirms the order instantly. If Flutterwave isn't configured (e.g. local
-  dev with no `FLUTTERWAVE_SECRET_KEY`), it falls back to the old
-  instant-confirmation behavior so local testing still works without live
-  payment credentials.
-- **Order confirmation now happens async**: `AfroMarketBot` registers a
-  `payment.completed` listener (same shape as `ThomasNetworkBot`'s access-code
-  listener, including a Redis `setnx` idempotency lock so a duplicate webhook
-  can't double-send) that fires the real "✅ Order confirmed" WhatsApp message
-  — built from the cart/name/address/phone snapshotted in the payment's
-  `metadata` at initiation time — once the webhook confirms payment actually
-  went through.
-- Env vars: `FLUTTERWAVE_SECRET_KEY` (Bearer key for the REST API),
-  `FLUTTERWAVE_WEBHOOK_SECRET_HASH` (the Settings → Webhooks Secret Hash,
-  **not** the same value as the secret key), `FLUTTERWAVE_REDIRECT_URL`
-  (where Flutterwave sends the customer back after paying), optional
-  `FLUTTERWAVE_BASE_URL` override for testing.
-- **Not yet tested live** — needs real Flutterwave sandbox/test credentials
-  from Gustave before a payment link can actually be sent and confirmed on
-  WhatsApp.
+- `src/core/payments/providers/stripeProvider.js` — `isConfigured` /
+  `initiatePayment` (`POST /v1/checkout/sessions`, one aggregate line item
+  for the cart total, returns a `checkoutUrl`) / `checkStatus`
+  (`GET /v1/checkout/sessions/:id`) / `verifyWebhook` / `parseWebhook`
+  (returns a stable `eventId` from the Stripe event envelope, used for
+  webhook-ingestion dedup — CamPay/MTN's `parseWebhook` don't return one,
+  which is fine, see below). Registered in `paymentService.js` when
+  `STRIPE_SECRET_KEY` is set.
+- `POST /api/payments/webhooks/stripe/:botId` in `routes/payments.js`
+  mirrors the CamPay webhook route: verify signature → `gateway.handleWebhook`
+  → append to the ledger (deduped by event id) → emit `payment.status`.
+- **Checkout flow** (`afromarketFlowPlugin.js::_handleCheckout`) is otherwise
+  unchanged from the Flutterwave-era design: email is asked for specifically
+  only when a provider is actually configured and needs it; on confirm, if
+  Stripe is configured, it calls `gateway.initiatePayment(...)` with the
+  order as `metadata` and sends the real hosted checkout link via the
+  existing `cta_url` message type ("💳 Pay for order AM-XXXX") instead of
+  confirming instantly. If Stripe isn't configured (e.g. local dev with no
+  `STRIPE_SECRET_KEY`), it falls back to the legacy instant-confirmation
+  behavior so local testing still works without live payment credentials.
+- **Order confirmation happens async**: `AfroMarketBot` registers a
+  `payment.completed` listener (same shape as `ThomasNetworkBot`'s
+  access-code listener, including a Redis `setnx` idempotency lock so a
+  duplicate webhook can't double-send the WhatsApp message) that fires the
+  real "✅ Order confirmed" message — built from the cart/name/address/phone
+  snapshotted in the payment's `metadata` at initiation time — once the
+  webhook confirms payment actually went through.
+- Env vars: `STRIPE_SECRET_KEY` (Bearer key for the REST API),
+  `STRIPE_WEBHOOK_SECRET` (Dashboard → Webhooks signing secret — **not** the
+  same value as the secret key), `STRIPE_SUCCESS_URL`/`STRIPE_CANCEL_URL`
+  (where Stripe sends the customer back after paying/cancelling), optional
+  `STRIPE_BASE_URL` override for testing.
+- **Not yet tested live** — needs real Stripe test-mode credentials before a
+  payment link can actually be sent and confirmed on WhatsApp.
+
+### Append-only payment ledger (not a single mutable row)
+
+`PaymentStore` (`src/core/payments/paymentStore.js`) previously overwrote a
+single `payment:{botId}:{transactionId}` row on every update — no audit
+history. It now also appends every state transition
+(`payment_initiated` / `payment_status_polled` / `payment_completed` /
+`payment_failed`) to a Redis list, `payment_events:{botId}:{transactionId}`
+(`appendEvent`/`getEvents`), deduped by event id before appending
+(`payment_event_seen:{botId}:{provider}:{eventId}`, `SETNX`-guarded) so a
+redelivered webhook can't create a duplicate ledger entry. The single
+`payment:{botId}:{transactionId}` row still exists and is still cheap to
+read — it's now a derived snapshot of the latest event, not the source of
+truth. Providers without a stable event id (CamPay) get a synthesized dedup
+key instead of a real one — coarser, but still not "silently rely on the
+overwrite being harmless" the way it worked before.
+
+**Caveat**: this ledger lives in Redis. Redis list persistence depends on
+AOF being enabled wherever this runs in production — worth confirming
+explicitly if long-term audit/compliance retention beyond Redis's realistic
+guarantees becomes a hard requirement.
+
+### Idempotency key (client-generated, checked before every charge attempt)
+
+A double-tap on "Confirm Order" (or a WhatsApp webhook redelivery of the
+same tap) used to mint a **second** order number and a **second** payment
+session — `generateOrderNumber()` ran fresh on every `_handleCheckout`
+invocation with no dedup. Fixed: entering `checkout_review` generates
+`checkoutIdempotencyKey` (a `crypto.randomUUID()`) and `checkoutOrderNumber`
+once per attempt (`AfroMarketFlowPlugin.beforeState`), reused across the
+review → email-required → confirm retry loop. `PaymentGateway.initiatePayment`
+looks up any existing payment for that key first
+(`store.getPaymentByIdempotencyKey`) and returns the cached result instead
+of re-calling the provider if found; `stripeProvider.js` also forwards the
+same key as Stripe's own `Idempotency-Key` header, so there are two
+independent layers of protection, not just a UI-level "the button is now
+disabled" convention. The key/order number are cleared on reaching
+`cart_view` (covers both a genuine cancel and a fresh look at the cart
+before a new checkout) and right before `order_confirmed` on success — but
+deliberately **not** cleared when a payment-initiation attempt fails
+(`checkout_review` re-entry via the failure path), since no payment record
+was ever stored for a failed attempt and retrying is still logically the
+same in-flight order.
+
+### Shared gateway hardening (no silent cross-tenant fallback)
+
+`PaymentGateway.selectProvider` used to default to `campay` if no
+`preferredProvider` was passed, and `initiatePayment` defaulted `currency`
+to `'XAF'` if none was given — both are latent footguns in a
+process-wide-singleton gateway shared by every bot (`paymentService.js`),
+since a future AfroMarket code path that forgot to pass
+`preferredProvider: 'stripe'` explicitly would have silently been routed to
+CamPay in XAF instead of failing loudly. Both are now hardened: omitting
+`preferredProvider` throws if 2+ providers are registered (resolves the sole
+provider only when there's exactly one, which is unambiguous), and omitting
+`currency` always throws. Every real call site already passed both
+explicitly (`afromarketFlowPlugin.js` → `'stripe'`/`'EUR'`,
+`thomasNetworkFlowPlugin.js` → `'campay'` via its bot config's
+`payments.preferredProvider`), so this is a pure hardening change with no
+behavior change for existing callers — it only closes the gap for future
+code.
 
 ## Known limitations / next steps
 
@@ -361,6 +430,18 @@ used for the laundromat, just a different provider):
   else) — abandoned carts just expire, no recovery flow.
 - Restaurant/table reservation and physical-store loyalty features were
   explicitly scoped out for v2 (info cards only, per Gustave's ask).
+- **No real inventory/stock tracking exists anywhere** (no stock/quantity
+  field on any product, no reservation/commit/release logic). Explicitly
+  scoped out of the Stripe payment-solution pass as an independently-sized
+  feature, not a natural extension of a payment-provider swap. When picked
+  up, model it as reserve-on-cart-add / commit-on-payment-completed /
+  release-on-payment-failed-or-timeout, with an order state machine
+  (`CREATED → PAYMENT_PENDING → PAID → PACKING → SHIPPED → DELIVERED`,
+  branching to `PAYMENT_FAILED` off `PAYMENT_PENDING`) — reusing the
+  `payment_events` ledger's `metadata` as the natural place to record
+  reservation/commit events per order, rather than inventing a third store.
+- **No shipping automation** (DHL/DPD label generation, tracking numbers) —
+  same reasoning and same future phase as inventory above.
 
 ## Message templates (submit in WhatsApp Manager when going proactive)
 

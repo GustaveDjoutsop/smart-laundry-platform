@@ -4,7 +4,7 @@ const { PaymentStore } = require('./paymentStore');
 const { paymentEvents } = require('./paymentEvents');
 const { CamPayProvider } = require('./providers/campayProvider');
 const { MtnMomoProvider } = require('./providers/mtnMomoProvider');
-const { FlutterwaveProvider } = require('./providers/flutterwaveProvider');
+const { StripeProvider } = require('./providers/stripeProvider');
 
 let cached;
 
@@ -27,19 +27,20 @@ function getPaymentService() {
   // MTN is currently a stub (real integration comes later)
   providers.mtn = new MtnMomoProvider({ logger });
 
-  if (process.env.FLUTTERWAVE_SECRET_KEY) {
-    if (!process.env.FLUTTERWAVE_WEBHOOK_SECRET_HASH) {
+  if (process.env.STRIPE_SECRET_KEY) {
+    if (!process.env.STRIPE_WEBHOOK_SECRET) {
       logger.warn(
-        'FLUTTERWAVE_SECRET_KEY is set but FLUTTERWAVE_WEBHOOK_SECRET_HASH is not - ' +
-          'every Flutterwave webhook will be rejected (fail-closed) until it is configured'
+        'STRIPE_SECRET_KEY is set but STRIPE_WEBHOOK_SECRET is not - ' +
+          'every Stripe webhook will be rejected (fail-closed) until it is configured'
       );
     }
 
-    providers.flutterwave = new FlutterwaveProvider({
-      secretKey: process.env.FLUTTERWAVE_SECRET_KEY,
-      webhookSecretHash: process.env.FLUTTERWAVE_WEBHOOK_SECRET_HASH,
-      baseUrl: process.env.FLUTTERWAVE_BASE_URL || 'https://api.flutterwave.com/v3',
-      redirectUrl: process.env.FLUTTERWAVE_REDIRECT_URL,
+    providers.stripe = new StripeProvider({
+      secretKey: process.env.STRIPE_SECRET_KEY,
+      webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
+      baseUrl: process.env.STRIPE_BASE_URL || 'https://api.stripe.com/v1',
+      successUrl: process.env.STRIPE_SUCCESS_URL,
+      cancelUrl: process.env.STRIPE_CANCEL_URL,
       logger
     });
   }

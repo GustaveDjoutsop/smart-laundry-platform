@@ -43,11 +43,22 @@ function paymentsRouter() {
         return res.status(200).json({ ok: true });
       }
 
-      const existing = await store.getPayment({ botId, transactionId: normalized.transactionId });
-      await store.upsertPayment({
-        ...(existing || {}),
-        ...normalized
+      // Verify signature AND dedupe by event id before appending to the
+      // ledger - webhooks are untrusted input until both checks pass.
+      const { duplicate } = await store.appendEvent({
+        botId,
+        transactionId: normalized.transactionId,
+        provider: 'campay',
+        eventId: normalized.eventId,
+        eventType:
+          normalized.status === 'COMPLETED' ? 'payment_completed' : normalized.status === 'FAILED' ? 'payment_failed' : 'payment_status_updated',
+        status: normalized.status,
+        amount: normalized.amount,
+        externalRef: normalized.externalRef,
+        raw: normalized.raw,
+        source: 'webhook'
       });
+      if (duplicate) return res.status(200).json({ ok: true, duplicate: true });
 
       events.emit('payment.status', normalized);
 
@@ -58,35 +69,44 @@ function paymentsRouter() {
   });
 
   // Provider webhook (per-bot to preserve tenant isolation)
-  router.post('/webhooks/flutterwave/:botId', async (req, res, next) => {
+  router.post('/webhooks/stripe/:botId', async (req, res, next) => {
     try {
       const { gateway, store, events } = getPaymentService();
-      const provider = gateway.getProvider('flutterwave');
+      const provider = gateway.getProvider('stripe');
 
-      // Fail closed: verifyWebhook already returns false when webhookSecretHash
+      // Fail closed: verifyWebhook already returns false when webhookSecret
       // isn't configured, so a missing secret rejects every webhook instead of
       // silently accepting unverified payloads that could mark orders as paid.
-      const signatureHeader = req.get('verif-hash');
-      if (!provider || !provider.verifyWebhook(req.body, signatureHeader)) {
-        logger.warn('Flutterwave webhook signature verification failed');
+      const signatureHeader = req.get('stripe-signature');
+      if (!provider || !provider.verifyWebhook(req.rawBody, signatureHeader)) {
+        logger.warn('Stripe webhook signature verification failed');
         return res.status(403).send('Forbidden');
       }
 
       const { botId } = req.params;
       const payload = req.body;
 
-      const normalized = gateway.handleWebhook({ botId, provider: 'flutterwave', payload });
+      const normalized = gateway.handleWebhook({ botId, provider: 'stripe', payload });
 
       if (!normalized.transactionId) {
-        logger.warn('Flutterwave webhook missing transactionId');
+        logger.warn('Stripe webhook missing transactionId');
         return res.status(200).json({ ok: true });
       }
 
-      const existing = await store.getPayment({ botId, transactionId: normalized.transactionId });
-      await store.upsertPayment({
-        ...(existing || {}),
-        ...normalized
+      const { duplicate } = await store.appendEvent({
+        botId,
+        transactionId: normalized.transactionId,
+        provider: 'stripe',
+        eventId: normalized.eventId,
+        eventType:
+          normalized.status === 'COMPLETED' ? 'payment_completed' : normalized.status === 'FAILED' ? 'payment_failed' : 'payment_status_updated',
+        status: normalized.status,
+        amount: normalized.amount,
+        externalRef: normalized.externalRef,
+        raw: normalized.raw,
+        source: 'webhook'
       });
+      if (duplicate) return res.status(200).json({ ok: true, duplicate: true });
 
       events.emit('payment.status', normalized);
 

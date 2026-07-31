@@ -1,5 +1,21 @@
+// thomasNetwork.bot.json pays via preferredProvider: 'campay' - register a real
+// CamPay provider (with a stubbed fetch) instead of relying on the MTN stub
+// PaymentGateway.selectProvider used to silently fall through to whenever
+// CamPay wasn't actually configured. That silent fallback is exactly the
+// cross-tenant footgun PaymentGateway.selectProvider was hardened against
+// (see paymentGateway.js), so this bot's own tests must configure CamPay for
+// real rather than depend on the old accidental MTN-stub routing.
+process.env.CAMPAY_TOKEN = 'test-token';
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
+
+let currentFetchImpl = async () => ({
+  ok: true,
+  status: 200,
+  json: async () => ({ reference: `campay_test_${Date.now()}`, status: 'PENDING' })
+});
+global.fetch = (...args) => currentFetchImpl(...args);
 
 const { FlowEngine } = require('../src/core/flows/flowEngine');
 const { ThomasNetworkFlowPlugin, calculateFinalAmount } = require('../src/bots/thomasNetwork/thomasNetworkFlowPlugin');

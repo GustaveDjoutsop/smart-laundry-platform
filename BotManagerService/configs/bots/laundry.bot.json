@@ -4,6 +4,9 @@
   "phoneNumberId": "REPLACE_ME",
   "verifyToken": "${META_VERIFY_TOKEN_LAUNDRY}",
   "welcomeMessage": "Bienvenue a Smart Laundry!",
+  "payments": {
+    "preferredProvider": "campay"
+  },
   "mqtt": {
     "topicPrefix": "laundry"
   },
