@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { FlowPlugin } = require('../../core/flows/flowPlugin');
 const { getPaymentService } = require('../../core/payments/paymentService');
 const { logger } = require('../../utils/logger');
@@ -87,9 +88,31 @@ class AfroMarketFlowPlugin extends FlowPlugin {
     const stateDefinition = flow.states.find((s) => s.id === ctx.stateId);
     if (!stateDefinition) return;
 
-    if (stateDefinition.id === 'cart_view' || stateDefinition.id === 'checkout_review') {
+    if (stateDefinition.id === 'cart_view') {
       const cart = ctx.get('cart') || [];
       ctx.set('cartSummaryText', buildCartSummaryText(cart));
+      // Reaching cart_view means either a fresh look at the cart before
+      // checking out, or landing here via cancel_checkout - either way, any
+      // idempotency key/order number from a prior attempt is done with and
+      // must not leak into a later, unrelated checkout.
+      ctx.set('checkoutIdempotencyKey', null);
+      ctx.set('checkoutOrderNumber', null);
+      return;
+    }
+
+    if (stateDefinition.id === 'checkout_review') {
+      const cart = ctx.get('cart') || [];
+      ctx.set('cartSummaryText', buildCartSummaryText(cart));
+      // Generated once per checkout attempt and reused across the review ->
+      // email-required -> confirm loop, so a double-tap on "Confirm Order"
+      // (or a redelivered inbound message) can't mint a second order/payment
+      // session - see PaymentGateway.initiatePayment's idempotency lookup.
+      if (!ctx.get('checkoutIdempotencyKey')) {
+        ctx.set('checkoutIdempotencyKey', crypto.randomUUID());
+      }
+      if (!ctx.get('checkoutOrderNumber')) {
+        ctx.set('checkoutOrderNumber', generateOrderNumber());
+      }
       return;
     }
 
@@ -275,15 +298,17 @@ class AfroMarketFlowPlugin extends FlowPlugin {
         `⚠️ Your cart was empty, so there's nothing to check out yet.\n\nBrowse groceries and add a few items first!`
       );
       ctx.set('cart', []);
+      ctx.set('checkoutIdempotencyKey', null);
+      ctx.set('checkoutOrderNumber', null);
       ctx.goto('order_confirmed');
       return true;
     }
 
     const { gateway } = getPaymentService();
-    const flutterwave = gateway.getProvider('flutterwave');
-    const paymentsConfigured = Boolean(flutterwave && flutterwave.isConfigured());
+    const stripe = gateway.getProvider('stripe');
+    const paymentsConfigured = Boolean(stripe && stripe.isConfigured());
 
-    // Email is optional in the combined checkout_details message, but Flutterwave's
+    // Email is optional in the combined checkout_details message, but Stripe's
     // hosted checkout requires one - ask for it specifically only when it's actually
     // needed, rather than failing the whole payment with a generic error.
     if (paymentsConfigured && !email) {
@@ -291,18 +316,21 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       return true;
     }
 
-    // No payment provider configured at all (e.g. local dev without FLUTTERWAVE_SECRET_KEY) -
+    // No payment provider configured at all (e.g. local dev without STRIPE_SECRET_KEY) -
     // legacy instant confirmation, unchanged from before payments existed.
     if (!paymentsConfigured) {
-      const orderNumber = generateOrderNumber();
+      const orderNumber = ctx.get('checkoutOrderNumber') || generateOrderNumber();
       const cartSnapshot = cart.map((line) => ({ ...line }));
       ctx.set('cart', []);
+      ctx.set('checkoutIdempotencyKey', null);
+      ctx.set('checkoutOrderNumber', null);
       ctx.set('orderConfirmationText', buildOrderConfirmationText({ orderNumber, cart: cartSnapshot, name, address, phone }));
       ctx.goto('order_confirmed');
       return true;
     }
 
-    const orderNumber = generateOrderNumber();
+    const orderNumber = ctx.get('checkoutOrderNumber') || generateOrderNumber();
+    const idempotencyKey = ctx.get('checkoutIdempotencyKey');
     const cartSnapshot = cart.map((line) => ({ ...line }));
     const grandTotal = cartSnapshot.reduce((sum, line) => sum + line.unitPrice * line.qty, 0);
 
@@ -314,19 +342,22 @@ class AfroMarketFlowPlugin extends FlowPlugin {
         phoneNumber: ctx.from,
         reference: orderNumber,
         description: `AfroMarket order ${orderNumber}`,
-        preferredProvider: 'flutterwave',
+        preferredProvider: 'stripe',
         customerEmail: email,
         customerName: name,
+        idempotencyKey,
         metadata: { service: 'afromarket_order', orderNumber, cart: cartSnapshot, name, address, phone }
       });
 
       if (!payment.checkoutUrl) {
-        throw new Error('Flutterwave initiatePayment returned no checkoutUrl');
+        throw new Error('Stripe initiatePayment returned no checkoutUrl');
       }
 
       // Only clear the cart once a real payment session actually exists - a
       // failed initiatePayment call above must never drop the customer's cart.
       ctx.set('cart', []);
+      ctx.set('checkoutIdempotencyKey', null);
+      ctx.set('checkoutOrderNumber', null);
 
       const payText =
         `📝 Order *${orderNumber}* is ready — *${formatEuro(grandTotal)}*.\n\n` +
@@ -356,8 +387,12 @@ class AfroMarketFlowPlugin extends FlowPlugin {
     } catch (err) {
       // A real payment provider is configured but initiation failed (bad email,
       // outage, network error, ...) - never confirm an unpaid order as if it
-      // were paid. Keep the cart intact and let the customer retry.
-      logger.warn('AfroMarket: Flutterwave initiatePayment failed', {
+      // were paid. Keep the cart intact and let the customer retry. The
+      // idempotency key/order number are deliberately NOT cleared here - no
+      // payment record was ever stored for this attempt (initiatePayment
+      // threw before reaching that point), so retrying reuses the same key/
+      // order number for what is still logically the same in-flight attempt.
+      logger.warn('AfroMarket: Stripe initiatePayment failed', {
         error: err && err.message ? err.message : String(err)
       });
       await ctx.send({

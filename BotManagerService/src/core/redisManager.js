@@ -21,6 +21,9 @@ class RedisManager {
   constructor() {
     this.connected = false;
     this.fallbackCache = new Map();
+    // Separate from fallbackCache: list values shouldn't be conflated with
+    // the scalar get/setex/setnx cache above.
+    this.fallbackLists = new Map();
 
     this.client = null;
     this.initialized = false;
@@ -120,6 +123,51 @@ class RedisManager {
     }
 
     this.fallbackCache.set(key, value);
+  }
+
+  async rpush(key, value) {
+    if (this.connected && this.client) {
+      try {
+        await this.client.rPush(key, value);
+        return;
+      } catch (err) {
+        logger.warn('Redis rpush failed: using fallback', err && err.message ? err.message : String(err));
+      }
+    }
+
+    const list = this.fallbackLists.get(key) || [];
+    list.push(value);
+    this.fallbackLists.set(key, list);
+  }
+
+  async lrange(key, start, stop) {
+    if (this.connected && this.client) {
+      try {
+        return await this.client.lRange(key, start, stop);
+      } catch (err) {
+        logger.warn('Redis lrange failed: using fallback', err && err.message ? err.message : String(err));
+        return (this.fallbackLists.get(key) || []).slice(start, stop === -1 ? undefined : stop + 1);
+      }
+    }
+
+    return (this.fallbackLists.get(key) || []).slice(start, stop === -1 ? undefined : stop + 1);
+  }
+
+  async expire(key, ttlSeconds) {
+    if (this.connected && this.client) {
+      try {
+        await this.client.expire(key, Math.max(1, Number(ttlSeconds) || 1));
+        return;
+      } catch (err) {
+        logger.warn('Redis expire failed: using fallback', err && err.message ? err.message : String(err));
+      }
+    }
+
+    if (!this.fallbackLists.has(key)) return;
+    const delayMs = Math.min(Math.max(1, Number(ttlSeconds) || 1) * 1000, MAX_SETTIMEOUT_DELAY_MS);
+    setTimeout(() => {
+      this.fallbackLists.delete(key);
+    }, delayMs).unref?.();
   }
 }
 

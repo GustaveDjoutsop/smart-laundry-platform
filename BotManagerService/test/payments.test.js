@@ -29,3 +29,75 @@ test('PaymentStore upsert + get works (fallback Redis)', async () => {
   const gotByRef = await store.getPaymentByExternalRef({ botId: 'laundry', externalRef: 'ref1' });
   assert.equal(gotByRef.transactionId, 'tx1');
 });
+
+test('PaymentStore appendEvent builds an append-only ledger, not a single overwritten row', async () => {
+  const store = new PaymentStore({ ttlSeconds: 60 });
+  const botId = 'afromarket-ledger';
+  const transactionId = 'tx-ledger-1';
+
+  await store.appendEvent({ botId, transactionId, provider: 'stripe', eventType: 'payment_initiated', status: 'PENDING', source: 'initiate' });
+  await store.appendEvent({
+    botId,
+    transactionId,
+    provider: 'stripe',
+    eventId: 'evt_1',
+    eventType: 'payment_completed',
+    status: 'COMPLETED',
+    source: 'webhook'
+  });
+
+  const events = await store.getEvents({ botId, transactionId });
+  assert.equal(events.length, 2);
+  assert.equal(events[0].eventType, 'payment_initiated');
+  assert.equal(events[1].eventType, 'payment_completed');
+
+  // The "current status" row is a derived read-model of the latest event.
+  const snapshot = await store.getPayment({ botId, transactionId });
+  assert.equal(snapshot.status, 'COMPLETED');
+});
+
+test('PaymentStore appendEvent dedupes a redelivered webhook event by eventId - no duplicate ledger entry, no re-emit signal', async () => {
+  const store = new PaymentStore({ ttlSeconds: 60 });
+  const botId = 'afromarket-ledger-dedup';
+  const transactionId = 'tx-ledger-2';
+
+  const first = await store.appendEvent({
+    botId,
+    transactionId,
+    provider: 'stripe',
+    eventId: 'evt_dup',
+    eventType: 'payment_completed',
+    status: 'COMPLETED',
+    source: 'webhook'
+  });
+  assert.equal(first.duplicate, false);
+
+  const redelivered = await store.appendEvent({
+    botId,
+    transactionId,
+    provider: 'stripe',
+    eventId: 'evt_dup',
+    eventType: 'payment_completed',
+    status: 'COMPLETED',
+    source: 'webhook'
+  });
+  assert.equal(redelivered.duplicate, true);
+
+  const events = await store.getEvents({ botId, transactionId });
+  assert.equal(events.length, 1);
+});
+
+test('PaymentStore idempotency key lookup returns the payment initiated under that key', async () => {
+  const store = new PaymentStore({ ttlSeconds: 60 });
+  const botId = 'afromarket-idem';
+  const transactionId = 'tx-idem-1';
+
+  await store.appendEvent({ botId, transactionId, provider: 'stripe', eventType: 'payment_initiated', status: 'PENDING', source: 'initiate' });
+  await store.setIdempotencyRef({ botId, idempotencyKey: 'idem-abc', transactionId });
+
+  const found = await store.getPaymentByIdempotencyKey({ botId, idempotencyKey: 'idem-abc' });
+  assert.equal(found.transactionId, transactionId);
+
+  const missing = await store.getPaymentByIdempotencyKey({ botId, idempotencyKey: 'no-such-key' });
+  assert.equal(missing, null);
+});

@@ -410,6 +410,15 @@ class LaundryFlowPlugin {
 
       const paymentReference = `${botId}-${machineId}-${Date.now()}`;
 
+      // PaymentGateway.selectProvider requires an explicit preferredProvider
+      // whenever more than one provider is registered process-wide (it no
+      // longer silently defaults to campay) - laundry always pays via campay,
+      // same as thomasNetwork's own bot-config-driven preferredProvider.
+      const preferredProvider =
+        flowContext.bot && flowContext.bot.payments && flowContext.bot.payments.preferredProvider
+          ? String(flowContext.bot.payments.preferredProvider)
+          : undefined;
+
       const paymentRecord = await gateway.initiatePayment({
         botId,
         amount: paymentAmount,
@@ -417,6 +426,7 @@ class LaundryFlowPlugin {
         phoneNumber: flowContext.from,
         reference: paymentReference,
         description: `Laundry ${machineId} (${programId})`,
+        preferredProvider,
         metadata: { machineId, program: programId }
       });
 

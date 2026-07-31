@@ -9,10 +9,21 @@ class PaymentGateway {
   }
 
   selectProvider({ preferredProvider } = {}) {
-    if (preferredProvider && this.providers[preferredProvider]) return preferredProvider;
-    if (this.providers.campay) return 'campay';
-    const first = Object.keys(this.providers)[0];
-    return first;
+    if (preferredProvider) {
+      if (!this.providers[preferredProvider]) {
+        throw new Error(`Payment provider "${preferredProvider}" is not configured`);
+      }
+      return preferredProvider;
+    }
+
+    // No silent cross-tenant fallback: with exactly one provider registered
+    // this is unambiguous, but with 2+ registered (e.g. CamPay for
+    // thomas_network alongside Stripe for AfroMarket in the same process)
+    // guessing one would silently route a bot's payment to the wrong
+    // provider/currency instead of failing loudly.
+    const names = Object.keys(this.providers);
+    if (names.length === 1) return names[0];
+    throw new Error('preferredProvider is required when more than one payment provider is registered');
   }
 
   getProvider(name) {
@@ -30,8 +41,21 @@ class PaymentGateway {
     metadata,
     customerEmail,
     customerName,
-    redirectUrl
+    redirectUrl,
+    idempotencyKey
   } = {}) {
+    if (!currency) {
+      throw new Error('initiatePayment requires currency');
+    }
+
+    // A retry (double-tap, or a redelivered inbound message) reusing the
+    // same client-generated key must never re-call the provider - return
+    // the already-initiated payment instead of minting a second one.
+    if (idempotencyKey && this.store && this.store.getPaymentByIdempotencyKey) {
+      const existing = await this.store.getPaymentByIdempotencyKey({ botId, idempotencyKey });
+      if (existing) return existing;
+    }
+
     const providerName = this.selectProvider({ preferredProvider });
     const provider = this.getProvider(providerName);
     if (!provider) throw new Error('No payment provider available');
@@ -45,7 +69,8 @@ class PaymentGateway {
       preferredProvider,
       customerEmail,
       customerName,
-      redirectUrl
+      redirectUrl,
+      idempotencyKey
     });
 
     const record = {
@@ -55,16 +80,29 @@ class PaymentGateway {
       externalRef: result.externalRef || reference || null,
       customerPhone: phoneNumber || null,
       amount,
-      currency: currency || 'XAF',
+      currency,
       status: normalizeStatus(result.status),
       checkoutUrl: result.checkoutUrl || null,
+      idempotencyKey: idempotencyKey || null,
       metadata: metadata && typeof metadata === 'object' ? metadata : null,
       createdAt: new Date().toISOString(),
       raw: result.raw || null
     };
 
     if (this.store) {
-      await this.store.upsertPayment(record);
+      if (this.store.appendEvent) {
+        await this.store.appendEvent({
+          ...record,
+          eventType: 'payment_initiated',
+          source: 'initiate'
+        });
+      } else {
+        await this.store.upsertPayment(record);
+      }
+
+      if (idempotencyKey && this.store.setIdempotencyRef) {
+        await this.store.setIdempotencyRef({ botId, idempotencyKey, transactionId: record.transactionId });
+      }
     }
 
     if (this.events && this.events.emit) {
@@ -97,11 +135,16 @@ class PaymentGateway {
     };
 
     if (this.store) {
-      const existing = await this.store.getPayment({ botId, transactionId });
-      await this.store.upsertPayment({
-        ...(existing || {}),
-        ...updated
-      });
+      if (this.store.appendEvent) {
+        await this.store.appendEvent({
+          ...updated,
+          eventType: 'payment_status_polled',
+          source: 'poll'
+        });
+      } else {
+        const existing = await this.store.getPayment({ botId, transactionId });
+        await this.store.upsertPayment({ ...(existing || {}), ...updated });
+      }
     }
 
     return updated;
@@ -117,6 +160,7 @@ class PaymentGateway {
       provider: providerName,
       transactionId: parsed.transactionId,
       externalRef: parsed.externalRef || null,
+      eventId: parsed.eventId || null,
       amount: parsed.amount,
       status: normalizeStatus(parsed.status),
       updatedAt: new Date().toISOString(),
