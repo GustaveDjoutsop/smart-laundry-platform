@@ -11,8 +11,6 @@ import com.smartlaundromat.payment.model.enums.TopUpChannel;
 import com.smartlaundromat.payment.repository.RfidCardRepository;
 import com.smartlaundromat.payment.repository.TopUpTransactionRepository;
 import com.smartlaundromat.payment.service.provider.CampayService;
-import com.smartlaundromat.payment.service.provider.MtnMomoService;
-import com.smartlaundromat.payment.service.provider.OrangeMoneyService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,8 +27,6 @@ public class TopUpService {
     private final RfidCardRepository rfidCardRepository;
     private final TopUpTransactionRepository topUpTransactionRepository;
     private final CampayService campayService;
-    private final MtnMomoService mtnMomoService;
-    private final OrangeMoneyService orangeMoneyService;
 
     @Transactional
     public TopUpResponse initiateTopUp(TopUpRequest request) {
@@ -79,8 +75,8 @@ public class TopUpService {
 
         var provider = switch (request.getChannel()) {
             case CAMPAY -> campayService;
-            case MTN -> mtnMomoService;
-            case ORANGE_MONEY -> orangeMoneyService;
+            case MTN, ORANGE_MONEY -> throw new PaymentException("PROVIDER_DISABLED",
+                    request.getChannel() + " is no longer supported — CamPay only");
             default -> throw new PaymentException("INVALID_CHANNEL", "Invalid top-up channel");
         };
 

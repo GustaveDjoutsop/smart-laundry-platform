@@ -10,66 +10,61 @@ H2 (dev) / PostgreSQL (prod).
 - `MachineStateService` (:8082) — receives `POST /api/machines/start-cycle`
   from this service after successful payment (fire-and-forget)
 
-## 🔴 Open from architecture review (2026-06-13)
-- **Migration plan** — see root `CLAUDE.md` and
-  `architecture-review/03-MIGRATION-TODO.md`. P0 items affecting this repo:
-  strip CamPay app-key/secret/webhook-secret from `application.yml` to env
-  placeholders, rotate all three. Give `MachineStartService` an Auth0 M2M
-  client (mirror bot's `MicroserviceClientConfig`) and attach
-  `Authorization: Bearer` to the `start-cycle` call — this is the W4 fix and
-  is **load-bearing for P4** (can't build reliable outbox/events on top of a
-  call that 401s if enabled).
-- **The call to MachineStateService's `start-cycle` uses plain `RestTemplate`
-  with NO Authorization header**, against an endpoint protected by
-  `SCOPE_sls-machine-start`. Masked today because
-  `eqlink.auto-start-machine-after-payment` defaults to `false`. Fix per P0
-  above before this flag is ever set `true`.
-- This service uses `ddl-auto: update` (Hibernate), not Flyway —
-  `paymentdb` schema drift risk. **P3 fixes this**: introduce Flyway
-  baseline migrations matching the current schema, set `ddl-auto: validate`,
-  retarget at the Supabase `payment` schema.
-- `paymentdb` is **not** read by `smart-laundry-dashboard` until P5
-  (Reporting BFF) — transactions here are operator-invisible until then.
-- **Target (ADR-001 as revised, A4)**: `paymentdb` → `payment` schema on the
-  shared Supabase project (P3) — `transactions`, `rfid_cards`, `topups`
-  carry over largely as-is via `pg_dump`/`pg_restore`, plus new `outbox` and
-  `idempotency_keys` tables added in P3 as prep for P4. Debit + transaction
-  insert stays a normal multi-table `@Transactional` — **no JPA/entity
-  changes needed**, this is genuinely just "same Postgres, different host
-  and schema." **P4's outbox pattern is the actual fix for the W4/W5
-  reliability gap**: `outbox` table written in the same transaction as
-  `SUCCESSFUL`, relayed via Supabase Realtime "Postgres Changes" or
-  `pg_notify`, consumed idempotently by MachineStateService. Once P4 lands,
-  `MachineStartService`'s synchronous call is removed entirely. Don't build
-  new features on top of the current synchronous call expecting it to
-  survive P4 unchanged.
-- The relational nature of this service's data (`transactions` →
-  `rfid_cards`/`machines` FKs) is exactly why A4 (Postgres) was chosen over
-  the original A2 (MongoDB) — this service was the weakest fit for a
-  document model and the strongest argument for staying relational. No
-  further action needed here, just context for why the engine didn't change.
+## Current Status (updated after the payment-gateway hardening pass)
+- **Phase 4 (reliable pay→start) is done**, not just planned — see
+  `architecture-review/03-MIGRATION-TODO.md` Phase 4, marked ✅ Complete.
+  `MachineStartService`'s old synchronous, unauthenticated call was **removed
+  entirely**, not patched — the pay→start flow is now async via the
+  `outbox` table (written in the same transaction as `SUCCESSFUL`) +
+  `OutboxRelayService` (scheduled poll, retry/backoff, dead-letter) +
+  `MicroserviceClientConfig` (Auth0 M2M, **fail-closed**: throws on every
+  call if the client secret isn't configured, no silent unauthenticated
+  fallback). See "Pay-then-Start Sequence" below for the actual flow.
+- **CamPay is the only active payment provider.** MTN MoMo and Orange Money
+  were removed (not signature-hardened) — see "Provider Abstraction" below
+  for why and what that means for historical data.
+- Flyway is in use (`db/migration/V1`...`V15`), not `ddl-auto: update` — the
+  P3 schema-drift item this section used to flag is done.
+- If you're picking up work here and unsure what's still open, check
+  `architecture-review/03-MIGRATION-TODO.md` directly rather than trusting
+  a stale summary — this section has been wrong before.
 
 ## Project Structure
 ```
-config/      PaymentConfig (CamPay/MTN/Orange settings), WebClientConfig
+config/      PaymentConfig (CamPay settings), WebClientConfig
 controller/  RfidCardController, PaymentController, TopUpController, WebhookController
 dto/         Request/response DTOs
-model/       RfidCard, Transaction, TopUpTransaction, enums
+model/       RfidCard, Transaction, TopUpTransaction, IdempotencyKey, PaymentEvent, enums
 repository/  JPA repositories
 service/
-  RfidCardService        — balance, debit, credit
-  PaymentService         — payment orchestration
-  TopUpService           — card top-up orchestration
-  PaymentTimeoutService  — scheduled, marks PENDING → TIMEOUT after 5 min
-  provider/CampayService, MtnMomoService, OrangeMoneyService
+  RfidCardService                — balance, debit, credit
+  PaymentService                 — payment orchestration
+  TopUpService                   — card top-up orchestration
+  PaymentTimeoutService          — scheduled, marks PENDING → TIMEOUT after 5 min
+  IdempotencyKeyCleanupService   — scheduled, purges expired idempotency keys hourly
+  provider/CampayService
 ```
 
 ## Provider Abstraction
-`PaymentProviderService` picks the configured provider at runtime
-(`campay`/`mtn`/`orange`). All providers implement the same collect/verify
-contract — `PaymentService` and `WebhookController` stay provider-agnostic.
-**When adding a 4th provider**: implement the same contract, register in
-`PaymentProviderService`'s switch — don't special-case it in `PaymentService`.
+**CamPay only.** MTN MoMo and Orange Money were removed — their webhook
+endpoints had no signature verification (CamPay's does), and rather than
+building that out for two providers not currently used in Cameroon, the
+integrations were deleted outright (`MtnMomoService`/`OrangeMoneyService`
+no longer exist).
+
+`PaymentProvider.MTN` / `PaymentProvider.ORANGE_MONEY` (and the equivalent
+`TopUpChannel` values) **still exist as enum constants** — deleting them
+would break deserialization of historical transactions that used them
+before removal. Requesting either at `POST /api/payments/initiate` or
+`POST /api/topups` is rejected with `PROVIDER_DISABLED`; they only remain
+valid values on `GET` responses for old data.
+
+`PaymentProviderService` is still the abstraction point — `PaymentService`
+and `WebhookController` stay provider-agnostic. **If a provider is ever
+re-added**: implement the contract, register it in `resolveProvider()`
+(`PaymentService`) and the equivalent switch in `TopUpService`, and give it
+real webhook signature verification from day one — don't repeat the gap
+that got MTN/Orange removed.
 
 ## Transaction State Machine
 ```
@@ -82,34 +77,60 @@ Timeout window = `payment.timeout-minutes` (default 5).
 
 ## Pay-then-Start Sequence (the critical cross-service flow)
 1. Bot → `POST /api/payments/initiate {amount, phone, machineId, ref}`
-2. `PaymentService` inserts `Transaction(PENDING)`, calls provider `collect()`,
-   returns `{reference, PENDING}` to bot immediately
-3. Provider sends async webhook → `WebhookController` → `PaymentService`
-   marks transaction `SUCCESSFUL`
-4. **If `eqlink.auto-start-machine-after-payment = true`**:
-   `MachineStartService.notifyMachineStart()` → `POST /api/machines/start-cycle`
-   on MachineStateService — **fire-and-forget**
+   (optionally `idempotencyKey` — see "Idempotency & Payment Ledger" below)
+2. `PaymentService` inserts `Transaction(PENDING)`, calls CamPay's
+   `requestPayment()`, returns `{reference, PENDING}` to bot immediately
+3. CamPay sends async webhook → `WebhookController` (JWT-signature verified)
+   → `PaymentService.processWebhook` marks the transaction `SUCCESSFUL` and,
+   in the **same Postgres transaction**, writes a `PaymentSucceeded` row to
+   the `outbox` table
+4. `OutboxRelayService` (`@Scheduled(fixedDelay = 5000)`) polls unprocessed
+   outbox rows and dispatches to MachineStateService's
+   `POST /api/machines/start-cycle` via `MachineStartService`, with an
+   Auth0 M2M Bearer token (`MicroserviceClientConfig` — fail-closed) and
+   exponential-backoff retry, dead-lettering after `MAX_RETRIES`
 
-### ⚠️ Known reliability gap — now has a plan (P4), don't reinvent it
-Step 4 swallows errors by design, with no documented fallback. **This is
-W5, and ADR-001/P4 has already chosen the fix**: Transactional Outbox —
-write a `PaymentSucceeded` row to an `outbox` table in the same Postgres
-transaction as marking `SUCCESSFUL` (native multi-table ACID, no special
-infrastructure), relay via Supabase Realtime "Postgres Changes" or a
-`pg_notify` trigger, MachineStateService consumes idempotently keyed on
-`transactionReference`. On permanent failure, emit `MachineStartFailed` for
-refund/staff alert (Saga compensation).
+This is Phase 4, done — not a plan. The old synchronous, unauthenticated
+`MachineStartService` call this section used to describe (gated behind
+`eqlink.auto-start-machine-after-payment`) was **removed**, not fixed in
+place; that flag is now dead code (zero call sites). Don't build new
+features assuming step 4 is a direct fire-and-forget HTTP call from
+`processWebhook` — it isn't, the outbox is the only path.
 
-**If asked to "improve payment reliability" before P3 (Supabase
-consolidation) has landed**: don't build a parallel ad-hoc retry mechanism —
-that's exactly the kind of one-off fix P4 is meant to replace. The interim
-fix is the P0 auth fix above (so the call at least has a chance of
-succeeding); full reliability is P4's job. Note that since P4 is "just"
-Postgres tables + `pg_notify`/Realtime, **P4 could in principle be built
-against the current `paymentdb` before P3 completes** if business urgency
-demands it — the outbox table doesn't care which Postgres instance it's in.
-If that reordering is wanted, say so explicitly; the default sequencing is
-P3 first for simplicity (build new patterns once, on the final infra).
+Still open, deferred as explicit P4 follow-on items (see
+`architecture-review/03-MIGRATION-TODO.md` Phase 4): saga/compensation on
+permanent dead-letter (refund/staff alert), and a dead-letter monitoring
+endpoint.
+
+## Idempotency & Payment Ledger
+Two gaps identified against a Stripe-style "bulletproof payment gateway"
+design review (`smart-laundry-platform/architecture-review/06-PAYMENT-GATEWAY-DESIGN-REVIEW.md`)
+were closed:
+
+- **Idempotency key** (`V14__idempotency_keys_link_transaction.sql`):
+  `PaymentInitiationRequest.idempotencyKey` is optional. If set,
+  `PaymentService.initiatePayment` checks `idempotency_keys` first — a
+  **sequential** retry (the common case: client resubmits after a timeout)
+  returns the linked transaction's **current** state (not a frozen
+  snapshot) instead of creating a duplicate payment or calling CamPay
+  again. A **genuinely concurrent** retry (two requests with the same key
+  in flight at once) instead gets a `IDEMPOTENCY_KEY_CONFLICT` error and
+  must retry — the loser's transaction is rolled back, not left as an
+  orphan row, and the recovery deliberately does not attempt to read the
+  winner's row in the same DB transaction (a failed statement aborts the
+  whole transaction on Postgres; any further read there would itself
+  fail). Keys expire after 24h; `IdempotencyKeyCleanupService` purges
+  expired rows hourly. Callers that omit the field get unchanged
+  (non-idempotent) behavior — `spring-bot-manager-only` does not send one
+  yet, this is capability-only until the bot is wired up.
+- **`payment_events` ledger** (`V15__payment_events_ledger.sql`): an
+  append-only table recording every `PaymentStatus` transition
+  (PENDING/SUCCESSFUL/FAILED/TIMEOUT) a transaction goes through, written
+  alongside — not instead of — the mutable `transactions.status` column.
+  `transactions.status` stays the fast "current state" lookup;
+  `payment_events` is the audit trail that never existed before. Not
+  exposed via any endpoint yet — `PaymentEventRepository.findByExternalReferenceOrderByOccurredAtAsc`
+  is scaffolding for a future timeline view.
 
 ## RFID Flow
 ```
@@ -149,7 +170,7 @@ from RFID balance instead of fresh mobile-money collection.
 | GET | `/api/payments/providers/status` | Provider config status |
 | POST | `/api/topup` | Top-up (mobile money or cash) |
 | GET | `/api/topup/history/{cardUid}` | Top-up history |
-| POST | `/api/webhook/{campay,mtn,orange}` | Provider callbacks |
+| POST | `/api/webhook/campay` | Provider callback |
 
 ## Tech Stack
 - Java 17, Spring Boot 3.3.5, Spring Data JPA, Lombok
@@ -158,11 +179,14 @@ from RFID balance instead of fresh mobile-money collection.
 - OAuth2 resource server, Auth0 JWKS validation
 
 ## Critical Rules
-- Provider secrets (`CAMPAY_*`, `MTN_*`, `ORANGE_*`) — env vars only, never
-  committed. `CAMPAY_WEBHOOK_SECRET` used to verify webhook signatures —
-  treat as critical, a forged webhook can mark a fake payment SUCCESSFUL.
-- Webhook handlers must verify provider signatures before trusting payload —
-  check each provider's webhook controller does this; don't assume.
+- Provider secrets (`CAMPAY_*`) — env vars only, never committed.
+  `CAMPAY_WEBHOOK_SECRET` used to verify webhook signatures — treat as
+  critical, a forged webhook can mark a fake payment SUCCESSFUL.
+- Webhook handlers must verify provider signatures before trusting payload.
+  `/api/webhook/campay` does (JWT via `WebhookSignatureVerifier`). If a
+  provider is ever re-added, its webhook must have real signature
+  verification from the first commit — CamPay is the only endpoint left
+  precisely because MTN/Orange never got this and were removed instead.
 - `payment.pricing.short-cycle` / `long-cycle` (1000/2000 XAF) must stay in
   sync with `spring-bot-manager-only`'s `shortCycle.price`/`longCycle.price`
   and MachineStateService's `reservation.fee-amount`. No automated sync —
