@@ -9,8 +9,6 @@ import com.smartlaundromat.payment.model.enums.PaymentStatus;
 import com.smartlaundromat.payment.security.WebhookSignatureVerifier;
 import com.smartlaundromat.payment.service.PaymentService;
 import com.smartlaundromat.payment.service.TopUpService;
-import com.smartlaundromat.payment.service.provider.MtnMomoService;
-import com.smartlaundromat.payment.service.provider.OrangeMoneyService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -64,12 +62,6 @@ class WebhookControllerTest {
 
     @MockitoBean
     WebhookSignatureVerifier signatureVerifier;
-
-    @MockitoBean
-    MtnMomoService mtnMomoService;
-
-    @MockitoBean
-    OrangeMoneyService orangeMoneyService;
 
     private void withConfiguredCampaySecret() {
         PaymentConfig.CampayConfig campayConfig = new PaymentConfig.CampayConfig();
@@ -184,105 +176,19 @@ class WebhookControllerTest {
     }
 
     @Test
-    void shouldHandleMtnWebhook() throws Exception {
-        // given
-        when(mtnMomoService.isConfigured()).thenReturn(true);
-
-        Transaction tx = Transaction.builder()
-                .externalReference("EXT-002")
-                .status(PaymentStatus.SUCCESSFUL)
-                .build();
-        when(paymentService.processWebhook(eq(PaymentProvider.MTN), anyString(), anyString(), anyString(), any()))
-                .thenReturn(tx);
-
-        String body = """
-                {
-                    "externalReference": "EXT-002",
-                    "status": "SUCCESSFUL",
-                    "financialTransactionId": "FIN-001"
-                }
-                """;
-
-        // when / then
+    void shouldNotRouteToPaymentServiceForRemovedMtnWebhookEndpoint() throws Exception {
         mockMvc.perform(post("/api/webhook/mtn")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("received"));
-
-        verify(paymentService).processWebhook(eq(PaymentProvider.MTN), eq("EXT-002"), eq("SUCCESSFUL"), eq("FIN-001"), isNull());
-    }
-
-    @Test
-    void shouldRejectMtnWebhookWhenProviderNotConfigured() throws Exception {
-        // given
-        when(mtnMomoService.isConfigured()).thenReturn(false);
-
-        String body = """
-                {
-                    "externalReference": "EXT-002",
-                    "status": "SUCCESSFUL",
-                    "financialTransactionId": "FIN-001"
-                }
-                """;
-
-        // when / then
-        mockMvc.perform(post("/api/webhook/mtn")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isServiceUnavailable());
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"));
 
         verifyNoInteractions(paymentService);
     }
 
     @Test
-    void shouldHandleOrangeWebhook() throws Exception {
-        // given
-        when(orangeMoneyService.isConfigured()).thenReturn(true);
-
-        Transaction tx = Transaction.builder()
-                .externalReference("EXT-003")
-                .status(PaymentStatus.SUCCESSFUL)
-                .build();
-        when(paymentService.processWebhook(eq(PaymentProvider.ORANGE_MONEY), anyString(), anyString(), anyString(), any()))
-                .thenReturn(tx);
-
-        String body = """
-                {
-                    "externalReference": "EXT-003",
-                    "status": "SUCCESSFUL",
-                    "reference": "ORANGE-REF-001"
-                }
-                """;
-
-        // when / then
+    void shouldNotRouteToPaymentServiceForRemovedOrangeWebhookEndpoint() throws Exception {
         mockMvc.perform(post("/api/webhook/orange")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("received"));
-
-        verify(paymentService).processWebhook(eq(PaymentProvider.ORANGE_MONEY), eq("EXT-003"), eq("SUCCESSFUL"), eq("ORANGE-REF-001"), isNull());
-    }
-
-    @Test
-    void shouldRejectOrangeWebhookWhenProviderNotConfigured() throws Exception {
-        // given
-        when(orangeMoneyService.isConfigured()).thenReturn(false);
-
-        String body = """
-                {
-                    "externalReference": "EXT-003",
-                    "status": "SUCCESSFUL",
-                    "reference": "ORANGE-REF-001"
-                }
-                """;
-
-        // when / then
-        mockMvc.perform(post("/api/webhook/orange")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isServiceUnavailable());
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"));
 
         verifyNoInteractions(paymentService);
     }

@@ -12,8 +12,6 @@ import com.smartlaundromat.payment.model.enums.TopUpChannel;
 import com.smartlaundromat.payment.repository.RfidCardRepository;
 import com.smartlaundromat.payment.repository.TopUpTransactionRepository;
 import com.smartlaundromat.payment.service.provider.CampayService;
-import com.smartlaundromat.payment.service.provider.MtnMomoService;
-import com.smartlaundromat.payment.service.provider.OrangeMoneyService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -45,12 +43,6 @@ class TopUpServiceTest {
 
     @Mock
     CampayService campayService;
-
-    @Mock
-    MtnMomoService mtnMomoService;
-
-    @Mock
-    OrangeMoneyService orangeMoneyService;
 
     @InjectMocks
     TopUpService topUpService;
@@ -121,56 +113,25 @@ class TopUpServiceTest {
             assertThat(response.getMessage()).contains("initiated");
         }
 
-        @Test
-        void shouldInitiateMobileMoneyTopUpViaMtn() {
+        @ParameterizedTest
+        @EnumSource(value = TopUpChannel.class, names = {"MTN", "ORANGE_MONEY"})
+        void shouldThrowWhenDisabledChannelRequested(TopUpChannel channel) {
             // given
             TopUpRequest request = new TopUpRequest();
             request.setCardUid("ABC123");
             request.setAmount(new BigDecimal("2000"));
-            request.setChannel(TopUpChannel.MTN);
+            request.setChannel(channel);
             request.setPhoneNumber("237612345678");
 
             when(rfidCardRepository.findByCardUid("ABC123")).thenReturn(Optional.of(activeCard));
             when(topUpTransactionRepository.save(any(TopUpTransaction.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            PaymentResponse paymentResponse = PaymentResponse.builder()
-                    .providerReference("MTN-REF-001")
-                    .build();
-            when(mtnMomoService.requestPayment(anyString(), any(), anyString(), anyString()))
-                    .thenReturn(paymentResponse);
+            // when / then
+            assertThatThrownBy(() -> topUpService.initiateTopUp(request))
+                    .isInstanceOf(PaymentException.class)
+                    .satisfies(ex -> assertThat(((PaymentException) ex).getErrorCode()).isEqualTo("PROVIDER_DISABLED"));
 
-            // when
-            TopUpResponse response = topUpService.initiateTopUp(request);
-
-            // then
-            assertThat(response.getStatus()).isEqualTo(PaymentStatus.PENDING);
-            verify(mtnMomoService).requestPayment(anyString(), any(), anyString(), anyString());
-        }
-
-        @Test
-        void shouldInitiateMobileMoneyTopUpViaOrange() {
-            // given
-            TopUpRequest request = new TopUpRequest();
-            request.setCardUid("ABC123");
-            request.setAmount(new BigDecimal("2000"));
-            request.setChannel(TopUpChannel.ORANGE_MONEY);
-            request.setPhoneNumber("237612345678");
-
-            when(rfidCardRepository.findByCardUid("ABC123")).thenReturn(Optional.of(activeCard));
-            when(topUpTransactionRepository.save(any(TopUpTransaction.class))).thenAnswer(inv -> inv.getArgument(0));
-
-            PaymentResponse paymentResponse = PaymentResponse.builder()
-                    .providerReference("ORANGE-REF-001")
-                    .build();
-            when(orangeMoneyService.requestPayment(anyString(), any(), anyString(), anyString()))
-                    .thenReturn(paymentResponse);
-
-            // when
-            TopUpResponse response = topUpService.initiateTopUp(request);
-
-            // then
-            assertThat(response.getStatus()).isEqualTo(PaymentStatus.PENDING);
-            verify(orangeMoneyService).requestPayment(anyString(), any(), anyString(), anyString());
+            verifyNoInteractions(campayService);
         }
 
         @Test

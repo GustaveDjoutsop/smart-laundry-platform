@@ -50,7 +50,7 @@ public class SwaggerConfig {
 
                     Handles:
                     - **RFID card accounts** – register cards, check balance, debit per wash cycle, top-up
-                    - **Mobile money payments** – CamPay, MTN MoMo, Orange Money
+                    - **Mobile money payments** – CamPay
                     - **Provider webhooks** – ingest payment callbacks and update transaction state
 
                     ### Authentication

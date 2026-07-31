@@ -8,8 +8,8 @@ import org.springframework.stereotype.Component;
  * EQLink-related properties for the PaymentManagementService.
  *
  * <h2>Important: EQLink is NOT a payment system</h2>
- * EQLink is a machine CONTROL platform. Payments are handled by CamPay, MTN MoMo,
- * and Orange Money only. This class controls whether the service automatically
+ * EQLink is a machine CONTROL platform. Payments are handled by CamPay only.
+ * This class controls whether the service automatically
  * triggers a machine start via MachineStateService after a successful payment.
  *
  * <h2>Auto machine start</h2>

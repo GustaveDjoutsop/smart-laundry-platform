@@ -5,17 +5,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartlaundromat.payment.dto.PaymentInitiationRequest;
 import com.smartlaundromat.payment.dto.PaymentResponse;
 import com.smartlaundromat.payment.exception.PaymentException;
+import com.smartlaundromat.payment.model.IdempotencyKey;
 import com.smartlaundromat.payment.model.OutboxEvent;
+import com.smartlaundromat.payment.model.PaymentEvent;
 import com.smartlaundromat.payment.model.Transaction;
 import com.smartlaundromat.payment.model.enums.PaymentProvider;
 import com.smartlaundromat.payment.model.enums.PaymentStatus;
+import com.smartlaundromat.payment.repository.IdempotencyKeyRepository;
 import com.smartlaundromat.payment.repository.OutboxEventRepository;
+import com.smartlaundromat.payment.repository.PaymentEventRepository;
 import com.smartlaundromat.payment.repository.TransactionRepository;
 import com.smartlaundromat.payment.service.machine.MachineAvailabilityClient;
 import com.smartlaundromat.payment.service.machine.ReservationClient;
 import com.smartlaundromat.payment.service.provider.CampayService;
-import com.smartlaundromat.payment.service.provider.MtnMomoService;
-import com.smartlaundromat.payment.service.provider.OrangeMoneyService;
 import com.smartlaundromat.payment.service.provider.PaymentProviderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,13 +41,13 @@ public class PaymentService {
 
     private final TransactionRepository transactionRepository;
     private final OutboxEventRepository outboxEventRepository;
+    private final PaymentEventRepository paymentEventRepository;
+    private final IdempotencyKeyRepository idempotencyKeyRepository;
     private final ObjectMapper objectMapper;
     private final MachineAvailabilityClient machineAvailabilityClient;
     private final ReservationClient reservationClient;
 
     private final CampayService campayService;
-    private final MtnMomoService mtnMomoService;
-    private final OrangeMoneyService orangeMoneyService;
 
     // ── Payment initiation ────────────────────────────────────────────────────
 
@@ -52,6 +55,15 @@ public class PaymentService {
     public PaymentResponse initiatePayment(PaymentInitiationRequest request) {
         log.info("Initiating payment: machine={}, amount={}, provider={}",
                 request.getMachineId(), request.getAmount(), request.getProvider());
+
+        if (StringUtils.hasText(request.getIdempotencyKey())) {
+            Optional<PaymentResponse> cached = replayIfIdempotencyKeyKnown(request.getIdempotencyKey());
+            if (cached.isPresent()) {
+                log.info("Idempotency key {} already processed, returning existing result", request.getIdempotencyKey());
+                return cached.get();
+            }
+        }
+
         if (!machineAvailabilityClient.isAvailable(request.getMachineId())) {
             log.warn("Machine {} is not available, rejecting new payment request", request.getMachineId());
             throw new PaymentException("MACHINE_BUSY",
@@ -118,6 +130,12 @@ public class PaymentService {
             throw exception;
         }
 
+        recordPaymentEvent(transaction, PaymentStatus.PENDING, Map.of());
+
+        if (StringUtils.hasText(request.getIdempotencyKey())) {
+            registerIdempotencyKey(request.getIdempotencyKey(), externalReference);
+        }
+
         PaymentProviderService provider = resolveProvider(request.getProvider());
         log.info("Requesting payment from provider {}: externalReference={}, phoneNumber={}, amount={}",
                 request.getProvider(), externalReference, request.getPhoneNumber(), request.getAmount());
@@ -140,7 +158,7 @@ public class PaymentService {
     // ── Webhook processing ────────────────────────────────────────────────────
 
     /**
-     * Processes a payment provider callback (CamPay, MTN, or Orange Money).
+     * Processes a payment provider callback (CamPay).
      *
      * <p>On {@code SUCCESSFUL}: marks the transaction and writes a
      * {@code PaymentSucceeded} event to the {@code outbox} table in the same
@@ -192,10 +210,16 @@ public class PaymentService {
                 outboxEventRepository.save(buildPaymentSucceededEvent(transaction));
             }
 
+            recordPaymentEvent(transaction, PaymentStatus.SUCCESSFUL,
+                    Map.of("providerReference", String.valueOf(providerReference)));
+
         } else {
             transaction.setStatus(PaymentStatus.FAILED);
             transaction.setFailureReason(failureReason);
             transactionRepository.save(transaction);
+
+            recordPaymentEvent(transaction, PaymentStatus.FAILED,
+                    Map.of("failureReason", String.valueOf(failureReason)));
         }
 
         return transaction;
@@ -233,9 +257,7 @@ public class PaymentService {
 
     public Map<String, Object> getProviderStatus() {
         return Map.of(
-                "campay",       Map.of("configured", campayService.isConfigured()),
-                "mtn",          Map.of("configured", mtnMomoService.isConfigured()),
-                "orange_money", Map.of("configured", orangeMoneyService.isConfigured())
+                "campay", Map.of("configured", campayService.isConfigured())
         );
     }
 
@@ -263,11 +285,87 @@ public class PaymentService {
         }
     }
 
+    /**
+     * Appends one immutable row to the {@code payment_events} ledger — never updates or
+     * replaces a prior row. {@code transactions.status} remains the fast "current state"
+     * lookup; this is the audit trail of every state it has ever passed through.
+     */
+    private void recordPaymentEvent(Transaction tx, PaymentStatus eventType, Map<String, Object> extraContext) {
+        try {
+            PaymentEvent event = PaymentEvent.builder()
+                    .transactionId(tx.getId())
+                    .externalReference(tx.getExternalReference())
+                    .eventType(eventType)
+                    .rawPayload(extraContext.isEmpty() ? null : objectMapper.writeValueAsString(extraContext))
+                    .build();
+            paymentEventRepository.save(event);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Cannot serialize payment event payload for tx " + tx.getExternalReference(), e);
+        }
+    }
+
+    /**
+     * Looks up a previously-processed idempotency key and, if found, rebuilds a response
+     * from the linked transaction's current state — not a frozen snapshot of what the
+     * original request returned, so a replay after settlement sees SUCCESSFUL/FAILED
+     * rather than a stale PENDING.
+     */
+    private Optional<PaymentResponse> replayIfIdempotencyKeyKnown(String idempotencyKey) {
+        return idempotencyKeyRepository.findByIdempotencyKey(idempotencyKey)
+                .map(key -> transactionRepository.findByExternalReference(key.getExternalReference())
+                        .orElseThrow(() -> new IllegalStateException(
+                                "idempotency_keys row references a missing transaction: " + key.getExternalReference())))
+                .map(this::buildResponseFromTransaction);
+    }
+
+    /**
+     * Registers the idempotency key against the just-created transaction, before any
+     * provider call is made.
+     *
+     * <p>On a unique-constraint violation (a concurrent request for the same key won the
+     * race), this deliberately does <strong>not</strong> try to recover in-transaction by
+     * reading back the winner's row: on Postgres, a failed statement aborts the whole
+     * surrounding transaction, so any further read here would itself fail against the
+     * now-aborted transaction. Instead this rethrows as a plain {@code PaymentException},
+     * rolling back this whole request's transaction cleanly (including the just-created
+     * PENDING row — no orphan left behind, unlike a recover-in-place approach would leave).
+     * The caller retries the same idempotency key in a fresh request/transaction, at which
+     * point {@link #replayIfIdempotencyKeyKnown} finds the winner's now-committed row.
+     */
+    private void registerIdempotencyKey(String idempotencyKey, String externalReference) {
+        try {
+            idempotencyKeyRepository.save(IdempotencyKey.builder()
+                    .idempotencyKey(idempotencyKey)
+                    .externalReference(externalReference)
+                    .expiresAt(OffsetDateTime.now().plusHours(24))
+                    .build());
+        } catch (DataIntegrityViolationException exception) {
+            log.warn("Idempotency key {} registered concurrently by another request", idempotencyKey);
+            throw new PaymentException("IDEMPOTENCY_KEY_CONFLICT",
+                    "A payment with idempotency key " + idempotencyKey + " is already being processed — retry shortly");
+        }
+    }
+
+    private PaymentResponse buildResponseFromTransaction(Transaction transaction) {
+        boolean success = transaction.getStatus() != PaymentStatus.FAILED
+                && transaction.getStatus() != PaymentStatus.TIMEOUT;
+
+        return PaymentResponse.builder()
+                .success(success)
+                .externalReference(transaction.getExternalReference())
+                .providerReference(transaction.getProviderReference())
+                .provider(transaction.getPaymentProvider())
+                .status(transaction.getStatus())
+                .amount(transaction.getAmount())
+                .message("Idempotent replay of existing payment")
+                .build();
+    }
+
     private PaymentProviderService resolveProvider(PaymentProvider provider) {
         return switch (provider) {
-            case CAMPAY       -> campayService;
-            case MTN          -> mtnMomoService;
-            case ORANGE_MONEY -> orangeMoneyService;
+            case CAMPAY -> campayService;
+            case MTN, ORANGE_MONEY -> throw new PaymentException("PROVIDER_DISABLED",
+                    provider + " is no longer supported — CamPay only");
         };
     }
 }

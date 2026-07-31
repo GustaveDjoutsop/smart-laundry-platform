@@ -7,8 +7,6 @@ import com.smartlaundromat.payment.model.enums.PaymentProvider;
 import com.smartlaundromat.payment.security.WebhookSignatureVerifier;
 import com.smartlaundromat.payment.service.PaymentService;
 import com.smartlaundromat.payment.service.TopUpService;
-import com.smartlaundromat.payment.service.provider.MtnMomoService;
-import com.smartlaundromat.payment.service.provider.OrangeMoneyService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -19,10 +17,10 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 
 /**
- * Receives payment provider callbacks (CamPay, MTN MoMo, Orange Money).
+ * Receives payment provider callbacks (CamPay).
  *
- * <p>All endpoints are <strong>public</strong> (no Bearer token required) and are
- * secured by HMAC signature verification inside each provider's controller logic.
+ * <p>The endpoint is <strong>public</strong> (no Bearer token required) and is
+ * secured by HMAC signature verification inside the controller logic below.
  *
  * <p>Note: EQLink is not listed here because EQLink is a machine CONTROL platform,
  * not a payment system. There are no EQLink payment webhooks.
@@ -37,8 +35,6 @@ public class WebhookController {
     private final TopUpService topUpService;
     private final PaymentConfig paymentConfig;
     private final WebhookSignatureVerifier signatureVerifier;
-    private final MtnMomoService mtnMomoService;
-    private final OrangeMoneyService orangeMoneyService;
 
     // ── CamPay ────────────────────────────────────────────────────────────────
 
@@ -72,64 +68,10 @@ public class WebhookController {
         return ResponseEntity.ok(Map.of("status", "received"));
     }
 
-    // ── MTN MoMo ──────────────────────────────────────────────────────────────
-
-    @PostMapping("/mtn")
-    public ResponseEntity<Map<String, String>> handleMtnWebhook(@RequestBody WebhookPayload payload) {
-        if (!mtnMomoService.isConfigured()) {
-            log.warn("MTN webhook rejected: MTN MoMo provider is not configured");
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                    .body(Map.of("status", "error", "message", "Provider not configured"));
-        }
-
-        // TODO: verify MTN MoMo callback authenticity (provider-specific signature/IPN auth)
-        // before this provider goes live — tracked alongside the CamPay HMAC check.
-        log.info("MTN webhook received: ref={}, status={}", payload.getExternalReference(), payload.getStatus());
-
-        processPaymentWebhookIfApplicable(() -> paymentService.processWebhook(
-                PaymentProvider.MTN,
-                payload.getExternalReference(),
-                payload.getStatus(),
-                payload.getFinancialTransactionId(),
-                payload.getReason()
-        ));
-
-        processTopUpWebhookIfApplicable(payload);
-
-        return ResponseEntity.ok(Map.of("status", "received"));
-    }
-
-    // ── Orange Money ──────────────────────────────────────────────────────────
-
-    @PostMapping("/orange")
-    public ResponseEntity<Map<String, String>> handleOrangeWebhook(@RequestBody WebhookPayload payload) {
-        if (!orangeMoneyService.isConfigured()) {
-            log.warn("Orange Money webhook rejected: Orange Money provider is not configured");
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                    .body(Map.of("status", "error", "message", "Provider not configured"));
-        }
-
-        // TODO: verify Orange Money callback authenticity (provider-specific signature)
-        // before this provider goes live — tracked alongside the CamPay HMAC check.
-        log.info("Orange webhook received: ref={}, status={}", payload.getExternalReference(), payload.getStatus());
-
-        processPaymentWebhookIfApplicable(() -> paymentService.processWebhook(
-                PaymentProvider.ORANGE_MONEY,
-                payload.getExternalReference(),
-                payload.getStatus(),
-                payload.getReference(),
-                payload.getReason()
-        ));
-
-        processTopUpWebhookIfApplicable(payload);
-
-        return ResponseEntity.ok(Map.of("status", "received"));
-    }
-
     // ── Shared ────────────────────────────────────────────────────────────────
 
     /**
-     * Some provider webhooks confirm an RFID top-up, not a machine payment — in that
+     * A webhook may confirm an RFID top-up rather than a machine payment — in that
      * case there is no matching {@code Transaction} and {@link PaymentService}
      * throws {@code TRANSACTION_NOT_FOUND}, which is expected and not an error here.
      */
@@ -144,7 +86,7 @@ public class WebhookController {
     }
 
     /**
-     * Most provider webhooks confirm a machine payment, not an RFID top-up — in that
+     * A webhook may confirm a machine payment rather than an RFID top-up — in that
      * case there is no matching {@code TopUpTransaction} and {@link TopUpService}
      * throws {@code TOPUP_NOT_FOUND}, which is expected and not an error here.
      */

@@ -1,14 +1,18 @@
 package com.smartlaundromat.payment.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartlaundromat.payment.config.PaymentConfig;
+import com.smartlaundromat.payment.model.PaymentEvent;
 import com.smartlaundromat.payment.model.Transaction;
 import com.smartlaundromat.payment.model.enums.PaymentStatus;
+import com.smartlaundromat.payment.repository.PaymentEventRepository;
 import com.smartlaundromat.payment.repository.TransactionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
@@ -27,7 +31,13 @@ class PaymentTimeoutServiceTest {
     TransactionRepository transactionRepository;
 
     @Mock
+    PaymentEventRepository paymentEventRepository;
+
+    @Mock
     PaymentConfig paymentConfig;
+
+    @Spy
+    ObjectMapper objectMapper;
 
     @InjectMocks
     PaymentTimeoutService paymentTimeoutService;
@@ -54,6 +64,11 @@ class PaymentTimeoutServiceTest {
         verify(transactionRepository).save(captor.capture());
         assertThat(captor.getValue().getStatus()).isEqualTo(PaymentStatus.TIMEOUT);
         assertThat(captor.getValue().getTimeoutAt()).isNotNull();
+
+        ArgumentCaptor<PaymentEvent> eventCaptor = ArgumentCaptor.forClass(PaymentEvent.class);
+        verify(paymentEventRepository).save(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().getEventType()).isEqualTo(PaymentStatus.TIMEOUT);
+        assertThat(eventCaptor.getValue().getExternalReference()).isEqualTo("EXT-001");
     }
 
     @Test
@@ -68,6 +83,7 @@ class PaymentTimeoutServiceTest {
 
         // then
         verify(transactionRepository, never()).save(any());
+        verify(paymentEventRepository, never()).save(any());
     }
 
     @Test
@@ -87,5 +103,6 @@ class PaymentTimeoutServiceTest {
 
         // then
         verify(transactionRepository, times(2)).save(any(Transaction.class));
+        verify(paymentEventRepository, times(2)).save(any(PaymentEvent.class));
     }
 }
