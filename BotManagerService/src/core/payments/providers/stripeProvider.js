@@ -85,7 +85,13 @@ class StripeProvider {
       customer_email: options.customerEmail,
       success_url: successUrl,
       cancel_url: cancelUrl,
-      automatic_payment_methods: { enabled: 'true' },
+      // No payment_method_types/automatic_payment_methods here deliberately:
+      // Checkout Sessions pick up enabled payment methods from the Stripe
+      // Dashboard automatically. automatic_payment_methods is a PaymentIntent
+      // param, not a Checkout Session one - passing it here is rejected by
+      // Stripe with "Received unknown parameter: automatic_payment_methods"
+      // (caught by driving this against the real sandbox API, not just the
+      // mocked-fetch unit tests).
       line_items: [
         {
           quantity: 1,

@@ -47,7 +47,7 @@ function paymentsRouter() {
       // verification above is CamPay's pre-existing, opt-in behavior (only
       // enforced when CAMPAY_WEBHOOK_SECRET is set, unlike Stripe's
       // fail-closed verifyWebhook below) - unchanged by this diff.
-      const { duplicate } = await store.appendEvent({
+      const { duplicate, previousStatus } = await store.appendEvent({
         botId,
         transactionId: normalized.transactionId,
         provider: 'campay',
@@ -62,7 +62,7 @@ function paymentsRouter() {
       });
       if (duplicate) return res.status(200).json({ ok: true, duplicate: true });
 
-      events.emit('payment.status', normalized);
+      events.emit('payment.status', { ...normalized, previousStatus });
 
       return res.status(200).json({ ok: true });
     } catch (err) {
@@ -95,7 +95,7 @@ function paymentsRouter() {
         return res.status(200).json({ ok: true });
       }
 
-      const { duplicate } = await store.appendEvent({
+      const { duplicate, previousStatus } = await store.appendEvent({
         botId,
         transactionId: normalized.transactionId,
         provider: 'stripe',
@@ -110,7 +110,7 @@ function paymentsRouter() {
       });
       if (duplicate) return res.status(200).json({ ok: true, duplicate: true });
 
-      events.emit('payment.status', normalized);
+      events.emit('payment.status', { ...normalized, previousStatus });
 
       return res.status(200).json({ ok: true });
     } catch (err) {

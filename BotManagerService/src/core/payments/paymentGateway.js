@@ -134,20 +134,23 @@ class PaymentGateway {
       raw: res.raw || null
     };
 
+    let previousStatus = null;
     if (this.store) {
       if (this.store.appendEvent) {
-        await this.store.appendEvent({
+        const appended = await this.store.appendEvent({
           ...updated,
           eventType: 'payment_status_polled',
           source: 'poll'
         });
+        previousStatus = appended ? appended.previousStatus : null;
       } else {
         const existing = await this.store.getPayment({ botId, transactionId });
+        previousStatus = existing ? existing.status : null;
         await this.store.upsertPayment({ ...(existing || {}), ...updated });
       }
     }
 
-    return updated;
+    return { ...updated, previousStatus };
   }
 
   handleWebhook({ botId, provider: providerName, payload } = {}) {

@@ -100,7 +100,8 @@ class PaymentStatusWorker {
         botId,
         provider,
         transactionId,
-        status: update.status
+        status: update.status,
+        previousStatus: update.previousStatus
       });
     }
 
@@ -118,6 +119,7 @@ class PaymentStatusWorker {
 
     if (isTerminal(existing.status)) return;
 
+    const previousStatus = existing.status;
     const updated = {
       ...existing,
       status: PaymentStatus.FAILED,
@@ -125,7 +127,24 @@ class PaymentStatusWorker {
       updatedAt: new Date().toISOString()
     };
 
-    await this.store.upsertPayment(updated);
+    // A timeout-driven failure is a real state transition and must land in
+    // the ledger like every other one (webhook, poll) - writing straight to
+    // upsertPayment here would silently change "current status" with no
+    // event explaining why, breaking the audit trail for exactly the
+    // payments that failed silently (no webhook/poll ever resolved them).
+    if (this.store.appendEvent) {
+      await this.store.appendEvent({
+        botId,
+        transactionId,
+        provider,
+        eventType: 'payment_timed_out',
+        status: updated.status,
+        failureReason: updated.failureReason,
+        source: 'timeout'
+      });
+    } else {
+      await this.store.upsertPayment(updated);
+    }
 
     if (this.events && this.events.emit) {
       this.events.emit('payment.status', {
@@ -133,6 +152,7 @@ class PaymentStatusWorker {
         provider,
         transactionId,
         status: updated.status,
+        previousStatus,
         failureReason: updated.failureReason
       });
     }
@@ -155,7 +175,13 @@ class PaymentStatusWorker {
     const payment = await this.store.getPayment({ botId, transactionId });
     if (!payment) return;
 
-    const previousStatus = payment.status;
+    // The webhook route / poll path already wrote `status` into the store
+    // (via appendEvent/upsertPayment) before emitting this event - reading
+    // payment.status here would return the *new* status, not the previous
+    // one, making every real transition look like "no change" and silently
+    // suppressing payment.completed/payment.failed. The emitter is required
+    // to carry the true pre-write status explicitly instead.
+    const previousStatus = evt.previousStatus !== undefined ? evt.previousStatus : payment.status;
     const previousFailureReason = payment.failureReason;
 
     // Ignore repeated status events (prevents customer spam during polling)
