@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+
+# Environment variables - Railway injects these via its own dashboard, never
+# bake local secrets into the image
+.env
+.env.local
+.env.*.local
+
+# Git
+.git/
+.gitignore
+.github/
+
+# Documentation
+*.md
+docs/
+architecture/
+
+# Testing
+coverage/
+test/
+
+# Stray local artifacts
+nul
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Docker files (don't copy into container)
+Dockerfile
+.dockerignore
