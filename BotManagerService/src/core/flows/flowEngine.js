@@ -1,6 +1,26 @@
 const { renderTemplate } = require('./templateRenderer');
 const { logger } = require('../../utils/logger');
 
+// A successful send() for a template_carousel only means Meta accepted the
+// API call - the template (image fetch + carousel assembly) is then
+// rendered and delivered to the device asynchronously on Meta's side, which
+// is measurably slower than a plain interactive buttons message. Without
+// this pause, the footer buttons message (sent right after) reliably races
+// ahead and displays before the carousel, even though we sent it second.
+// Inbound messages are processed one at a time by QueueManager's single
+// drain loop (see whatsappHandler.js/queueManager.js), so this delay stalls
+// every other pending message for its duration - read fresh (not cached at
+// require-time) so it can be tuned or set to 0 per environment without a
+// code change, matching the LAUDRY_OPEN_HOUR/LAUDRY_CLOSE_HOUR convention
+// in laundryFlowPlugin.js.
+function getCarouselFooterDelayMs() {
+  return Number(process.env.CAROUSEL_FOOTER_DELAY_MS || 2500);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function normalizeInbound(message) {
   const text = message?.text?.body;
   if (typeof text === 'string' && text.trim()) {
@@ -589,6 +609,7 @@ class FlowEngine {
 
           if (carouselSent) {
             if (Array.isArray(stateDefinition.footerButtons) && stateDefinition.footerButtons.length) {
+              await sleep(getCarouselFooterDelayMs());
               await trySend({
                 type: 'buttons',
                 to: from,
