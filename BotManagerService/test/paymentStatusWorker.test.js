@@ -144,14 +144,18 @@ test('regression: payment.completed fires through the real PaymentGateway.checkS
     source: 'initiate'
   });
 
-  let completed = false;
-  events.on('payment.completed', () => {
-    completed = true;
+  // Await the actual event with a bounded timeout, rather than a fixed
+  // sleep-then-check - this fails deterministically (not flakily) if the
+  // regression this test guards against ever comes back and
+  // payment.completed silently stops firing.
+  const completed = await new Promise((resolve, reject) => {
+    const timeoutTimer = setTimeout(() => reject(new Error('Timed out waiting for payment.completed')), 2000);
+    events.once('payment.completed', () => {
+      clearTimeout(timeoutTimer);
+      resolve(true);
+    });
+    events.emit('payment.initiated', { botId: 'laundry-real-gateway', provider: 'campay', transactionId: 'tx-real-done' });
   });
-
-  events.emit('payment.initiated', { botId: 'laundry-real-gateway', provider: 'campay', transactionId: 'tx-real-done' });
-
-  await new Promise((r) => setTimeout(r, 80));
 
   assert.equal(completed, true);
 

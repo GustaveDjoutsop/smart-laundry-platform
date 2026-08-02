@@ -1,6 +1,6 @@
 # System Design: Stripe Payment Architecture — BotManagerService
 
-**Companion to:** `C:\Users\sunda\Codierung\system_design_payment_gateway.md` (the whiteboard design for `PaymentManagementService`/CamPay/MTN MoMo/Orange Money). That document distills 6 principles from V1→V4 of a payment design exercise. This document audits BotManagerService's actual Stripe code against those same 6 principles, documents a real incident found and fixed while doing that audit, and lists what's still open.
+**Companion to:** `system_design_payment_gateway.md` — a whiteboard-design writeup for `PaymentManagementService`/CamPay/MTN MoMo/Orange Money, from a separate design session and not currently tracked in this repository (referenced here for context; not a repo-internal link). That document distills 6 principles from V1→V4 of a payment design exercise. This document audits BotManagerService's actual Stripe code against those same 6 principles, documents a real incident found and fixed while doing that audit, and lists what's still open.
 
 Unlike the companion doc, this one is not a translation exercise — BotManagerService's Stripe integration is a real, running implementation, tested end-to-end against the Stripe sandbox and over live WhatsApp on 2026-08-02. The audit below is against what the code actually does, not what a whiteboard says it should do.
 
