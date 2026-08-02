@@ -106,6 +106,104 @@ sand until this is confirmed.
 - `laundry-esp32/` — ESP32 firmware; MQTT/HTTP telemetry + feature-flagged
   Modbus RTU / EQLink to MachineStateService. Must keep working through the
   whole migration (explicit constraint in ADR-001).
+- `Instruction For Agent/` — draft Copilot-instructions files (Java/Robot
+  Framework style, git conventions, a generic Spring Boot+Helm repo
+  template). Coding-style/testing conventions from here are consolidated
+  into this file (see **Coding Style & Testing** below); the Helm/K8s CI-CD
+  template does **not** describe how this repo actually deploys (see
+  **Deployment Reality** below) — treat that part as generic boilerplate for
+  spinning up unrelated new repos, not guidance for this one.
+
+## Coding Style & Testing
+Consolidated from `Instruction For Agent/coding-rules-and-git-conventions.md`,
+cross-checked against the real per-service `.github/copilot-instructions.md`
+files (which already carry an equivalent, slightly reworded copy of these
+same rules for `spring-bot-manager-only`, `PaymentManagementService`,
+`MachineStateService`) — the two agreed almost everywhere, so this is one
+canonical version rather than three near-duplicates.
+
+### Java (all Spring Boot services)
+- Disregard these when not touching Java.
+- Avoid interfaces without a real need for multiple implementations; use
+  Lombok annotations wherever possible.
+- Jackson `ObjectMapper`, never Gson.
+- `@Slf4j` for logging, evaluated lazily — don't log full stack traces unless
+  it's genuinely the only way to diagnose the failure; otherwise log the
+  message plus the known cause.
+- `@ControllerAdvice` for controller error handling.
+- `StringUtils.hasText(...)` for null/empty string checks.
+- Full descriptive names over abbreviations — clarity over brevity.
+- Import classes rather than using fully-qualified inline paths.
+- Class member ordering: public methods first, private last.
+- `proxyBeanMethods = false` on `@Configuration` classes; inject beans as
+  method parameters.
+- No commented-out code left in the repo.
+- Repeated literals belong in a dedicated constants class, not hardcoded
+  inline.
+
+Empty-line style: one blank line between logical blocks inside a method (not
+before simple constructor field assignments); one blank line before `return`
+unless it's the method's only statement; one blank line around `if` blocks
+except immediately after the `if` line itself and except when chained into
+`else`; one blank line between class-level fields; exactly one trailing
+blank line at end of file; never more than one blank line even where
+multiple rules stack.
+
+### Java unit tests
+- Method names: `should<Outcome>When<Condition>`.
+- No `public` modifier on test classes or methods.
+- Structure with `// given` / `// when` / `// then` comments (blank line
+  before `when`/`then`; omit `given` if empty).
+- Exceptions: `Throwable thrown = catchThrowable(() -> target.method());` in
+  `// when`, assert in `// then`.
+- AssertJ for assertions.
+- Shared/init boilerplate → a `final class <TestedClass>TestUtil` in a
+  `testutil` sub-package next to the test,
+  `@NoArgsConstructor(access = AccessLevel.PRIVATE)`, static factory methods.
+- `@ParameterizedTest` over repeated near-duplicate tests.
+- When troubleshooting, run just the affected test(s) first; run the full
+  suite before calling it done.
+
+Existing tests predate this naming convention and mostly use bare
+descriptive names (e.g. `reusesIncomingCorrelationId` in
+`api-gateway/.../CorrelationIdFilterTest.java`) rather than `shouldXWhenY` —
+apply the pattern going forward on new/modified tests, don't mass-rename old
+ones as a drive-by of unrelated work.
+
+### Robot Framework integration tests
+(`MachineStateService/integration-tests`, `PaymentManagementService/integration-tests`,
+`spring-bot-manager-only/integration-tests`)
+- Settings first, then shared Resources/Libraries, then Suite/Test
+  Setup-Teardown.
+- Wrap external calls (HTTP/TCP/file I/O) in resource Keywords; don't call
+  libraries directly from suites.
+- Suite-level setup/teardown for sessions/connections; test-level for
+  per-test state.
+- No stray blank lines in `.robot` files except to mark a genuine logical
+  break.
+- Config lives in each service's `variables.robot` / env vars — this repo's
+  actual pattern is things like `BASE_URL`, `AUTH0_CLIENT_ID`/
+  `AUTH0_CLIENT_SECRET`, not the generic `TM_HOST`/`FSS_HOST`/LocalStack vars
+  from the original template; don't introduce those.
+- Don't leave permanent `Log To Console` debug lines.
+- Don't commit `integration-tests/results/` or `-test-output/`.
+
+## Deployment Reality (Railway, not Helm/K8s)
+Every service (`api-gateway`, `MachineStateService`,
+`PaymentManagementService`, `spring-bot-manager-only`, `reporting-bff`)
+deploys via **Railway's native GitHub integration** — auto-deploy on push to
+`master`/`develop` from each service's own `Dockerfile`. CI
+(`.github/workflows/*.yml`) only builds and runs tests; there is no deploy
+step, and no Kubernetes cluster exists.
+
+`MachineStateService/ci/helm-chart` and `spring-bot-manager-only/ci/helm-chart`
+(and the legacy `spring-bot-manager/ci/helm-chart`) are unused leftovers from
+an earlier Kubernetes-based plan. Don't update them when changing config or
+deployment behavior, and don't apply the Helm/K8s CI-CD guidance from
+`Instruction For Agent/copilot-instructions-repository.md` or
+`copilot-instructions-springboot-maven.md` to this repo — that material is a
+generic template for scaffolding *new, unrelated* Spring Boot repos, not a
+description of how these services ship.
 
 ## Global Conventions
 - **English only** for supplier-facing communication.
@@ -131,14 +229,23 @@ sand until this is confirmed.
   P0–P7 migration, can proceed in parallel.
 
 ## How I Like to Work With Claude
-- Be a technical co-architect — direct, rigorous, no rubber-stamping. Push
-  back on weak reasoning, sunk-cost justifications, or scope creep.
+- **Brutally honest, no flattery.** Act as a high-level advisor and mirror,
+  not a yes-man — don't validate me, don't soften the truth, don't
+  rubber-stamp. Challenge my thinking, question my assumptions, expose blind
+  spots I'm avoiding. If my reasoning is weak, dissect it and say why. If I'm
+  making a mistake or fooling myself, call it out and explain the opportunity
+  cost — don't let me hide from a difficult truth or get away with sloppy
+  thinking, sunk-cost justifications, or scope creep.
+- Look at problems with full objectivity and strategic depth, then give a
+  precise, prioritized plan — not just a diagnosis.
 - Max 3 best options with a clear recommendation and trade-offs.
 - Best-practice, clean code, secure-by-default — flag security/reliability
   gaps proactively, especially anything touching P0 items.
 - Default to working within the current phase of the migration plan; if asked
   to do something that's clearly a later phase (e.g. building the Reporting
   BFF while P0 is open), say so.
+- **If you hit repeated tool failures or need more information, stop and
+  ask** — don't thrash through retries.
 - Terse confirms are fine (e.g. "Weiter" = continue).
 - Notion tasks created progressively, not all upfront.
 
@@ -146,6 +253,18 @@ sand until this is confirmed.
 - **Never push directly to `master`/`develop`.** All work goes on its own
   branch (`bugfix/...` or `feature/...` per the bug-vs-feature convention
   below) and gets its own pull request for review — no exceptions.
+- **Branch naming**: `<type>/<short-kebab-slug>`, type is `bugfix` or
+  `feature`, no ticket ID — e.g. `bugfix/webhook-and-startcycle-concurrency`.
+  There is no Jira/ticket tracker here (tasks live in Notion, created
+  progressively), so the `<type>/<ticket-id>` pattern in
+  `Instruction For Agent/coding-rules-and-git-conventions.md` doesn't apply —
+  use the descriptive-slug form actually used throughout this repo's history.
+- **Commit format**: Conventional Commits, `<type>(<scope>): <description>`
+  (scope optional) — e.g. `fix(machine): stop simulator from burning
+  Supabase egress quota`. Imperative mood, lowercase after the colon, no
+  trailing period, summary under ~50 chars, body below a blank line if more
+  detail is needed. Same reasoning as above: no ticket-ID prefix, this isn't
+  the Jira-backed convention from `coding-rules-and-git-conventions.md`.
 - **Before every commit, have a subagent do a code review of the diff first**
   (spawn a review subagent / use the code-review skill), and address what it
   finds before committing.
@@ -153,3 +272,5 @@ sand until this is confirmed.
   review comments** (e.g. Copilot's automated review, human reviewers) —
   `gh api repos/<owner>/<repo>/pulls/<n>/reviews` and `.../comments` — and
   address them before considering that push done. Don't wait to be asked.
+- **PRs**: clear description of what/why, keep focused and small when
+  possible, all CI checks green before requesting review.

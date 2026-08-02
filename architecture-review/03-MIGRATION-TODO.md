@@ -169,6 +169,8 @@ and distributed tracing are all done.
 - [x] Configure **Supavisor pooler** connection strings (transaction mode) for each service. (2026-06-14) Documented in `smartlaundry-infra/docs/connections.md` — JDBC URL pattern, transaction-mode (6543, app runtime, `prepareThreshold=0`) vs session-mode (5432, Flyway), and per-service Doppler key mapping (`bot_svc`→`spring-bot-manager`, `payment_svc`→`payment-management-service`, `machine_svc`→`machine-state-service`, each `prd`/`dev` config). **Remaining**: actually run the `doppler secrets set` commands with the generated passwords (shared with operator out-of-band) — not done in this session.
 - [ ] **Network hardening**: enforce SSL, configure IP allow-list / network restrictions. (2026-06-14) SSL is enforced by default by Supabase and not independently toggleable via the MCP tools used; verify in dashboard (Settings → Database). **IP allow-list (Network Restrictions) requires the Pro plan** — deferred with the PITR item below.
 - [ ] **Enable daily backups + PITR** (Pro plan), set up dashboard alerting (connections, disk, slow queries). **Blocked on a Pro-plan upgrade decision** ($25/mo, currently Free org `GustaveDjoutsop's Org`) — explicit manual billing action required before this can proceed.
+  - **(2026-07-15) Egress-quota incident on `smartlaundry-dev`**: Supabase sent a Fair Use Policy grace-period notice for exceeding the Free plan's 5GB egress quota. Root cause diagnosed via `pg_stat_statements` (not organic data growth — every table in the project is under 1MB): `MachineStateService`'s dev-only `SimulatorHeartbeatService` was polling `machine.machines` every 5s with a redundant double-fetch per machine, producing 5.1M SELECTs + 2.5M UPDATEs against a 16-row table over ~18 days of continuous runtime. Fixed in [MachineStateService#36](https://github.com/GustaveDjoutsop/smart-laundry-platform/pull/36) (merged 2026-07-15) — batched the heartbeat query, widened the poll interval 5s/10s→30s, and added a `simulator.enabled`-gated guard in `processTelemetry()` to close a race the batching introduced (a stale idle snapshot could otherwise clobber a machine that started a real cycle mid-batch; the guard is scoped so real ESP32/MQTT telemetry is never affected). 6 rounds of Copilot review, all resolved.
+  - **(2026-07-15) Confirmed this is no longer just a hygiene gap**: `smartlaundry-dev` is already serving real test customers (not just the simulator/mocks the name implies), and real hardware is expected soon. On the Free plan there are **no automated backups and no PITR at all** (Free tier has neither — Pro+ gets daily backups, PITR is a paid add-on above that), so real payment/transaction data currently has no durability guarantee. Raised with the user (Pro upgrade now / full prod cutover now / hold off) — **user explicitly chose to hold off, not urgent enough yet**. Revisit once real hardware is closer to landing (the trigger the user themselves flagged).
 - [x] Create a **free-tier dev project** mirroring schema/role layout; ban H2 from representing prod behaviour. (2026-06-14) Created `smartlaundry-dev` (`mmkxlwzmeercsncsseie`, eu-central-1, Free, Postgres 17), same migration applied — identical `bot`/`payment`/`machine`/`ops` schemas and `*_svc` roles as prod.
 
 **Phase 2 status: mostly complete** — schemas, roles, and the dev/test
@@ -180,6 +182,13 @@ free-tier cap (PROD currently skipped), and (3) the Pro-plan upgrade for
 PITR/backups + IP allow-listing. Phase 3 (consolidating services onto these
 schemas) can proceed for DEV/TEST once Doppler is populated, even before the
 Pro upgrade.
+
+**(2026-07-15) Deferral (2) and (3) are now a live risk, not just a gap**:
+`smartlaundry-dev` serves real test customers today, with real hardware
+coming soon, on a Free-plan project with no backups/PITR — see the dated note
+under the PITR item above. The user was asked and explicitly chose to hold
+off on both the Pro upgrade and the prod cutover for now; revisit when real
+hardware is closer to landing.
 
 ---
 
