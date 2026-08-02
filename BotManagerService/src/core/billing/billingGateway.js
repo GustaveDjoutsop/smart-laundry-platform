@@ -73,9 +73,6 @@ class BillingGateway {
       return { duplicate: false, applied: false };
     }
 
-    const isNew = await this.store.markEventSeen({ botId, eventId: parsed.eventId });
-    if (!isNew) return { duplicate: true, applied: false };
-
     // A valid signature only proves the payload came from Stripe, not that
     // it belongs to this :botId. The customer/subscription relationship is
     // always established synchronously in startSubscription *before* any
@@ -89,6 +86,13 @@ class BillingGateway {
     // that will never become valid), so this log line is the only signal
     // that a misrouted/replayed/tenant-crossed event was rejected - it must
     // not blend in with routine warnings.
+    //
+    // Deliberately checked BEFORE markEventSeen: dedup must only apply once
+    // an event is known to belong to this bot. If it were marked "seen"
+    // first and then rejected here (e.g. because the billing record was
+    // briefly missing/stale), a later Stripe redelivery of that same valid
+    // event would be dropped as a duplicate forever, even after whatever
+    // caused the rejection is fixed.
     const existing = await this.store.getBilling(botId);
     if (!existing || !existing.stripeCustomerId) {
       this.logger && this.logger.error && this.logger.error('Stripe billing webhook rejected: no billing record on file for botId', { botId, eventType: parsed.eventType });
@@ -98,6 +102,9 @@ class BillingGateway {
       this.logger && this.logger.error && this.logger.error('Stripe billing webhook rejected: customerId does not match botId', { botId, eventType: parsed.eventType });
       return { duplicate: false, applied: false, rejected: 'tenant_mismatch' };
     }
+
+    const isNew = await this.store.markEventSeen({ botId, eventId: parsed.eventId });
+    if (!isNew) return { duplicate: true, applied: false };
 
     // Trust Stripe's current subscription state over whatever status this
     // particular event happened to carry - a redelivered or out-of-order

@@ -54,16 +54,20 @@ class BillingStore {
   // Append-only audit trail of every applied webhook event, separate from
   // the upsertBilling snapshot above - needed to reconstruct *why* a status
   // changed (which Stripe event, when) for billing disputes, mirroring
-  // PaymentStore.appendEvent/getEvents.
+  // PaymentStore.appendEvent/getEvents. No TTL, deliberately: the billing
+  // record itself has none either (a subscription is a standing
+  // relationship, see the comment on EVENT_SEEN_TTL_SECONDS below), so a
+  // dispute on a long-lived subscription must not find its audit trail
+  // already expired after 30 days while the subscription is still active.
   async appendBillingEvent(botId, event) {
     if (!botId) throw new Error('BillingStore requires botId');
 
     const key = billingEventsKey(botId);
     await redisManager.rpush(key, JSON.stringify({ ...event, occurredAt: new Date().toISOString() }));
-    await redisManager.expire(key, EVENT_SEEN_TTL_SECONDS);
   }
 
   async getBillingEvents(botId) {
+    if (!botId) throw new Error('BillingStore requires botId');
     const raw = await redisManager.lrange(billingEventsKey(botId), 0, -1);
     return (raw || []).map((entry) => JSON.parse(entry));
   }

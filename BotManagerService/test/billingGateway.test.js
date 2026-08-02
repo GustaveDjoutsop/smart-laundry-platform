@@ -122,6 +122,33 @@ test('handleWebhook rejects an event for a botId with no billing record on file 
   assert.equal(result.rejected, 'no_billing_record');
 });
 
+test('handleWebhook does not mark a rejected event as seen - a valid redelivery of the same eventId can still be applied once the billing record exists', async () => {
+  // Regression guard: dedup must happen AFTER the tenant checks, not before.
+  // If the first (rejected) delivery permanently marked the eventId as
+  // "seen", Stripe's later redelivery of that same, now-valid event would
+  // be dropped as a duplicate forever - the subscription update could never
+  // be applied even after the underlying issue (missing billing record) is
+  // fixed.
+  const store = new BillingStore();
+  const botId = 'billing-gateway-bot-redelivery';
+  const provider = fakeProvider({
+    parseWebhook: () => ({ eventId: 'evt_redelivered', eventType: 'invoice.paid', customerId: 'cus_x', subscriptionId: 'sub_x', status: 'ACTIVE' })
+  });
+  const gateway = new BillingGateway({ provider, store, events: new EventEmitter() });
+
+  const firstAttempt = await gateway.handleWebhook({ botId, payload: {} });
+  assert.equal(firstAttempt.applied, false);
+  assert.equal(firstAttempt.rejected, 'no_billing_record');
+
+  // The underlying issue is now fixed - the bot has a matching billing record.
+  await store.upsertBilling(botId, { stripeCustomerId: 'cus_x' });
+
+  const redelivery = await gateway.handleWebhook({ botId, payload: {} });
+  assert.equal(redelivery.duplicate, false);
+  assert.equal(redelivery.applied, true);
+  assert.equal(redelivery.record.status, 'ACTIVE');
+});
+
 test('handleWebhook rejects an event whose customerId does not match the botId\'s billing record - prevents cross-tenant corruption from a misrouted or replayed webhook', async () => {
   const store = new BillingStore();
   const botId = 'billing-gateway-bot-tenant-a';

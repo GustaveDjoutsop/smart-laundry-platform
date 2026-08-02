@@ -22,6 +22,24 @@ test('BillingStore getBilling returns null for a bot with no billing record', as
   assert.equal(record, null);
 });
 
+test('BillingStore appendBillingEvent + getBillingEvents round-trips in append order', async () => {
+  const store = new BillingStore();
+  const botId = 'billing-store-bot-ledger';
+
+  await store.appendBillingEvent(botId, { eventId: 'evt_1', eventType: 'invoice.paid', status: 'ACTIVE' });
+  await store.appendBillingEvent(botId, { eventId: 'evt_2', eventType: 'customer.subscription.updated', status: 'PAST_DUE' });
+
+  const events = await store.getBillingEvents(botId);
+  assert.equal(events.length, 2);
+  assert.equal(events[0].eventId, 'evt_1');
+  assert.equal(events[1].eventId, 'evt_2');
+});
+
+test('BillingStore getBillingEvents requires botId - guards against a falsy caller silently querying a shared "billing_events:undefined" key', async () => {
+  const store = new BillingStore();
+  await assert.rejects(() => store.getBillingEvents(), /requires botId/);
+});
+
 test('BillingStore markEventSeen returns true the first time and false on redelivery', async () => {
   const store = new BillingStore();
   const botId = 'billing-store-bot-dedup';
