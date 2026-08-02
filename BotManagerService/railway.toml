@@ -1,0 +1,15 @@
+# Railway deployment config — BotManagerService
+#
+# All runtime configuration (WhatsApp tokens, Stripe keys, REDIS_URL, etc.)
+# is injected via Railway's own environment variable dashboard, never
+# committed here — see .env.example for the full list of variables this
+# service reads.
+
+[build]
+builder = "DOCKERFILE"
+
+[deploy]
+healthcheckPath = "/api/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
