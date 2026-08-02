@@ -9,7 +9,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 @Configuration(proxyBeanMethods = false)
 public class WebClientConfig {
 
-    /** Used by CamPay, MTN, Orange Money providers (async/reactive). */
+    /** Used by CamPay (async/reactive). */
     @Bean
     public WebClient.Builder webClientBuilder() {
         return WebClient.builder();

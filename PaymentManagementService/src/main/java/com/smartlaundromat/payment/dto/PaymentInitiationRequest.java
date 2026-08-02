@@ -4,6 +4,7 @@ import com.smartlaundromat.payment.model.enums.PaymentProvider;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 import java.math.BigDecimal;
 
@@ -43,4 +44,13 @@ public class PaymentInitiationRequest {
      * false so existing callers (wash payments, redemptions) are unaffected.
      */
     private boolean reservationHold;
+
+    /**
+     * Optional client-generated idempotency key. If a request with this key was
+     * already processed, the current state of the resulting transaction is returned
+     * instead of creating a duplicate payment. Callers that omit this field get
+     * today's non-idempotent behavior unchanged.
+     */
+    @Size(max = 50, message = "Idempotency key must be at most 50 characters")
+    private String idempotencyKey;
 }

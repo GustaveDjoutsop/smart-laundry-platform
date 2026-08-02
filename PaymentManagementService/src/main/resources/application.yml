@@ -73,19 +73,6 @@ payment:
     app-secret: ${CAMPAY_APP_SECRET:} # campay app password
     webhook-secret: ${CAMPAY_WEBHOOK_SECRET:}
 
-  mtn:
-    api-url: https://sandbox.momodeveloper.mtn.com
-    subscription-key: ${MTN_SUBSCRIPTION_KEY:}
-    api-user-id: ${MTN_API_USER_ID:}
-    api-key: ${MTN_API_KEY:}
-    environment: sandbox
-
-  orange:
-    api-url: https://api.orange.com
-    client-id: ${ORANGE_CLIENT_ID:}
-    client-secret: ${ORANGE_CLIENT_SECRET:}
-    merchant-key: ${ORANGE_MERCHANT_KEY:}
-
 machine-state-service:
   base-url: ${MACHINE_STATE_SERVICE_URL:http://localhost:8082}
 
@@ -96,7 +83,7 @@ bot-manager-service:
 # ── Post-payment machine trigger ──────────────────────────────────────────────
 # EQLink is NOT a payment system — it is a machine CONTROL platform.
 # This flag controls whether PaymentManagementService automatically calls
-# MachineStateService to start the machine after any CamPay/MTN/Orange payment.
+# MachineStateService to start the machine after a CamPay payment.
 # MachineStateService then uses EQLink IoT (if configured) or MQTT.
 eqlink:
   auto-start-machine-after-payment: ${EQLINK_AUTO_START:false}

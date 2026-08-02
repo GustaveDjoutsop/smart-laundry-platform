@@ -64,9 +64,12 @@ over largely unchanged — it's a consolidation, not a data-model rewrite.
   token) — placeholder swap alone does nothing if the old values still work.
 - [ ] Purge from git history (BFG/`git filter-repo`), force-push, invalidate
   caches.
-- [ ] Give `MachineStartService` (in PaymentManagementService) an Auth0 M2M
-  client mirroring the bot's `MicroserviceClientConfig`; attach
-  `Authorization: Bearer` to `/api/machines/start-cycle`.
+- [x] ~~Give `MachineStartService` an Auth0 M2M client; attach `Authorization:
+  Bearer` to `/api/machines/start-cycle`~~ — moot: Phase 4 removed that
+  synchronous call entirely rather than patching it. Pay→start is now async
+  via the `outbox` table + `OutboxRelayService`, which already carries
+  fail-closed M2M auth (`MicroserviceClientConfig`, throws if unconfigured —
+  see `PaymentManagementService/PaymentManagementService_CLAUDE.md`).
 - [ ] Make the bot's no-token `microserviceWebClientFallback` **fail-closed**
   (throw on missing M2M config) instead of silently sending unauthenticated
   requests.
@@ -97,7 +100,6 @@ sand until this is confirmed.
 - `smart-laundry-dashboard/` — Next.js operator UI. See its `CLAUDE.md`.
 - `architecture-review/` — `01-CURRENT-ARCHITECTURE.md`,
   `02-TARGET-ARCHITECTURE.md` (ADR-001), `03-MIGRATION-TODO.md`.
-- `spring-bot-manager/` (legacy, no `-only`) — predecessor monolith, archive.
 - `SmartLaundromatControlSystem/` — legacy Node/Express/MongoDB monolith,
   currently the real backend for the dashboard. **Scheduled for
   decommissioning in P5** — don't delete yet, it's load-bearing until then.

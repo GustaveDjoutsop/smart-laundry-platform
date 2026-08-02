@@ -15,8 +15,6 @@ public class PaymentConfig {
     private int reminderLookbackMinutes = 90;
     private Pricing pricing = new Pricing();
     private CampayConfig campay = new CampayConfig();
-    private MtnConfig mtn = new MtnConfig();
-    private OrangeConfig orange = new OrangeConfig();
 
     @Data
     public static class Pricing {
@@ -30,22 +28,5 @@ public class PaymentConfig {
         private String appKey;
         private String appSecret;
         private String webhookSecret;
-    }
-
-    @Data
-    public static class MtnConfig {
-        private String apiUrl;
-        private String subscriptionKey;
-        private String apiUserId;
-        private String apiKey;
-        private String environment = "sandbox";
-    }
-
-    @Data
-    public static class OrangeConfig {
-        private String apiUrl;
-        private String clientId;
-        private String clientSecret;
-        private String merchantKey;
     }
 }

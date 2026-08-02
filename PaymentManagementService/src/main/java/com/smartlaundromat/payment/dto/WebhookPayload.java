@@ -9,7 +9,7 @@ public class WebhookPayload {
 
     private String reference;
 
-    // CamPay sends "external_reference"; MTN/Orange send "externalId".
+    // CamPay sends "external_reference"; "externalId" alias kept for historical compatibility.
     @JsonAlias({"external_reference", "externalId"})
     private String externalReference;
 

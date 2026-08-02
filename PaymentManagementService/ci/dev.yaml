@@ -77,17 +77,6 @@ payment:
     app-key: ${CAMPAY_APP_KEY:}
     app-secret: ${CAMPAY_APP_SECRET:}
     webhook-secret: ${CAMPAY_WEBHOOK_SECRET:}
-  mtn:
-    api-url: https://sandbox.momodeveloper.mtn.com
-    subscription-key: ${MTN_SUBSCRIPTION_KEY:}
-    api-user-id: ${MTN_API_USER_ID:}
-    api-key: ${MTN_API_KEY:}
-    environment: sandbox
-  orange:
-    api-url: https://api.orange.com
-    client-id: ${ORANGE_CLIENT_ID:}
-    client-secret: ${ORANGE_CLIENT_SECRET:}
-    merchant-key: ${ORANGE_MERCHANT_KEY:}
 
 # ── CORS: permissive for local development ───────────────────────────────────
 cors:

@@ -5,7 +5,7 @@ info:
   description: |
     Payment microservice for the SmartLaundromat ecosystem.
 
-    Handles RFID card accounts, mobile money payments (CamPay, MTN MoMo, Orange Money),
+    Handles RFID card accounts, mobile money payments (CamPay),
     top-ups, and provider webhook ingestion.
 
     ### How to get a token
@@ -112,7 +112,19 @@ components:
         provider:
           type: string
           enum: [CAMPAY, MTN, ORANGE_MONEY]
+          description: >
+            Only CAMPAY is accepted on new payments. MTN and ORANGE_MONEY are
+            listed here only because they still appear on historical
+            transactions returned by GET endpoints — requesting either here
+            is rejected with a PROVIDER_DISABLED error.
         description:   { type: string }
+        idempotencyKey:
+          type: string
+          maxLength: 50
+          description: >
+            Optional client-generated key. A retried request with the same
+            key returns the existing transaction's current state instead of
+            creating a duplicate payment.
 
     PaymentResponse:
       type: object
@@ -138,6 +150,11 @@ components:
         channel:
           type: string
           enum: [CAMPAY, MTN, ORANGE_MONEY, CASH]
+          description: >
+            Only CAMPAY and CASH are accepted on new top-ups. MTN and
+            ORANGE_MONEY are listed here only because they still appear on
+            historical top-ups — requesting either here is rejected with a
+            PROVIDER_DISABLED error.
         phoneNumber: { type: string }
 
     ErrorResponse:
@@ -448,9 +465,7 @@ paths:
               schema:
                 type: object
                 example:
-                  campay:       { configured: true }
-                  mtn:          { configured: false }
-                  orange_money: { configured: false }
+                  campay: { configured: true }
 
   # ── Webhooks (public — HMAC verified internally) ────────────────────────────
 
@@ -481,36 +496,3 @@ paths:
                 properties:
                   status: { type: string, example: "received" }
 
-  /api/webhook/mtn:
-    post:
-      tags: [Webhooks]
-      summary: Receive MTN MoMo payment callback
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                externalId:             { type: string }
-                status:                 { type: string }
-                financialTransactionId: { type: string }
-      responses:
-        "200":
-          description: Webhook accepted
-
-  /api/webhook/orange:
-    post:
-      tags: [Webhooks]
-      summary: Receive Orange Money payment callback
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        "200":
-          description: Webhook accepted

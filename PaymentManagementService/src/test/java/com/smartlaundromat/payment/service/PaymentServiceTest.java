@@ -4,18 +4,20 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartlaundromat.payment.dto.PaymentInitiationRequest;
 import com.smartlaundromat.payment.dto.PaymentResponse;
 import com.smartlaundromat.payment.exception.PaymentException;
+import com.smartlaundromat.payment.model.IdempotencyKey;
 import com.smartlaundromat.payment.model.OutboxEvent;
 import com.smartlaundromat.payment.model.Transaction;
 import com.smartlaundromat.payment.model.enums.PaymentProvider;
 import com.smartlaundromat.payment.model.enums.PaymentStatus;
+import com.smartlaundromat.payment.repository.IdempotencyKeyRepository;
 import com.smartlaundromat.payment.repository.OutboxEventRepository;
+import com.smartlaundromat.payment.repository.PaymentEventRepository;
 import com.smartlaundromat.payment.repository.TransactionRepository;
 import com.smartlaundromat.payment.service.machine.MachineAvailabilityClient;
 import com.smartlaundromat.payment.service.machine.ReservationClient;
 import com.smartlaundromat.payment.service.provider.CampayService;
-import com.smartlaundromat.payment.service.provider.MtnMomoService;
-import com.smartlaundromat.payment.service.provider.OrangeMoneyService;
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,6 +28,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -46,17 +49,17 @@ class PaymentServiceTest {
     @Mock
     OutboxEventRepository outboxEventRepository;
 
+    @Mock
+    PaymentEventRepository paymentEventRepository;
+
+    @Mock
+    IdempotencyKeyRepository idempotencyKeyRepository;
+
     @Spy
     ObjectMapper objectMapper;
 
     @Mock
     CampayService campayService;
-
-    @Mock
-    MtnMomoService mtnMomoService;
-
-    @Mock
-    OrangeMoneyService orangeMoneyService;
 
     @Mock
     MachineAvailabilityClient machineAvailabilityClient;
@@ -104,6 +107,7 @@ class PaymentServiceTest {
 
             assertThat(result.getProviderReference()).isEqualTo("CAMP-REF-001");
             verify(transactionRepository, times(2)).save(any(Transaction.class));
+            verify(paymentEventRepository).save(argThat(event -> PaymentStatus.PENDING.equals(event.getEventType())));
         }
 
         @Test
@@ -186,7 +190,7 @@ class PaymentServiceTest {
                     .isInstanceOf(PaymentException.class)
                     .hasMessageContaining("not valid");
 
-            verifyNoInteractions(campayService, mtnMomoService, orangeMoneyService);
+            verifyNoInteractions(campayService);
             verify(transactionRepository, never()).save(any());
         }
 
@@ -222,7 +226,7 @@ class PaymentServiceTest {
                     .isInstanceOf(PaymentException.class)
                     .hasMessageContaining("reserved starting at");
 
-            verifyNoInteractions(campayService, mtnMomoService, orangeMoneyService);
+            verifyNoInteractions(campayService);
             verify(transactionRepository, never()).save(any());
         }
 
@@ -261,7 +265,7 @@ class PaymentServiceTest {
                     .isInstanceOf(PaymentException.class)
                     .hasMessageContaining("pending payment");
 
-            verifyNoInteractions(campayService, mtnMomoService, orangeMoneyService);
+            verifyNoInteractions(campayService);
         }
 
         @Test
@@ -278,48 +282,142 @@ class PaymentServiceTest {
                     .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class)
                     .isNotInstanceOf(PaymentException.class);
 
-            verifyNoInteractions(campayService, mtnMomoService, orangeMoneyService);
+            verifyNoInteractions(campayService);
         }
 
         @Test
-        void shouldUseMtnProviderWhenRequested() {
+        void shouldThrowWhenMtnProviderRequested() {
             request.setProvider(PaymentProvider.MTN);
             when(machineAvailabilityClient.isAvailable(anyString())).thenReturn(true);
             when(transactionRepository.findByMachineIdAndStatus(anyString(), eq(PaymentStatus.PENDING)))
                     .thenReturn(Collections.emptyList());
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            PaymentResponse providerResponse = PaymentResponse.builder()
-                    .success(true)
-                    .providerReference("MTN-REF-001")
-                    .build();
-            when(mtnMomoService.requestPayment(anyString(), any(), anyString(), anyString()))
-                    .thenReturn(providerResponse);
+            assertThatThrownBy(() -> paymentService.initiatePayment(request))
+                    .isInstanceOf(PaymentException.class)
+                    .satisfies(ex -> assertThat(((PaymentException) ex).getErrorCode()).isEqualTo("PROVIDER_DISABLED"));
 
-            PaymentResponse result = paymentService.initiatePayment(request);
-
-            assertThat(result.getProviderReference()).isEqualTo("MTN-REF-001");
-            verify(mtnMomoService).requestPayment(anyString(), any(), anyString(), anyString());
+            verifyNoInteractions(campayService);
         }
 
         @Test
-        void shouldUseOrangeProviderWhenRequested() {
+        void shouldThrowWhenOrangeProviderRequested() {
             request.setProvider(PaymentProvider.ORANGE_MONEY);
             when(machineAvailabilityClient.isAvailable(anyString())).thenReturn(true);
             when(transactionRepository.findByMachineIdAndStatus(anyString(), eq(PaymentStatus.PENDING)))
                     .thenReturn(Collections.emptyList());
             when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            PaymentResponse providerResponse = PaymentResponse.builder()
-                    .success(true)
-                    .providerReference("ORANGE-REF-001")
-                    .build();
-            when(orangeMoneyService.requestPayment(anyString(), any(), anyString(), anyString()))
-                    .thenReturn(providerResponse);
+            assertThatThrownBy(() -> paymentService.initiatePayment(request))
+                    .isInstanceOf(PaymentException.class)
+                    .satisfies(ex -> assertThat(((PaymentException) ex).getErrorCode()).isEqualTo("PROVIDER_DISABLED"));
+
+            verifyNoInteractions(campayService);
+        }
+
+        @Test
+        void shouldProceedNormallyWhenNoIdempotencyKeyProvided() {
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
+                    .thenReturn(Collections.emptyList());
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(campayService.requestPayment(anyString(), any(), anyString(), anyString()))
+                    .thenReturn(PaymentResponse.builder().success(true).providerReference("CAMP-REF-001").build());
 
             paymentService.initiatePayment(request);
 
-            verify(orangeMoneyService).requestPayment(anyString(), any(), anyString(), anyString());
+            verifyNoInteractions(idempotencyKeyRepository);
+        }
+
+        @Test
+        void shouldReturnExistingTransactionWhenIdempotencyKeyAlreadyProcessed() {
+            request.setIdempotencyKey("IDEMP-001");
+
+            IdempotencyKey existingKey = IdempotencyKey.builder()
+                    .idempotencyKey("IDEMP-001")
+                    .externalReference("EXT-EXISTING")
+                    .expiresAt(OffsetDateTime.now().plusHours(24))
+                    .build();
+            when(idempotencyKeyRepository.findByIdempotencyKey("IDEMP-001")).thenReturn(Optional.of(existingKey));
+
+            Transaction existingTransaction = Transaction.builder()
+                    .externalReference("EXT-EXISTING")
+                    .machineId("MACH-01")
+                    .amount(new BigDecimal("1000"))
+                    .status(PaymentStatus.SUCCESSFUL)
+                    .providerReference("CAMP-REF-EXISTING")
+                    .build();
+            when(transactionRepository.findByExternalReference("EXT-EXISTING")).thenReturn(Optional.of(existingTransaction));
+
+            PaymentResponse result = paymentService.initiatePayment(request);
+
+            assertThat(result.getExternalReference()).isEqualTo("EXT-EXISTING");
+            assertThat(result.getStatus()).isEqualTo(PaymentStatus.SUCCESSFUL);
+            assertThat(result.isSuccess()).isTrue();
+            verifyNoInteractions(machineAvailabilityClient, campayService);
+            verify(transactionRepository, never()).save(any());
+        }
+
+        @Test
+        void shouldPersistIdempotencyKeyAfterSuccessfulInitiation() {
+            request.setIdempotencyKey("IDEMP-002");
+            when(idempotencyKeyRepository.findByIdempotencyKey("IDEMP-002")).thenReturn(Optional.empty());
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
+                    .thenReturn(Collections.emptyList());
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(campayService.requestPayment(anyString(), any(), anyString(), anyString()))
+                    .thenReturn(PaymentResponse.builder().success(true).providerReference("CAMP-REF-001").build());
+
+            paymentService.initiatePayment(request);
+
+            verify(idempotencyKeyRepository).save(argThat(key ->
+                    "IDEMP-002".equals(key.getIdempotencyKey()) && key.getExternalReference() != null));
+        }
+
+        @Test
+        void shouldThrowRetryableConflictWhenIdempotencyKeySaveRaces() {
+            // A concurrent request already committed this key by the time this request tries
+            // to register it — don't attempt to recover in the same transaction (a failed
+            // statement aborts the whole transaction on Postgres, so further reads here would
+            // themselves fail); roll back cleanly and let the caller retry with a fresh request.
+            request.setIdempotencyKey("IDEMP-003");
+            when(idempotencyKeyRepository.findByIdempotencyKey("IDEMP-003")).thenReturn(Optional.empty());
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
+                    .thenReturn(Collections.emptyList());
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(idempotencyKeyRepository.save(any(IdempotencyKey.class)))
+                    .thenThrow(new DataIntegrityViolationException(
+                            "duplicate key value violates unique constraint \"idempotency_keys_idempotency_key_key\""));
+
+            assertThatThrownBy(() -> paymentService.initiatePayment(request))
+                    .isInstanceOf(PaymentException.class)
+                    .satisfies(ex -> assertThat(((PaymentException) ex).getErrorCode()).isEqualTo("IDEMPOTENCY_KEY_CONFLICT"));
+
+            verifyNoInteractions(campayService);
+        }
+
+        @Test
+        void shouldRethrowUnrelatedIntegrityViolationOnIdempotencyKeySave() {
+            // A DataIntegrityViolationException unrelated to the idempotency_key unique
+            // constraint (e.g. the external_reference FK) is a real bug and must not be
+            // masked as a routine concurrency conflict.
+            request.setIdempotencyKey("IDEMP-004");
+            when(idempotencyKeyRepository.findByIdempotencyKey("IDEMP-004")).thenReturn(Optional.empty());
+            when(machineAvailabilityClient.isAvailable("MACH-01")).thenReturn(true);
+            when(transactionRepository.findByMachineIdAndStatus("MACH-01", PaymentStatus.PENDING))
+                    .thenReturn(Collections.emptyList());
+            when(transactionRepository.save(any(Transaction.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(idempotencyKeyRepository.save(any(IdempotencyKey.class)))
+                    .thenThrow(new DataIntegrityViolationException(
+                            "insert or update on table \"idempotency_keys\" violates foreign key constraint"));
+
+            assertThatThrownBy(() -> paymentService.initiatePayment(request))
+                    .isInstanceOf(DataIntegrityViolationException.class)
+                    .isNotInstanceOf(PaymentException.class);
+
+            verifyNoInteractions(campayService);
         }
     }
 
@@ -353,6 +451,10 @@ class PaymentServiceTest {
                     && "EXT-001".equals(event.getAggregateId())
                     && event.getPayload().contains("MACH-01")
             ));
+            verify(paymentEventRepository).save(argThat(event ->
+                    PaymentStatus.SUCCESSFUL.equals(event.getEventType())
+                    && "EXT-001".equals(event.getExternalReference())
+            ));
         }
 
         @Test
@@ -375,6 +477,10 @@ class PaymentServiceTest {
             assertThat(result.getStatus()).isEqualTo(PaymentStatus.SUCCESSFUL);
             assertThat(result.getCycleStartedAt()).isNull();
             verify(outboxEventRepository, never()).save(any());
+            verify(paymentEventRepository).save(argThat(event ->
+                    PaymentStatus.SUCCESSFUL.equals(event.getEventType())
+                    && "EXT-HOLD-01".equals(event.getExternalReference())
+            ));
         }
 
         @Test
@@ -436,6 +542,10 @@ class PaymentServiceTest {
             assertThat(result.getStatus()).isEqualTo(PaymentStatus.FAILED);
             assertThat(result.getFailureReason()).isEqualTo("Insufficient funds");
             verify(outboxEventRepository, never()).save(any());
+            verify(paymentEventRepository).save(argThat(event ->
+                    PaymentStatus.FAILED.equals(event.getEventType())
+                    && "EXT-001".equals(event.getExternalReference())
+            ));
         }
 
         @Test
@@ -596,11 +706,9 @@ class PaymentServiceTest {
     @Test
     void shouldGetProviderStatus() {
         when(campayService.isConfigured()).thenReturn(true);
-        when(mtnMomoService.isConfigured()).thenReturn(false);
-        when(orangeMoneyService.isConfigured()).thenReturn(true);
 
         Map<String, Object> result = paymentService.getProviderStatus();
 
-        assertThat(result).containsKeys("campay", "mtn", "orange_money");
+        assertThat(result).containsOnlyKeys("campay");
     }
 }
