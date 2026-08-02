@@ -118,6 +118,50 @@ test('BotRegistry substitutes ${VAR} env placeholders in bot configs', async () 
   }
 });
 
+test('BotRegistry lets PHONE_NUMBER_ID_<BOTID> env var override the config phoneNumberId', async () => {
+  const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'bms-bots-'));
+
+  const botConfig = createMinimalFlowConfig({
+    botId: 'phone_override_bot',
+    botType: 'phone_override_bot',
+    phoneNumberId: 'PHONE_FROM_CONFIG',
+    verifyToken: 'VERIFY_PHONE_OVERRIDE'
+  });
+
+  writeJson(path.join(tempDirectory, 'override.bot.json'), botConfig);
+
+  process.env.PHONE_NUMBER_ID_PHONE_OVERRIDE_BOT = 'PHONE_FROM_ENV';
+  try {
+    const registry = new BotRegistry();
+    registry.loadBotsFromDirectory(tempDirectory);
+
+    const bot = registry.getBotByPhoneId('PHONE_FROM_ENV');
+    assert.ok(bot);
+    assert.equal(registry.getBotByPhoneId('PHONE_FROM_CONFIG'), null);
+    assert.equal(bot.whatsapp.phoneNumberId, 'PHONE_FROM_ENV', 'the bot instance itself (used for outgoing sends) must see the overridden phoneNumberId, not just the registry routing map');
+  } finally {
+    delete process.env.PHONE_NUMBER_ID_PHONE_OVERRIDE_BOT;
+  }
+});
+
+test('BotRegistry falls back to the config phoneNumberId when no env override is set', async () => {
+  const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'bms-bots-'));
+
+  const botConfig = createMinimalFlowConfig({
+    botId: 'no_override_bot',
+    botType: 'no_override_bot',
+    phoneNumberId: 'PHONE_FROM_CONFIG_ONLY',
+    verifyToken: 'VERIFY_NO_OVERRIDE'
+  });
+
+  writeJson(path.join(tempDirectory, 'no-override.bot.json'), botConfig);
+
+  const registry = new BotRegistry();
+  registry.loadBotsFromDirectory(tempDirectory);
+
+  assert.ok(registry.getBotByPhoneId('PHONE_FROM_CONFIG_ONLY'));
+});
+
 test('BotRegistry rejects duplicate phoneNumberId', async () => {
   const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'bms-bots-'));
 

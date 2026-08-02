@@ -59,6 +59,14 @@ function getBotTypeKey(botConfig) {
   return String((botConfig && (botConfig.botType || botConfig.botId)) || '').trim().toLowerCase();
 }
 
+// Mirrors WHATSAPP_ACCESS_TOKEN_<BOTID>: lets a deployment (e.g. Railway prod)
+// point a bot at a different WhatsApp number than the one checked into its
+// configs/bots/<name>.bot.json, without touching the file.
+function resolvePhoneNumberId(botConfig) {
+  const key = `PHONE_NUMBER_ID_${String(botConfig.botId).toUpperCase()}`;
+  return process.env[key] || botConfig.phoneNumberId;
+}
+
 function createBotInstanceForConfig(botConfig) {
   const botTypeKey = getBotTypeKey(botConfig);
   if (botTypeKey === 'laundry') {
@@ -146,10 +154,11 @@ class BotRegistry {
         );
       }
 
-      const botInstance = createBotInstanceForConfig(botConfig);
+      const phoneNumberId = resolvePhoneNumberId(botConfig);
+      const botInstance = createBotInstanceForConfig({ ...botConfig, phoneNumberId });
 
       this.registerBot(botConfig.botId, botInstance, {
-        phoneNumberId: botConfig.phoneNumberId,
+        phoneNumberId,
         verifyToken: botConfig.verifyToken
       });
     }
