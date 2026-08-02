@@ -98,6 +98,7 @@ class PaymentStore {
     await redisManager.expire(eventsKey, EVENT_SEEN_TTL_SECONDS);
 
     const existing = await this.getPayment({ botId, transactionId });
+    const previousStatus = existing ? existing.status : null;
     const snapshot = {
       ...(existing || {}),
       ...rest,
@@ -113,7 +114,11 @@ class PaymentStore {
     };
     await this.upsertPayment(snapshot);
 
-    return { duplicate: false, event };
+    // previousStatus is the status *before* this append - callers need it to
+    // detect a real transition (e.g. PENDING -> COMPLETED). Re-reading
+    // getPayment() after this point would return the status this call just
+    // wrote, making every transition look like "no change".
+    return { duplicate: false, event, previousStatus };
   }
 
   async getEvents({ botId, transactionId }) {

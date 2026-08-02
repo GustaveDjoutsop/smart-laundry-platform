@@ -87,6 +87,26 @@ test('initiatePayment appends a payment_initiated event to the ledger instead of
   assert.equal(events[0].eventType, 'payment_initiated');
 });
 
+test('checkStatus returns previousStatus reflecting the store snapshot before this call writes the new status', async () => {
+  const provider = fakeProvider({ checkStatus: async () => ({ status: 'COMPLETED', raw: {} }) });
+  const store = new PaymentStore({ ttlSeconds: 60 });
+  const gateway = new PaymentGateway({ providers: { stripe: provider }, store });
+
+  await store.appendEvent({
+    botId: 'afromarket-prevstatus-test',
+    transactionId: 'tx-prev',
+    provider: 'stripe',
+    eventType: 'payment_initiated',
+    status: 'PENDING',
+    source: 'initiate'
+  });
+
+  const result = await gateway.checkStatus({ botId: 'afromarket-prevstatus-test', provider: 'stripe', transactionId: 'tx-prev' });
+
+  assert.equal(result.status, 'COMPLETED');
+  assert.equal(result.previousStatus, 'PENDING');
+});
+
 test('handleWebhook propagates the provider-parsed eventId for downstream dedup', () => {
   const provider = fakeProvider({
     parseWebhook: () => ({ transactionId: 'tx1', status: 'COMPLETED', amount: 10, externalRef: 'AM-1', eventId: 'evt_123', raw: {} })

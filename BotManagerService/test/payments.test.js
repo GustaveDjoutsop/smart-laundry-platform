@@ -56,6 +56,32 @@ test('PaymentStore appendEvent builds an append-only ledger, not a single overwr
   assert.equal(snapshot.status, 'COMPLETED');
 });
 
+test('PaymentStore appendEvent returns previousStatus reflecting the snapshot before this call writes the new status', async () => {
+  const store = new PaymentStore({ ttlSeconds: 60 });
+  const botId = 'afromarket-prevstatus';
+  const transactionId = 'tx-prevstatus-1';
+
+  const first = await store.appendEvent({ botId, transactionId, provider: 'stripe', eventType: 'payment_initiated', status: 'PENDING', source: 'initiate' });
+  assert.equal(first.previousStatus, null);
+
+  const second = await store.appendEvent({
+    botId,
+    transactionId,
+    provider: 'stripe',
+    eventId: 'evt_prevstatus',
+    eventType: 'payment_completed',
+    status: 'COMPLETED',
+    source: 'webhook'
+  });
+  assert.equal(second.previousStatus, 'PENDING');
+
+  // Confirms the snapshot itself is already COMPLETED by the time this
+  // returns - callers must use the returned previousStatus, not re-read the
+  // store, to detect the transition.
+  const snapshot = await store.getPayment({ botId, transactionId });
+  assert.equal(snapshot.status, 'COMPLETED');
+});
+
 test('PaymentStore appendEvent dedupes a redelivered webhook event by eventId - no duplicate ledger entry, no re-emit signal', async () => {
   const store = new PaymentStore({ ttlSeconds: 60 });
   const botId = 'afromarket-ledger-dedup';
