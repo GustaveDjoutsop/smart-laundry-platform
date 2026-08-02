@@ -5,8 +5,11 @@ const morgan = require('morgan');
 const { healthRouter } = require('./routes/health');
 const { machinesRouter } = require('./routes/machines');
 const { paymentsRouter } = require('./routes/payments');
+const { billingRouter } = require('./routes/billing');
 const { whatsappRouter } = require('./routes/whatsappWebhook');
 const { createRateLimiter } = require('./middleware/rateLimit');
+const { requireAdminToken } = require('./middleware/adminAuth');
+const { logger } = require('./utils/logger');
 
 function createApp({ redisManager, mqttManager } = {}) {
   const app = express();
@@ -39,10 +42,31 @@ function createApp({ redisManager, mqttManager } = {}) {
     keyPrefix: 'rl:payments'
   });
 
+  const billingWebhookRateLimiter = createRateLimiter({
+    windowMs: Number(process.env.RATE_LIMIT_BILLING_WEBHOOK_WINDOW_MS || 60_000),
+    maxRequests: Number(process.env.RATE_LIMIT_BILLING_WEBHOOK_MAX || 120),
+    keyPrefix: 'rl:billing'
+  });
+
+  const billingAdminRateLimiter = createRateLimiter({
+    windowMs: Number(process.env.RATE_LIMIT_BILLING_ADMIN_WINDOW_MS || 60_000),
+    maxRequests: Number(process.env.RATE_LIMIT_BILLING_ADMIN_MAX || 30),
+    keyPrefix: 'rl:billing-admin'
+  });
+
+  const billingAdminAuth = requireAdminToken({ token: process.env.BILLING_ADMIN_TOKEN, logger });
+
   app.use('/api/health', healthRouter({ redisManager, mqttManager }));
   app.use('/api/machines', machinesRouter());
   app.use('/api/payments/webhooks', paymentsWebhookRateLimiter);
   app.use('/api/payments', paymentsRouter());
+  app.use('/api/billing/webhooks', billingWebhookRateLimiter);
+  // Rate limiter/auth for admin routes is applied inside billingRouter() to
+  // the specific non-webhook routes only - wrapping the whole /api/billing
+  // prefix here would also throttle+auth-gate the webhook sub-path above at
+  // the stricter admin limit, incorrectly 429ing a burst of legitimate
+  // Stripe webhook deliveries.
+  app.use('/api/billing', billingRouter({ adminAuthMiddleware: billingAdminAuth, adminRateLimiter: billingAdminRateLimiter }));
   app.use('/api/whatsapp/webhook', whatsappRateLimiter, whatsappRouter());
 
   app.use((err, req, res, next) => {
