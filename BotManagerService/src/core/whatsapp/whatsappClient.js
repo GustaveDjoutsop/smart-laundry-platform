@@ -272,10 +272,7 @@ class WhatsAppCloudClient {
       return cachedMediaId;
     }
 
-    const imageRes = await this.fetchImpl(sourceUrl);
-    if (!imageRes.ok) {
-      throw new Error(`uploadMedia: failed to download ${sourceUrl} (status=${imageRes.status})`);
-    }
+    const imageRes = await this._downloadWithRetry(sourceUrl);
     const arrayBuffer = await imageRes.arrayBuffer();
     const contentType = (imageRes.headers && imageRes.headers.get && imageRes.headers.get('content-type')) || 'image/jpeg';
 
@@ -379,6 +376,37 @@ class WhatsAppCloudClient {
     };
 
     return this._postWithRetry(messagesUrl, templatePayload);
+  }
+
+  // Wikimedia (and other public image hosts backing carouselTemplate cards)
+  // rate-limit aggressively - a single 429 here used to kill the whole
+  // uploadMedia call and, with it, the entire carousel send. Same
+  // retry/backoff shape as _postWithRetry, applied to the source-image
+  // download instead of the WhatsApp API call.
+  async _downloadWithRetry(sourceUrl) {
+    const maxAttempts = 3;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await this.fetchImpl(sourceUrl);
+      if (res.ok) {
+        return res;
+      }
+
+      const status = res.status;
+      const retryable = status === 429 || (status >= 500 && status <= 599);
+      logger.warn(`uploadMedia: source image download error (status=${status}, retryable=${retryable})`, sourceUrl);
+
+      if (!retryable || attempt === maxAttempts) {
+        throw new Error(`uploadMedia: failed to download ${sourceUrl} (status=${status})`);
+      }
+
+      // Exponential backoff with small base delay
+      // eslint-disable-next-line no-await-in-loop
+      await sleep(250 * 2 ** (attempt - 1));
+    }
+
+    throw new Error(`uploadMedia: failed to download ${sourceUrl}`);
   }
 
   async _postWithRetry(url, payload) {

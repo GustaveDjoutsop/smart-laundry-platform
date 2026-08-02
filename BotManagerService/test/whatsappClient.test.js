@@ -316,6 +316,43 @@ test('WhatsAppCloudClient uploadMedia rejects when the image download fails', as
   await assert.rejects(() => client.uploadMedia({ link: 'https://example.com/missing.jpg' }), /failed to download/);
 });
 
+test('WhatsAppCloudClient uploadMedia retries a rate-limited (429) source image download and succeeds once it recovers', async () => {
+  let downloadAttempts = 0;
+  const fetchImpl = async (url) => {
+    if (!url.includes('/media')) {
+      downloadAttempts += 1;
+      if (downloadAttempts < 3) return { ok: false, status: 429 };
+      return { ok: true, status: 200, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => new ArrayBuffer(4) };
+    }
+    return { ok: true, status: 200, json: async () => ({ id: 'media_after_retry' }) };
+  };
+
+  const client = new WhatsAppCloudClient({ accessToken: 'token', phoneNumberId: '123', fetchImpl });
+  const mediaId = await client.uploadMedia({ link: 'https://upload.wikimedia.org/retry-test.jpg' });
+
+  assert.equal(mediaId, 'media_after_retry');
+  assert.equal(downloadAttempts, 3);
+});
+
+test('WhatsAppCloudClient uploadMedia gives up after exhausting retries on a persistently rate-limited source image', async () => {
+  let downloadAttempts = 0;
+  const fetchImpl = async (url) => {
+    if (!url.includes('/media')) {
+      downloadAttempts += 1;
+      return { ok: false, status: 429 };
+    }
+    return { ok: true, status: 200, json: async () => ({ id: 'unused' }) };
+  };
+
+  const client = new WhatsAppCloudClient({ accessToken: 'token', phoneNumberId: '123', fetchImpl });
+
+  await assert.rejects(
+    () => client.uploadMedia({ link: 'https://upload.wikimedia.org/persistent-429.jpg' }),
+    /failed to download/
+  );
+  assert.equal(downloadAttempts, 3);
+});
+
 test('WhatsAppCloudClient uploadMedia rejects when Meta does not return a media id', async () => {
   const client = new WhatsAppCloudClient({
     accessToken: 'token',
