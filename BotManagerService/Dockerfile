@@ -30,9 +30,14 @@ USER node
 EXPOSE 3000
 
 # Health check - reads $PORT at check time so this stays correct under
-# Railway's dynamically-assigned port, not just the local default of 3000
+# Railway's dynamically-assigned port, not just the local default of 3000.
+# Explicit 'error' handler (e.g. ECONNREFUSED while the server is still
+# starting) so the check always exits deterministically instead of letting
+# an unhandled error event produce noisy output / an unpredictable exit.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:'+(process.env.PORT||3000)+'/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+  CMD node -e "require('http').get('http://localhost:'+(process.env.PORT||3000)+'/api/health', (r) => { r.resume(); process.exit(r.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1))"
 
-# Start the application
-CMD ["npm", "start"]
+# Start the application directly (not via `npm start`) so SIGTERM/SIGINT
+# reach the Node process straight from the container runtime instead of
+# through npm's wrapper process, which does not reliably forward signals.
+CMD ["node", "src/server.js"]
