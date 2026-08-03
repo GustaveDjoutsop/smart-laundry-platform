@@ -20,6 +20,7 @@ function getAppConfig() {
   const serverPort = Number(process.env.PORT || envConfig?.server?.port || 3000);
   const redisUrl = process.env.REDIS_URL || process.env.REDISCLOUD_URL || null;
   const redisTtlSeconds = Number(envConfig?.redis?.ttl_seconds || 1800);
+  const databaseUrl = process.env.DATABASE_URL || null;
 
   const verifySignature = boolFromEnv(process.env.WHATSAPP_VERIFY_SIGNATURE, false);
   const whatsappAppSecret = process.env.WHATSAPP_APP_SECRET || null;
@@ -36,6 +37,9 @@ function getAppConfig() {
     redis: {
       url: redisUrl,
       ttlSeconds: redisTtlSeconds
+    },
+    database: {
+      url: databaseUrl
     },
     whatsapp: {
       verifySignature,

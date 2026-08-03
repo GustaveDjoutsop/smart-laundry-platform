@@ -153,6 +153,20 @@ class RedisManager {
     return (this.fallbackLists.get(key) || []).slice(start, stop === -1 ? undefined : stop + 1);
   }
 
+  async del(key) {
+    if (this.connected && this.client) {
+      try {
+        await this.client.del(key);
+        return;
+      } catch (err) {
+        logger.warn('Redis del failed: using fallback', err && err.message ? err.message : String(err));
+      }
+    }
+
+    this.fallbackCache.delete(key);
+    this.fallbackLists.delete(key);
+  }
+
   async expire(key, ttlSeconds) {
     if (this.connected && this.client) {
       try {

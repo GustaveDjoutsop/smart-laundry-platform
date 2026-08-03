@@ -10,6 +10,8 @@ const { PaymentStatusWorker } = require('./core/payments/paymentStatusWorker');
 const { paymentEvents } = require('./core/payments/paymentEvents');
 const { MqttManager } = require('./core/mqtt/mqttManager');
 const { MachineService } = require('./core/machines/machineService');
+const { RetentionWorker } = require('./core/retention/retentionWorker');
+const { getPool } = require('./core/db/pgClient');
 const { logger } = require('./utils/logger');
 
 async function bootstrap() {
@@ -41,6 +43,13 @@ async function bootstrap() {
   });
 
   await machineService.init();
+
+  if (config.database.url) {
+    const retentionWorker = new RetentionWorker({ pool: getPool() });
+    retentionWorker.start();
+  } else {
+    logger.warn('DATABASE_URL not set: retention worker disabled, invoice/customer-profile stores unavailable');
+  }
 
   queueManager.setProcessor(async (job) => {
     const bot = botRegistry.getBotByPhoneId(job.phoneNumberId);
