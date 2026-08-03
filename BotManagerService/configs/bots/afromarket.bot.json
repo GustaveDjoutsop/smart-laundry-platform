@@ -46,7 +46,7 @@
         {
           "id": "welcome",
           "type": "list",
-          "template": "🌍 Welcome to *{{bot.name}}*! Your one-stop shop for African groceries, delivered across Europe.\n\nWhat can we help you with today?",
+          "template": "🌍 Welcome to *{{bot.name}}*! Your one-stop shop for African groceries, delivered across Germany.\n\nWhat can we help you with today?",
           "buttonText": "View Options",
           "sections": [
             {
