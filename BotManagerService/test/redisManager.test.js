@@ -66,3 +66,26 @@ test('RedisManager.setex passes the real ttlSeconds through untouched to Redis (
   assert.equal(setExCalls.length, 1);
   assert.equal(setExCalls[0].ttl, twentyFiveDaysSeconds);
 });
+
+test('RedisManager.del removes a key from the in-memory fallback', async () => {
+  const manager = new RedisManager();
+  await manager.set('some-key', 'some-value');
+  assert.equal(await manager.get('some-key'), 'some-value');
+
+  await manager.del('some-key');
+
+  assert.equal(await manager.get('some-key'), undefined);
+});
+
+test('RedisManager.del calls the real client when connected', async () => {
+  const delCalls = [];
+  const manager = new RedisManager();
+  manager.connected = true;
+  manager.client = {
+    del: async (key) => delCalls.push(key)
+  };
+
+  await manager.del('some-key');
+
+  assert.deepEqual(delCalls, ['some-key']);
+});
