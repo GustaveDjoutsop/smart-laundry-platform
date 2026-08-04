@@ -20,7 +20,7 @@ that doc**: Meta Business Suite's "Submit request" button for OBA status is
 disabled, with the tooltip "Increase your business limits to become
 eligible for an official Business account." Checked
 WhatsApp Manager → Messaging limits
-(`business.facebook.com/latest/whatsapp_manager/messaging_limits`):
+(<https://business.facebook.com/latest/whatsapp_manager/messaging_limits>):
 production is on the entry tier - **250 business-initiated conversations
 per rolling 24h**. The next tier up (2,000/day) requires **1,000 unique
 customers messaged in a rolling 7-day period; production is currently at
