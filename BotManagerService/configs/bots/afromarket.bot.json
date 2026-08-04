@@ -35,7 +35,7 @@
                 { "id": "shop_online", "title": "🛒 Shop online", "description": "Groceries delivered to you" },
                 { "id": "recipes", "title": "🍲 Get recipe ideas", "description": "Recipes, meal plans & dinner tips" },
                 { "id": "current_promo", "title": "🎉 Current promo", "description": "This week's deal" },
-                { "id": "afro_restaurant", "title": "🍽️ Afro Restaurant", "description": "Restaurants we recommend" },
+                { "id": "afro_restaurant", "title": "🍽️ Afro Restaurant", "description": "Restaurants we recommend", "hideInProd": true },
                 { "id": "afromarket_store", "title": "🏬 AfroMarket Store", "description": "Our physical shop" }
               ]
             }

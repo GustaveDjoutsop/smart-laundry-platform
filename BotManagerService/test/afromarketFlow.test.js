@@ -311,6 +311,28 @@ test('AfroMarket: production hides Partner Stores and shows the Steinheim delive
   }
 });
 
+test('AfroMarket: production hides Afro Restaurant from the main menu, dev keeps it', async () => {
+  // afro_restaurant_list has no native carousel until a new template is
+  // approved (see docs/requirements/afromarket.md v2.2/v2.3) - production
+  // hides the menu entry rather than showing the degraded vertical-card
+  // experience; dev keeps it visible so carousel work can continue.
+  const previousConfigEnv = process.env.CONFIG_ENV;
+  process.env.CONFIG_ENV = 'production';
+  try {
+    const step = createStepper();
+    const { outboundIntents } = await step('hi');
+
+    const rowIds = outboundIntents[0].sections.flatMap((section) => section.rows.map((row) => row.id));
+    assert.deepEqual(rowIds, ['shop_online', 'recipes', 'current_promo', 'afromarket_store']);
+  } finally {
+    if (previousConfigEnv === undefined) {
+      delete process.env.CONFIG_ENV;
+    } else {
+      process.env.CONFIG_ENV = previousConfigEnv;
+    }
+  }
+});
+
 test('AfroMarket: Afro Restaurant lists the real restaurants as cta_url cards, followed by the footer', async () => {
   // afro_restaurant_list has no carouselTemplate (the old one's URL buttons
   // are baked into an already-approved Meta template pointing at the old
