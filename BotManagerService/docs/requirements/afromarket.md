@@ -1,5 +1,30 @@
 # AfroMarket WhatsApp Bot
 
+## v2.3 (2026-08-04): Afro Restaurant hidden on production until it has a real carousel
+
+Per explicit request: **Afro Restaurant is hidden from the main menu on
+production**, staying visible on dev. Reason — since v2.2 removed
+`afro_restaurant_list`'s `carouselTemplate` (see below), it renders as
+vertical `cta_url` cards instead of a native horizontal carousel; production
+shouldn't show the feature degraded like that. It stays enabled on dev so
+work on a new carousel template can continue without a flag flip, and
+re-enabling on production later is a one-line config change (drop
+`hideInProd`) once a new template is submitted/approved.
+
+`hideInProd` previously only worked on `"buttons"`-type state buttons. Extended
+`flowEngine.js` with `filterEnvGatedSections()`, the same idea applied to
+`"list"`-type state rows: a row can carry `"hideInProd": true`, and any
+section left with zero rows after filtering is dropped too (so production
+never shows an empty section header). Applied to the "🍽️ Afro Restaurant" row
+in `main_menu`'s `welcome` state.
+
+Same known limitation as Partner Stores below: hiding the row doesn't gate
+`main_route`'s route map, which still maps `afro_restaurant` →
+`afro_restaurant_list` unconditionally. Unreachable through normal WhatsApp
+interactive replies on production (no button exists to tap), not hardened
+against someone replying with the literal text `afro_restaurant`. Acceptable
+for the same reason as Partner Stores — low-value target, not sensitive data.
+
 ## v2.2 (2026-08-04): real restaurants, and dev/prod content now diverge
 
 **Afro Restaurant** (`afro_restaurant_list`) replaced its 3 Berlin placeholder

@@ -27,12 +27,25 @@ function isProductionEnv() {
 
 // Buttons can carry `"hideInProd": true` to only render outside production -
 // filtered here rather than left for the WhatsApp client, which ignores
-// unknown fields and would otherwise send them straight through. Not
-// currently wired up for list rows/sections - only buttons-state buttons.
+// unknown fields and would otherwise send them straight through.
 function filterEnvGatedButtons(buttons) {
   if (!Array.isArray(buttons)) return buttons;
   if (!isProductionEnv()) return buttons;
   return buttons.filter((button) => !(button && button.hideInProd));
+}
+
+// Same idea as filterEnvGatedButtons, but for 'list' state rows: a row can
+// carry "hideInProd": true, and a section left with no rows after filtering
+// is dropped too so production never shows an empty section header.
+function filterEnvGatedSections(sections) {
+  if (!Array.isArray(sections)) return sections;
+  if (!isProductionEnv()) return sections;
+  return sections
+    .map((section) => {
+      if (!section || !Array.isArray(section.rows)) return section;
+      return { ...section, rows: section.rows.filter((row) => !(row && row.hideInProd)) };
+    })
+    .filter((section) => !section || !Array.isArray(section.rows) || section.rows.length > 0);
 }
 
 function sleep(ms) {
@@ -528,6 +541,8 @@ class FlowEngine {
             const fromContextSections = flowContext.get(stateDefinition.sectionsFromContext);
             sections = Array.isArray(fromContextSections) ? fromContextSections : [];
           }
+
+          sections = filterEnvGatedSections(sections);
 
           const outboundIntent = {
             type: 'list',
