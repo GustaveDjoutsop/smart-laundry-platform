@@ -1,5 +1,35 @@
 # AfroMarket WhatsApp Bot
 
+## v2.5 (2026-08-04): Official Business Account (blue checkmark) investigated - not attainable yet, blocked by message volume, not config
+
+Looked into getting production's WhatsApp number "prod certified" (the blue
+checkmark / Official Business Account status). Findings:
+
+**The five documented OBA eligibility criteria** (Meta's own docs,
+[Official Business Accounts](https://developers.facebook.com/documentation/business-messaging/whatsapp/official-business-accounts/)):
+messaging-policy compliance, ≥30 days on the platform, Business Verification,
+2-step verification enabled, display name approved. Of these, **Business
+Verification was already done, and v2.4's work (above) incidentally
+satisfied two more** - 2-step verification is now enabled (we set the PIN)
+and the display name is approved ("K-AfroMarket", `code_verification_status:
+VERIFIED`). Account age and policy compliance were not independently
+checked but have no reason to be blockers.
+
+**The actual, currently-binding blocker is different and not listed in
+that doc**: Meta Business Suite's "Submit request" button for OBA status is
+disabled, with the tooltip "Increase your business limits to become
+eligible for an official Business account." Checked
+WhatsApp Manager → Messaging limits
+(`business.facebook.com/latest/whatsapp_manager/messaging_limits`):
+production is on the entry tier - **250 business-initiated conversations
+per rolling 24h**. The next tier up (2,000/day) requires **1,000 unique
+customers messaged in a rolling 7-day period; production is currently at
+3**. OBA almost certainly needs a tier beyond even that first jump.
+
+**This is a business-growth gate, not a technical one** - no API call,
+config change, or script fixes it. Revisit once real weekly customer volume
+is meaningfully higher; nothing to build here for now.
+
 ## v2.4 (2026-08-04): WhatsApp profile photo + display name fixed via Cloud API (Meta Business Suite web uploader is broken)
 
 Production's WhatsApp profile still showed placeholder branding — a generic
