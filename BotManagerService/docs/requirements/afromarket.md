@@ -42,8 +42,8 @@ handle), then `POST /{phone-number-id}/whatsapp_business_profile` with
 `profile_picture_handle`. Takes effect immediately, no review.
 
 *Display name* — no reusable script yet (one-off, done by hand); the
-sequence, per Meta's docs (`developers.facebook.com/documentation/business-
-messaging/whatsapp/display-names`):
+sequence, per Meta's docs
+(<https://developers.facebook.com/documentation/business-messaging/whatsapp/display-names>):
 1. `POST /{phone-number-id}?new_display_name=<name>` — submits the change.
    `new_name_status` came back `AVAILABLE_WITHOUT_REVIEW` for this number
    (no manual Meta review needed), but the new name is **not** live yet.

@@ -25,10 +25,15 @@ async function discoverAppId(token) {
   return body.data.app_id;
 }
 
+const MIME_TYPES_BY_EXTENSION = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg' };
+
 async function uploadImage(token, appId, filePath) {
   const buf = fs.readFileSync(filePath);
   const ext = path.extname(filePath).toLowerCase();
-  const fileType = ext === '.png' ? 'image/png' : 'image/jpeg';
+  const fileType = MIME_TYPES_BY_EXTENSION[ext];
+  if (!fileType) {
+    throw new Error(`unsupported image extension "${ext}" - use .png, .jpg, or .jpeg`);
+  }
 
   const startRes = await fetch(
     `https://graph.facebook.com/v20.0/${appId}/uploads?file_length=${buf.length}&file_type=${fileType}&access_token=${encodeURIComponent(token)}`,
@@ -78,6 +83,9 @@ async function main() {
   const body = await res.json();
   console.log('status:', res.status);
   console.log(JSON.stringify(body, null, 2));
+  if (!res.ok) {
+    throw new Error(`whatsapp_business_profile update failed: ${JSON.stringify(body)}`);
+  }
 }
 
 main().catch((err) => {
