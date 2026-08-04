@@ -162,6 +162,53 @@ test('FlowEngine image state chaining into a buttons state resolves buttonsFromC
   assert.deepEqual(sent[0].buttons, [{ id: 'a', title: 'A' }, { id: 'b', title: 'B' }]);
 });
 
+test('FlowEngine image state chaining into a buttons state also filters hideInProd buttons in production', async () => {
+  const botConfig = {
+    botId: 't',
+    botName: 'TestBot',
+    defaultFlowId: 'main_menu',
+    flows: {
+      main_menu: {
+        states: [
+          { id: 'pic', type: 'image', link: 'https://example.com/dish.jpg', caption: 'Dish', next: 'follow_up' },
+          {
+            id: 'follow_up',
+            type: 'buttons',
+            template: 'What next?',
+            buttons: [
+              { id: 'a', title: 'A' },
+              { id: 'b', title: 'B', hideInProd: true }
+            ]
+          }
+        ]
+      }
+    }
+  };
+
+  const engine = new FlowEngine({ botConfig });
+  const sent = [];
+
+  const previousConfigEnv = process.env.CONFIG_ENV;
+  process.env.CONFIG_ENV = 'production';
+  try {
+    await engine.step({
+      from: '237670000000',
+      message: { text: { body: 'hi' } },
+      state: { currentFlowId: null, currentStateId: null, context: {} },
+      send: async (intent) => sent.push(intent)
+    });
+  } finally {
+    if (previousConfigEnv === undefined) {
+      delete process.env.CONFIG_ENV;
+    } else {
+      process.env.CONFIG_ENV = previousConfigEnv;
+    }
+  }
+
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].buttons, [{ id: 'a', title: 'A' }]);
+});
+
 test('FlowEngine image state without a next buttons state still sends a standalone image message', async () => {
   const botConfig = {
     botId: 't',

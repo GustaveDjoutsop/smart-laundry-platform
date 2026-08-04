@@ -1,5 +1,64 @@
 # AfroMarket WhatsApp Bot
 
+## v2.2 (2026-08-04): real restaurants, and dev/prod content now diverge
+
+**Afro Restaurant** (`afro_restaurant_list`) replaced its 3 Berlin placeholder
+restaurants with 4 real ones AfroMarket actually recommends, sourced across
+Germany (not just Berlin — matches where AfroMarket delivers): akan afrofusion
+(West African fusion, Hamburg HafenCity), La Villageoise (Cameroonian,
+Frankfurt), Kilimanjaro II (Eritrean/East African, Karlsruhe), Ebony (African,
+Stuttgart, since 1987). Addresses/phones/hours sourced from each restaurant's
+own website.
+
+**The `carouselTemplate` block was removed from `afro_restaurant_list`**,
+not just its content swapped. The previous `afromarket_restaurants_v1`
+template was in fact approved and live (see `docs/testing/afromarket-live-test-2026-07-27.md`),
+but that doesn't help here: its `URL`-type button targets are **baked into
+the approved template at Meta's end, not sent dynamically per-message**
+(`WhatsAppCloudClient.sendCarouselTemplate` sends zero `parameters` for a
+static URL button — confirmed by reading the send code, not assumed). Editing
+only the JSON's `cards[].url` would have shipped a carousel showing the new
+restaurants' photos next to "Visit Website" buttons still pointing at the old
+placeholder restaurants' sites. The vertical `items[]` cta_url fallback (real
+today, no Meta approval needed) is what customers actually see now in both
+environments. A fresh carousel template (new name, e.g.
+`afromarket_restaurants_v2`, new card images/URLs) would need to be submitted
+and approved before native horizontal scrolling comes back for this state —
+not done as part of this change; `scripts/submitCarouselTemplate.js` is ready
+to use whenever that's worth doing.
+
+**Partner Stores and the AfroMarket Store address now differ between `dev`
+and `production`**, since real partner stores and a physical location don't
+exist yet. Two additions to `flowEngine.js`, both keyed off `CONFIG_ENV`
+(already set per Railway environment — see `appConfig.js` — so this needed no
+new environment variables):
+- Any button in a `"buttons"`-type state can carry `"hideInProd": true` to
+  render everywhere except `CONFIG_ENV=production`. Applied to the "🏪
+  Partner Stores" button in `afromarket_store_info` — `partner_stores_list`
+  (3 placeholder stores) is unreachable via the UI on production, unchanged
+  on dev.
+- Every `renderTemplate()` context now includes `env.isProduction`, usable in
+  any `template`/`body`/`caption` string via Mustache sections
+  (`{{#env.isProduction}}...{{/env.isProduction}}` /
+  `{{^env.isProduction}}...{{/env.isProduction}}`). Applied to
+  `afromarket_store_info`'s template: production shows "we're based in 89555
+  Steinheim, Germany and deliver across all of Germany — no walk-in store
+  yet"; dev keeps the original Berlin placeholder shop address/hours
+  unchanged.
+
+Both mechanisms are generic (any button, any template string), not
+restaurant/store-specific, so future environment-gated content doesn't need
+new plumbing.
+
+**Known limitation**: `hideInProd` only removes the button from what gets
+rendered — it doesn't gate `store_route`'s route map, which still maps
+`partner_stores` → `partner_stores_list` unconditionally. A production
+customer only reaches `partner_stores_list` by tapping a button that no
+longer exists, so this is unreachable through normal WhatsApp interactive
+replies; it's not hardened against someone deliberately replying with the
+literal text `partner_stores`. Acceptable for a placeholder feature; revisit
+if this pattern gets reused for something more sensitive.
+
 ## v2.1 (2026-08-04): real catalog replaces the 15-product placeholder
 
 The placeholder catalog described throughout this doc (15 products across
@@ -20,9 +79,9 @@ The **4 Meta-approved carousel templates** documented below
 left approved on Meta's side but no longer referenced by any flow state.
 The carousel *mechanism* itself (`flowEngine.js`'s `carouselTemplate` cards
 state, `WhatsAppCloudClient.sendCarouselTemplate`) is untouched and still
-used by `afro_restaurant_list` and `partner_stores_list`, and could be
-reused for recipes again if the catalog grows enough to justify regional
-browsing. The sections below (conversation map, recipe carousel mechanics,
+used by `partner_stores_list` (`afro_restaurant_list` dropped it in v2.2 —
+see top of doc), and could be reused for recipes again if the catalog grows
+enough to justify regional browsing. The sections below (conversation map, recipe carousel mechanics,
 15-product counts) describe the **pre-v2.1 state** and are kept for their
 still-accurate technical detail on how the carousel/cards mechanism works,
 not as a description of the current catalog.
@@ -84,11 +143,19 @@ hi/menu → Main menu (list, Jasper-style wording)
   │     ├─ Tonight's Dinner (3 quick recipes, unchanged from v1)
   │     └─ Shopping Tips → can jump straight into Shop online
   ├─ 🎉 Current promo → weekly deal + shop/recipe shortcuts
-  ├─ 🍽️ Afro Restaurant → 3 real restaurants as photo cards, each with a genuine "Visit Website" button
+  ├─ 🍽️ Afro Restaurant → 4 real restaurants as photo cards, each with a genuine "Visit Website" button
   └─ 🏬 AfroMarket Store → address, phone, opening hours (info only)
 ```
 
 ## Afro Restaurant: real restaurants with working website links
+
+**Superseded by v2.2 (see top of doc)**: the 3 Berlin restaurants and the
+`afromarket_restaurants_v1` carousel template named below are no longer what
+`afro_restaurant_list` sends (the template itself is still approved and live
+on Meta's side — it's just unreferenced by any flow state now) — kept here
+for the still-accurate technical story (the `cta_url` discovery, why a
+carousel template's URL buttons can't be swapped per-message). Current
+restaurants/mechanism are in v2.2 above.
 
 Initially built as a directory (list → pick one → address/phone/hours detail
 screen) with fictional placeholder restaurants. Replaced 2026-07-20 with real,
