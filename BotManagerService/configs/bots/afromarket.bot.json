@@ -472,33 +472,30 @@
         {
           "id": "afro_restaurant_list",
           "type": "cards",
-          "intro": "🍽️ *Afro Restaurants*\n\nReal African restaurants we recommend around Berlin — tap Visit Website for their menu, hours and reservations:",
-          "carouselTemplate": {
-            "templateName": "afromarket_restaurants_v1",
-            "languageCode": "en_US",
-            "cards": [
-              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/8/8e/Domoda.jpg", "buttonType": "url", "url": "https://bantabaafooddealer.eu/" },
-              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/4/44/Original_Nigerian_Egusi_soup_and_yellow_garri_%28Eba%29.jpg", "buttonType": "url", "url": "https://www.yajee.de/" },
-              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/8/81/Ghanaian_Wache_%28Waakye%29_cuisine_food.jpg", "buttonType": "url", "url": "https://www.afropotberlin.de/en" }
-            ]
-          },
+          "intro": "🍽️ *Afro Restaurants*\n\nReal African restaurants we recommend around Germany — tap Visit Website for their menu, hours and reservations:",
           "items": [
             {
-              "image": "https://upload.wikimedia.org/wikipedia/commons/8/8e/Domoda.jpg",
-              "caption": "*Bantabaa* — Gambian\n📍 Wrangelstraße 82, 10997 Berlin (Kreuzberg)\n📞 +49 152 14657388\n🕐 Mon–Thu 12:00–22:00, Fri–Sun 12:00–22:30",
-              "buttonUrl": "https://bantabaafooddealer.eu/",
+              "image": "https://upload.wikimedia.org/wikipedia/commons/8/84/Ghanaian_Jollof_Rice.jpg",
+              "caption": "*akan afrofusion* — West African Fusion\n📍 Lucy-Borchardt-Straße 8A, 20457 Hamburg (HafenCity)\n📞 040 28058369\n🕐 Wed–Thu 18:00–22:00, Fri–Sat 17:00–23:00, Sun 17:00–22:00 (closed Mon–Tue)",
+              "buttonUrl": "https://afrofusion-restaurant.com/",
               "buttonTitle": "🌐 Visit Website"
             },
             {
-              "image": "https://upload.wikimedia.org/wikipedia/commons/4/44/Original_Nigerian_Egusi_soup_and_yellow_garri_%28Eba%29.jpg",
-              "caption": "*Yajee* — Nigerian & Caribbean\n📍 Lietzenburger Str. 20b, 10789 Berlin (Charlottenburg)\n📞 +49 30 695 66 666\n🕐 Tue–Sat 15:00–22:00, Sun 16:00–22:00 (closed Mon)",
-              "buttonUrl": "https://www.yajee.de/",
+              "image": "https://upload.wikimedia.org/wikipedia/commons/e/e9/Ndol%C3%A9_camerounais.JPG",
+              "caption": "*La Villageoise* — Cameroonian\n📍 Hahnstraße 75, 60528 Frankfurt am Main\n📞 +49 176 20902080\n🕐 Tue–Thu 18:00–22:00, Fri 17:00–22:00, Sat 14:00–23:00, Sun 14:00–22:00 (closed Mon)",
+              "buttonUrl": "https://lavillageoise.de/",
               "buttonTitle": "🌐 Visit Website"
             },
             {
-              "image": "https://upload.wikimedia.org/wikipedia/commons/8/81/Ghanaian_Wache_%28Waakye%29_cuisine_food.jpg",
-              "caption": "*Afropot Berlin* — Ghanaian\n📍 Alte Potsdamer Str. 7, 10785 Berlin (Manifesto Market, Potsdamer Platz)\n📞 +49 1516 7700776\n🕐 Daily 11:00–20:00",
-              "buttonUrl": "https://www.afropotberlin.de/en",
+              "image": "https://upload.wikimedia.org/wikipedia/commons/5/58/Eritrean_Injera_with_stews.jpg",
+              "caption": "*Kilimanjaro II* — Eritrean & East African\n📍 Vorholzstraße 13, 76137 Karlsruhe\n🌐 See website for hours & contact",
+              "buttonUrl": "https://www.kilimanjaroii.de/",
+              "buttonTitle": "🌐 Visit Website"
+            },
+            {
+              "image": "https://upload.wikimedia.org/wikipedia/commons/e/e8/African_Chicken_Peanut_Stew_%2837673757141%29.jpg",
+              "caption": "*Ebony* — African, since 1987\n📍 Herzogstraße 11, 70176 Stuttgart\n📞 0711 62 58 34\n🕐 Tue–Thu 17:00–23:00, Fri–Sat 15:00–23:00 (closed Sun–Mon)",
+              "buttonUrl": "https://www.ebony-stuttgart.de/",
               "buttonTitle": "🌐 Visit Website"
             }
           ],
@@ -512,10 +509,10 @@
         {
           "id": "afromarket_store_info",
           "type": "buttons",
-          "template": "🏬 *AfroMarket Store*\n\nOur physical grocery store — browse the freshest African produce & pantry staples in person.\n\n📍 Address: 12 Gewürzstraße, 10999 Berlin, Germany\n📞 Phone: +49 30 1234 5678\n🕐 Opening Hours:\nMon–Sat: 09:00–20:00\nSun: 10:00–18:00\n\nCan't visit? Shop online right here on WhatsApp!",
+          "template": "🏬 *AfroMarket Store*\n\n{{#env.isProduction}}We're based in *89555 Steinheim, Germany* and deliver *across all of Germany* — no walk-in store yet, but everything's available right here on WhatsApp!{{/env.isProduction}}{{^env.isProduction}}Our physical grocery store — browse the freshest African produce & pantry staples in person.\n\n📍 Address: 12 Gewürzstraße, 10999 Berlin, Germany\n📞 Phone: +49 30 1234 5678\n🕐 Opening Hours:\nMon–Sat: 09:00–20:00\nSun: 10:00–18:00\n\nCan't visit? Shop online right here on WhatsApp!{{/env.isProduction}}",
           "buttons": [
             { "id": "shop_online", "title": "🛒 Shop online" },
-            { "id": "partner_stores", "title": "🏪 Partner Stores" },
+            { "id": "partner_stores", "title": "🏪 Partner Stores", "hideInProd": true },
             { "id": "menu", "title": "🏠 Main menu" }
           ],
           "saveAs": "storeFollowChoice",

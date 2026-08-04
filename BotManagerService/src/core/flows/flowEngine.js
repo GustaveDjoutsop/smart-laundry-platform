@@ -17,6 +17,24 @@ function getCarouselFooterDelayMs() {
   return Number(process.env.CAROUSEL_FOOTER_DELAY_MS || 2500);
 }
 
+// CONFIG_ENV is already set per Railway environment (see appConfig.js) -
+// reused here so flow content/buttons can differ between dev and production
+// (e.g. hiding not-yet-real partner listings on prod) without any new
+// environment variable.
+function isProductionEnv() {
+  return String(process.env.CONFIG_ENV || process.env.NODE_ENV || 'dev').toLowerCase() === 'production';
+}
+
+// Buttons can carry `"hideInProd": true` to only render outside production -
+// filtered here rather than left for the WhatsApp client, which ignores
+// unknown fields and would otherwise send them straight through. Not
+// currently wired up for list rows/sections - only buttons-state buttons.
+function filterEnvGatedButtons(buttons) {
+  if (!Array.isArray(buttons)) return buttons;
+  if (!isProductionEnv()) return buttons;
+  return buttons.filter((button) => !(button && button.hideInProd));
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -240,6 +258,19 @@ class FlowEngine {
     return flow.states[0].id;
   }
 
+  // Shared template context for every renderTemplate() call - `env.isProduction`
+  // lets a template branch on environment via Mustache sections
+  // (`{{#env.isProduction}}...{{/env.isProduction}}` for production-only text,
+  // `{{^env.isProduction}}...{{/env.isProduction}}` for everywhere else)
+  // without any new per-environment config.
+  buildTemplateContext(from) {
+    return {
+      user: { phone: from },
+      bot: { name: this.botConfig.botName },
+      env: { isProduction: isProductionEnv() }
+    };
+  }
+
   async step({ from, message, state, send }) {
     const inboundMessage = normalizeInbound(message);
     const conversationState = state || { currentFlowId: null, currentStateId: null, context: {} };
@@ -308,8 +339,7 @@ class FlowEngine {
       if (stateDefinition.type === 'message') {
         const body = renderTemplate(stateDefinition.template || '', {
           ...flowContext.context,
-          user: { phone: from },
-          bot: { name: this.botConfig.botName }
+          ...this.buildTemplateContext(from)
         });
 
         const outboundIntent = { type: 'text', to: from, body };
@@ -343,8 +373,7 @@ class FlowEngine {
 
         const templateContext = {
           ...flowContext.context,
-          user: { phone: from },
-          bot: { name: this.botConfig.botName }
+          ...this.buildTemplateContext(from)
         };
         const link = renderTemplate(stateDefinition.link || '', templateContext);
         const caption = renderTemplate(stateDefinition.caption || '', templateContext);
@@ -374,8 +403,7 @@ class FlowEngine {
 
           const menuTemplateContext = {
             ...flowContext.context,
-            user: { phone: from },
-            bot: { name: this.botConfig.botName }
+            ...this.buildTemplateContext(from)
           };
           const menuBody = renderTemplate(nextStateDefinition.template || nextStateDefinition.body || '', menuTemplateContext);
           const combinedBody = [caption, menuBody].filter((part) => part && part.trim()).join('\n\n');
@@ -390,6 +418,7 @@ class FlowEngine {
             const fromContextButtons = flowContext.get(nextStateDefinition.buttonsFromContext);
             buttons = Array.isArray(fromContextButtons) ? fromContextButtons : [];
           }
+          buttons = filterEnvGatedButtons(buttons);
 
           const outboundIntent = { type: 'buttons', to: from, body: combinedBody, buttons, image: link };
           outboundIntents.push(outboundIntent);
@@ -436,8 +465,7 @@ class FlowEngine {
         if (inboundMessage.type !== 'text' || hasConsumedInboundText) {
           const body = renderTemplate(stateDefinition.template || stateDefinition.body || '', {
             ...flowContext.context,
-            user: { phone: from },
-            bot: { name: this.botConfig.botName }
+            ...this.buildTemplateContext(from)
           });
 
           let buttons = [];
@@ -447,6 +475,7 @@ class FlowEngine {
             const fromContextButtons = flowContext.get(stateDefinition.buttonsFromContext);
             buttons = Array.isArray(fromContextButtons) ? fromContextButtons : [];
           }
+          buttons = filterEnvGatedButtons(buttons);
 
           const outboundIntent = { type: 'buttons', to: from, body, buttons };
           outboundIntents.push(outboundIntent);
@@ -483,8 +512,7 @@ class FlowEngine {
         if (inboundMessage.type !== 'text' || hasConsumedInboundText) {
           const body = renderTemplate(stateDefinition.template || stateDefinition.body || '', {
             ...flowContext.context,
-            user: { phone: from },
-            bot: { name: this.botConfig.botName }
+            ...this.buildTemplateContext(from)
           });
 
           const buttonText =
@@ -545,8 +573,7 @@ class FlowEngine {
         if (inboundMessage.type !== 'text' || hasConsumedInboundText) {
           const templateContext = {
             ...flowContext.context,
-            user: { phone: from },
-            bot: { name: this.botConfig.botName }
+            ...this.buildTemplateContext(from)
           };
 
           // A single 'cards' render fans out into several independent WhatsApp
@@ -690,7 +717,10 @@ class FlowEngine {
 
       if (stateDefinition.type === 'input') {
         if (inboundMessage.type !== 'text' || hasConsumedInboundText) {
-          const body = renderTemplate(stateDefinition.prompt || 'Please enter a value.', flowContext.context);
+          const body = renderTemplate(stateDefinition.prompt || 'Please enter a value.', {
+            ...flowContext.context,
+            ...this.buildTemplateContext(from)
+          });
           const outboundIntent = { type: 'text', to: from, body };
           outboundIntents.push(outboundIntent);
           if (typeof send === 'function') await send(outboundIntent);

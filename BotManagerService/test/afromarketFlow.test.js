@@ -283,79 +283,72 @@ test('AfroMarket: current promo, restaurant info and store info are reachable an
   assert.match(result.outboundIntents[0].body, /Opening Hours/);
 });
 
-test('AfroMarket: Afro Restaurant fires its real approved carousel template, with URL buttons and footer after it', async () => {
+test('AfroMarket: production hides Partner Stores and shows the Steinheim delivery-only message', async () => {
+  // No physical store or real partner stores exist yet - dev keeps the
+  // placeholder Berlin store + partner carousel unchanged (CONFIG_ENV
+  // defaults to 'dev' outside Railway), production shows the real
+  // delivery-only positioning instead.
+  const previousConfigEnv = process.env.CONFIG_ENV;
+  process.env.CONFIG_ENV = 'production';
+  try {
+    const step = createStepper();
+    await step('hi');
+    const result = await step('afromarket_store');
+
+    assert.match(result.outboundIntents[0].body, /89555 Steinheim/);
+    assert.match(result.outboundIntents[0].body, /deliver.*across all of Germany/i);
+    assert.doesNotMatch(result.outboundIntents[0].body, /Gewürzstraße/);
+    assert.deepEqual(
+      result.outboundIntents[0].buttons.map((b) => b.id),
+      ['shop_online', 'menu']
+    );
+  } finally {
+    if (previousConfigEnv === undefined) {
+      delete process.env.CONFIG_ENV;
+    } else {
+      process.env.CONFIG_ENV = previousConfigEnv;
+    }
+  }
+});
+
+test('AfroMarket: Afro Restaurant lists the real restaurants as cta_url cards, followed by the footer', async () => {
+  // afro_restaurant_list has no carouselTemplate (the old one's URL buttons
+  // are baked into an already-approved Meta template pointing at the old
+  // placeholder restaurants' sites - swapping in real restaurants here
+  // needs a fresh template submission/approval, tracked separately). Until
+  // then this vertical cta_url rendering is the real, working experience.
   const step = createStepper();
 
   await step('hi');
   const result = await step('afro_restaurant');
 
-  assert.equal(result.outboundIntents.length, 2);
-  const carousel = result.outboundIntents[0];
-  assert.equal(carousel.type, 'template_carousel');
-  assert.equal(carousel.templateName, 'afromarket_restaurants_v1');
-  assert.equal(carousel.cards.length, 3);
-  for (const card of carousel.cards) {
-    assert.equal(card.buttonType, 'url');
-    assert.match(card.imageLink, /^https:\/\//);
-    assert.match(card.url, /^https:\/\//);
-  }
-  assert.equal(carousel.cards[0].url, 'https://bantabaafooddealer.eu/');
-  assert.equal(carousel.cards[1].url, 'https://www.yajee.de/');
-  assert.equal(carousel.cards[2].url, 'https://www.afropotberlin.de/en');
-
-  // "More options:" must always come after the carousel, never before it.
-  const footer = result.outboundIntents[1];
-  assert.equal(footer.type, 'buttons');
-  assert.deepEqual(footer.buttons.map((b) => b.id), ['menu']);
-
-  const afterTap = await step('menu');
-  assert.equal(afterTap.outboundIntents[0].type, 'list');
-  assert.match(afterTap.outboundIntents[0].body, /Welcome to \*AfroMarket\*/);
-});
-
-test('AfroMarket: Afro Restaurant falls back to cta_url cards (still followed by the footer) if the template send fails', async () => {
-  const flowEngine = new FlowEngine({ botConfig, plugin: new AfroMarketFlowPlugin({ botConfig }) });
-  let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
-  const step = async (text) => {
-    const outboundIntents = [];
-    ({ state: conversationState } = await flowEngine.step({
-      from: '+33600000000',
-      message: { text: { body: text } },
-      state: conversationState,
-      send: async (outboundIntent) => {
-        if (outboundIntent.type === 'template_carousel') {
-          throw new Error('simulated WhatsApp template send failure');
-        }
-        outboundIntents.push(outboundIntent);
-      }
-    }));
-    return { outboundIntents, conversationState };
-  };
-
-  await step('hi');
-  const result = await step('afro_restaurant');
-
-  assert.equal(result.outboundIntents.length, 5);
+  assert.equal(result.outboundIntents.length, 6);
   assert.equal(result.outboundIntents[0].type, 'text');
   assert.match(result.outboundIntents[0].body, /Afro Restaurants/);
 
-  const cards = result.outboundIntents.slice(1, 4);
+  const cards = result.outboundIntents.slice(1, 5);
   for (const card of cards) {
     assert.equal(card.type, 'cta_url');
     assert.ok(card.image, `${card.body} card is missing its image`);
     assert.match(card.url, /^https:\/\//);
     assert.match(card.buttonText, /Visit Website/);
   }
-  assert.match(cards[0].body, /Bantabaa/);
-  assert.equal(cards[0].url, 'https://bantabaafooddealer.eu/');
-  assert.match(cards[1].body, /Yajee/);
-  assert.equal(cards[1].url, 'https://www.yajee.de/');
-  assert.match(cards[2].body, /Afropot Berlin/);
-  assert.equal(cards[2].url, 'https://www.afropotberlin.de/en');
+  assert.match(cards[0].body, /akan afrofusion/);
+  assert.equal(cards[0].url, 'https://afrofusion-restaurant.com/');
+  assert.match(cards[1].body, /La Villageoise/);
+  assert.equal(cards[1].url, 'https://lavillageoise.de/');
+  assert.match(cards[2].body, /Kilimanjaro II/);
+  assert.equal(cards[2].url, 'https://www.kilimanjaroii.de/');
+  assert.match(cards[3].body, /Ebony/);
+  assert.equal(cards[3].url, 'https://www.ebony-stuttgart.de/');
 
-  const footer = result.outboundIntents[4];
+  const footer = result.outboundIntents[5];
   assert.equal(footer.type, 'buttons');
   assert.deepEqual(footer.buttons.map((b) => b.id), ['menu']);
+
+  const afterTap = await step('menu');
+  assert.equal(afterTap.outboundIntents[0].type, 'list');
+  assert.match(afterTap.outboundIntents[0].body, /Welcome to \*AfroMarket\*/);
 });
 
 test('AfroMarket: Store screen offers Partner Stores, which fires its real approved carousel template with quick-reply buttons', async () => {
