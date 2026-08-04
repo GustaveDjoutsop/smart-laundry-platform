@@ -226,7 +226,7 @@ class AfroMarketFlowPlugin extends FlowPlugin {
     }
 
     if (choice === 'more_recipes') {
-      ctx.goto('region_menu');
+      ctx.goto('recipes_hub');
       return true;
     }
 

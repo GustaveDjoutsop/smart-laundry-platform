@@ -43,8 +43,8 @@ function createStepper() {
 async function driveToCheckoutReview(step) {
   await step('hi');
   await step('shop_online');
-  await step('cat_grains');
-  await step('product_rice_1kg');
+  await step('cat_beans_nuts');
+  await step('product_haricot_rouge_1kg');
   await step('cart_add');
   await step('view_cart');
   await step('start_checkout');
@@ -94,10 +94,10 @@ test('AfroMarket checkout: a failed Stripe initiation never confirms the order a
   // Routed back to checkout_review, not order_confirmed - the cart survives the failure.
   assert.equal(result.outboundIntents[1].type, 'buttons');
   assert.match(result.outboundIntents[1].body, /confirm your order/i);
-  assert.match(result.outboundIntents[1].body, /Long-Grain Rice 1kg/);
+  assert.match(result.outboundIntents[1].body, /Haricot Rouge – Meringué 1kg/);
 
   assert.equal(result.conversationState.context.cart.length, 1);
-  assert.equal(result.conversationState.context.cart[0].productId, 'rice_1kg');
+  assert.equal(result.conversationState.context.cart[0].productId, 'haricot_rouge_1kg');
 });
 
 test('AfroMarket checkout: a network-level throw from initiatePayment is treated the same as an API error response', async () => {
@@ -125,8 +125,8 @@ test('AfroMarket checkout: omitting the optional email is asked for specifically
   const step = createStepper();
   await step('hi');
   await step('shop_online');
-  await step('cat_grains');
-  await step('product_rice_1kg');
+  await step('cat_beans_nuts');
+  await step('product_haricot_rouge_1kg');
   await step('cart_add');
   await step('view_cart');
   await step('start_checkout');
