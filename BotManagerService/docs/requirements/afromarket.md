@@ -1,5 +1,78 @@
 # AfroMarket WhatsApp Bot
 
+## v2.4 (2026-08-04): WhatsApp profile photo + display name fixed via Cloud API (Meta Business Suite web uploader is broken)
+
+Production's WhatsApp profile still showed placeholder branding — a generic
+purple "B" avatar and the display name "BoT Management Service" instead of
+"K-AfroMarket". Both are now fixed on the real production number
+(+49 1590 5495011, phone_number_id `1214372845096561`):
+- Profile picture → the `prod.png` "K" market-stall icon from
+  `AfroMarketResources/Logo AfroMarket/`, cropped to a clean square and
+  reprocessed as `afromarket-whatsapp-profile.jpg`.
+- Display name (`verified_name`) → "K-AfroMarket".
+
+**Root cause of why this needed a workaround**: Meta Business Suite's own
+web uploader (Settings → WhatsApp Accounts → phone number → Profil →
+"Datei auswählen") throws a client-side JS crash on every upload attempt:
+```
+ErrorUtils caught an error: n.toError is not a function
+  at https://static.xx.fbcdn.net/rsrc.php/v4/yp/r/LkURvs5OdWQ.js:79:566
+```
+Confirmed reproducible regardless of file (tried a 640×640 PNG, a 512×512
+JPEG, and a trivial 200×200 solid-color JPEG — identical crash every time),
+browser state (hard refresh, incognito with extensions disabled), account
+permissions (confirmed Full access), and UI locale (German vs English).
+The browser network log shows no upload request is ever sent — the crash
+happens in Meta's own JS before the request is built, so this is a bug in
+their client code, not anything on our end. Filed with Meta Business
+Support with the exact error signature; no fix from their side as of this
+writing.
+
+**Workaround: use the WhatsApp Cloud API directly**, bypassing the broken
+web widget entirely.
+
+*Profile photo* — new reusable script, `scripts/setWhatsAppProfilePhoto.js`:
+```
+node scripts/setWhatsAppProfilePhoto.js <phone-number-id> <image-path>
+```
+Discovers the app_id from the access token via `/debug_token` (no guessing
+required), does the standard resumable-upload dance
+(`POST /{app_id}/uploads` → `POST /{upload_id}` with the file bytes →
+handle), then `POST /{phone-number-id}/whatsapp_business_profile` with
+`profile_picture_handle`. Takes effect immediately, no review.
+
+*Display name* — no reusable script yet (one-off, done by hand); the
+sequence, per Meta's docs (`developers.facebook.com/documentation/business-
+messaging/whatsapp/display-names`):
+1. `POST /{phone-number-id}?new_display_name=<name>` — submits the change.
+   `new_name_status` came back `AVAILABLE_WITHOUT_REVIEW` for this number
+   (no manual Meta review needed), but the new name is **not** live yet.
+2. Finalizing requires `POST /{phone-number-id}/register` with a `pin`
+   field — the number's 2-step-verification PIN, which is mandatory
+   (confirmed by calling `/register` without it: `(#100) The parameter pin
+   is required.`). Nobody remembered the existing PIN, so it was reset
+   first via `POST /{phone-number-id}` with `{"pin": "<new 6-digit PIN>"}`
+   (works via API without needing the old PIN, given Full-access
+   permission) - **PIN must be a plain 6-digit string, no separators**
+   (`123456`, not `123-456` - the first attempt failed on exactly this).
+3. Re-ran `/register` with the new PIN → `verified_name` flipped to
+   "K-AfroMarket" immediately, confirmed via
+   `GET /{phone-number-id}?fields=verified_name`.
+
+**Credential handling**: the production access token and the 2FA PIN were
+never pasted into chat - added directly to local `.env` by hand each time,
+read by the scripts via `dotenv`, PIN line removed from `.env` again once
+the register call succeeded. Same pattern as
+`WHATSAPP_ACCESS_TOKEN_AFROMARKET`'s existing use in
+`scripts/submitCarouselTemplate.js`.
+
+**For next time** (e.g. doing the same for the dev number, or changing
+either again): the web UI bug is very likely still present - go straight to
+the API. `scripts/setWhatsAppProfilePhoto.js` is ready to reuse for photos;
+the display-name steps above aren't scripted yet since it's expected to be
+rare, but could be turned into `scripts/setWhatsAppDisplayName.js` if this
+comes up again.
+
 ## v2.3 (2026-08-04): Afro Restaurant hidden on production until it has a real carousel
 
 Per explicit request: **Afro Restaurant is hidden from the main menu on
