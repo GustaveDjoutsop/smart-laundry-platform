@@ -541,26 +541,26 @@
             "languageCode": "en_US",
             "bodyParams": ["there"],
             "cards": [
-              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Wuse_Market_Abuja_Nigeria.jpg/960px-Wuse_Market_Abuja_Nigeria.jpg", "buttonType": "quick_reply", "quickReplyPayload": "partner_mama_africa" },
-              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6c/Local_fruit_shop.jpg/960px-Local_fruit_shop.jpg", "buttonType": "quick_reply", "quickReplyPayload": "partner_kilimanjaro" },
-              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/21/Cereals_Sold_in_Northern_Ghana_Market.jpg/960px-Cereals_Sold_in_Northern_Ghana_Market.jpg", "buttonType": "quick_reply", "quickReplyPayload": "partner_sankofa" }
+              { "imageLink": "https://legal.botmanagementservice.eu/partner-stores/afromarket-partner-mama-africa-foodmarket.jpg", "buttonType": "quick_reply", "quickReplyPayload": "partner_mama_africa" },
+              { "imageLink": "https://legal.botmanagementservice.eu/partner-stores/afromarket-partner-kilimanjaro-grocery.jpg", "buttonType": "quick_reply", "quickReplyPayload": "partner_kilimanjaro" },
+              { "imageLink": "https://legal.botmanagementservice.eu/partner-stores/afromarket-partner-sankofa-market.jpg", "buttonType": "quick_reply", "quickReplyPayload": "partner_sankofa" }
             ]
           },
           "items": [
             {
-              "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Wuse_Market_Abuja_Nigeria.jpg/960px-Wuse_Market_Abuja_Nigeria.jpg",
+              "image": "https://legal.botmanagementservice.eu/partner-stores/afromarket-partner-mama-africa-foodmarket.jpg",
               "caption": "*Mama Africa Foodmarket* — African & Caribbean groceries\n📍 Sonnenallee 45, 12045 Berlin (Neukölln)\n📞 +49 30 9876 5432\n🕐 Mon–Sat 08:00–21:00, Sun 10:00–18:00",
               "buttonId": "partner_mama_africa",
               "buttonTitle": "✅ Got it"
             },
             {
-              "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6c/Local_fruit_shop.jpg/960px-Local_fruit_shop.jpg",
+              "image": "https://legal.botmanagementservice.eu/partner-stores/afromarket-partner-kilimanjaro-grocery.jpg",
               "caption": "*Kilimanjaro Grocery* — East African specialties\n📍 Karl-Marx-Straße 102, 12043 Berlin (Neukölln)\n📞 +49 30 5544 3322\n🕐 Daily 09:00–20:00",
               "buttonId": "partner_kilimanjaro",
               "buttonTitle": "✅ Got it"
             },
             {
-              "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/21/Cereals_Sold_in_Northern_Ghana_Market.jpg/960px-Cereals_Sold_in_Northern_Ghana_Market.jpg",
+              "image": "https://legal.botmanagementservice.eu/partner-stores/afromarket-partner-sankofa-market.jpg",
               "caption": "*Sankofa Market* — West African & Ghanaian goods\n📍 Turmstraße 15, 10559 Berlin (Moabit)\n📞 +49 30 1122 3344\n🕐 Mon–Sat 09:00–19:00",
               "buttonId": "partner_sankofa",
               "buttonTitle": "✅ Got it"
