@@ -468,7 +468,7 @@ test('AfroMarket: every product has a product_detail state with matching data', 
   }
 });
 
-test('AfroMarket: all route/product_route targets reference existing states', () => {
+test('AfroMarket: every state\'s next and every route target reference existing states', () => {
   const flow = botConfig.flows.main_menu;
   const stateIds = new Set(flow.states.map((s) => s.id));
 
