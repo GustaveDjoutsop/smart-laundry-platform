@@ -25,9 +25,10 @@ function isProductionEnv() {
   return String(process.env.CONFIG_ENV || process.env.NODE_ENV || 'dev').toLowerCase() === 'production';
 }
 
-// Buttons/rows can carry `"hideInProd": true` to only render outside
-// production - filtered here rather than left for the WhatsApp client, which
-// ignores unknown fields and would otherwise send them straight through.
+// Buttons can carry `"hideInProd": true` to only render outside production -
+// filtered here rather than left for the WhatsApp client, which ignores
+// unknown fields and would otherwise send them straight through. Not
+// currently wired up for list rows/sections - only buttons-state buttons.
 function filterEnvGatedButtons(buttons) {
   if (!Array.isArray(buttons)) return buttons;
   if (!isProductionEnv()) return buttons;
@@ -259,7 +260,8 @@ class FlowEngine {
 
   // Shared template context for every renderTemplate() call - `env.isProduction`
   // lets a template branch on environment via Mustache sections
-  // (`{{#env.isProduction}}...{{/env.isProduction}}` / `{{^env.isProduction}}`)
+  // (`{{#env.isProduction}}...{{/env.isProduction}}` for production-only text,
+  // `{{^env.isProduction}}...{{/env.isProduction}}` for everywhere else)
   // without any new per-environment config.
   buildTemplateContext(from) {
     return {
