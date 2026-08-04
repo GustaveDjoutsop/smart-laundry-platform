@@ -43,15 +43,15 @@ test('AfroMarket: full shop -> product -> cart -> checkout flow', async () => {
   assert.equal(result.outboundIntents[0].type, 'list');
   assert.match(result.outboundIntents[0].body, /Shop Online/);
 
-  result = await step('cat_grains');
-  assert.match(result.outboundIntents[0].body, /Grains & Starches/);
+  result = await step('cat_beans_nuts');
+  assert.match(result.outboundIntents[0].body, /Beans & Nuts/);
 
-  result = await step('product_rice_1kg');
+  result = await step('product_haricot_rouge_1kg');
   assert.equal(result.outboundIntents.length, 1);
   assert.equal(result.outboundIntents[0].type, 'buttons');
-  assert.match(result.outboundIntents[0].image, /rice/);
-  assert.match(result.outboundIntents[0].body, /Long-Grain Rice 1kg/);
-  assert.match(result.outboundIntents[0].body, /€3\.50/);
+  assert.match(result.outboundIntents[0].image, /haricot-rouge/);
+  assert.match(result.outboundIntents[0].body, /Haricot Rouge – Meringué 1kg/);
+  assert.match(result.outboundIntents[0].body, /€7\.99/);
   assert.match(result.outboundIntents[0].body, /What would you like to do\?/);
   assert.deepEqual(
     result.outboundIntents[0].buttons.map((b) => b.id),
@@ -59,14 +59,14 @@ test('AfroMarket: full shop -> product -> cart -> checkout flow', async () => {
   );
 
   result = await step('cart_add');
-  assert.match(result.outboundIntents[0].body, /Added \*Long-Grain Rice 1kg\* \(€3\.50\)/);
+  assert.match(result.outboundIntents[0].body, /Added \*Haricot Rouge – Meringué 1kg\* \(€7\.99\)/);
 
   result = await step('cart_add');
-  assert.match(result.outboundIntents[0].body, /Added \*Long-Grain Rice 1kg\*/);
+  assert.match(result.outboundIntents[0].body, /Added \*Haricot Rouge – Meringué 1kg\*/);
 
   result = await step('view_cart');
-  assert.match(result.outboundIntents[0].body, /2x Long-Grain Rice 1kg — €7\.00/);
-  assert.match(result.outboundIntents[0].body, /Total: €7\.00/);
+  assert.match(result.outboundIntents[0].body, /2x Haricot Rouge – Meringué 1kg — €15\.98/);
+  assert.match(result.outboundIntents[0].body, /Total: €15\.98/);
 
   result = await step('start_checkout');
   assert.match(result.outboundIntents[0].body, /one message/);
@@ -89,8 +89,8 @@ test('AfroMarket: full shop -> product -> cart -> checkout flow', async () => {
   assert.match(confirmation, /Order confirmed/);
   assert.match(confirmation, /Hi Jane Doe/);
   assert.match(confirmation, /order number is \*AM-/);
-  assert.match(confirmation, /2x Long-Grain Rice 1kg/);
-  assert.match(confirmation, /Total: \*€7\.00\*/);
+  assert.match(confirmation, /2x Haricot Rouge – Meringué 1kg/);
+  assert.match(confirmation, /Total: \*€15\.98\*/);
   assert.match(confirmation, /Delivering to: 12 Main St, Berlin/);
   assert.match(confirmation, /Contact: \+33600000000/);
   assert.equal(result.outboundIntents[0].type, 'buttons');
@@ -114,8 +114,8 @@ test('AfroMarket: checking out with an empty cart shows a warning instead of an 
 
   await step('hi');
   await step('shop_online');
-  await step('cat_grains');
-  await step('product_rice_1kg');
+  await step('cat_beans_nuts');
+  await step('product_haricot_rouge_1kg');
   await step('view_cart');
   await step('start_checkout');
   await step('Name: Jane Doe\nAddress: Some Address\nEmail: jane@example.com');
@@ -129,8 +129,8 @@ test('AfroMarket: a wrapped multi-line address is joined into the field, not sil
 
   await step('hi');
   await step('shop_online');
-  await step('cat_grains');
-  await step('product_rice_1kg');
+  await step('cat_beans_nuts');
+  await step('product_haricot_rouge_1kg');
   await step('view_cart');
   await step('start_checkout');
   const result = await step('Name: Jane Doe\nAddress: 12 Main St\nApt 4B, near the market\nEmail: jane@example.com');
@@ -155,8 +155,8 @@ test('AfroMarket: checkout phone is derived from the WhatsApp sender even withou
 
   await step('hi');
   await step('shop_online');
-  await step('cat_grains');
-  await step('product_rice_1kg');
+  await step('cat_beans_nuts');
+  await step('product_haricot_rouge_1kg');
   await step('view_cart');
   await step('start_checkout');
   const result = await step('Name: Jane Doe\nAddress: 12 Main St, Berlin');
@@ -173,8 +173,8 @@ test('AfroMarket: an unstructured reply to checkout_details re-prompts instead o
 
   await step('hi');
   await step('shop_online');
-  await step('cat_grains');
-  await step('product_rice_1kg');
+  await step('cat_beans_nuts');
+  await step('product_haricot_rouge_1kg');
   await step('cart_add');
   await step('view_cart');
   await step('start_checkout');
@@ -189,7 +189,7 @@ test('AfroMarket: an unstructured reply to checkout_details re-prompts instead o
 
   const result = await step('cancel_checkout');
   assert.match(result.outboundIntents[0].body, /Your Cart/);
-  assert.match(result.outboundIntents[0].body, /1x Long-Grain Rice 1kg/);
+  assert.match(result.outboundIntents[0].body, /1x Haricot Rouge – Meringué 1kg/);
   assert.equal(result.conversationState.context.cart.length, 1);
 });
 
@@ -198,25 +198,24 @@ test('AfroMarket: recipe detail can add its mapped ingredients to the cart', asy
 
   await step('hi');
   await step('recipes');
-  await step('browse_recipes');
-  await step('region_west');
-  await step('recipe_jollof_rice');
+  const result = await step('browse_recipes');
 
-  const result = await step('buy_ingredients');
-  assert.match(result.outboundIntents[0].body, /Added ingredients for \*Jollof Rice\*/);
-  assert.match(result.outboundIntents[0].body, /Long-Grain Rice 1kg/);
-  assert.match(result.outboundIntents[0].body, /Tomato Paste 400g/);
-  assert.match(result.outboundIntents[0].body, /Fresh Scotch Bonnet Peppers 250g/);
+  assert.match(result.outboundIntents[0].body, /Ndolè/);
 
-  const cart = result.conversationState.context.cart;
-  assert.equal(cart.length, 3);
+  const afterBuy = await step('buy_ingredients');
+  assert.match(afterBuy.outboundIntents[0].body, /Added ingredients for \*Ndolè\*/);
+  assert.match(afterBuy.outboundIntents[0].body, /Ndolè Cameroun/);
+  assert.match(afterBuy.outboundIntents[0].body, /Arachide Blanche Dépulpée 1kg/);
+
+  const cart = afterBuy.conversationState.context.cart;
+  assert.equal(cart.length, 2);
   assert.deepEqual(
     cart.map((line) => line.productId).sort(),
-    ['rice_1kg', 'scotch_bonnet_250g', 'tomato_paste_400g'].sort()
+    ['arachide_blanche_1kg', 'ndole_250g'].sort()
   );
 
-  assert.equal(result.outboundIntents[0].type, 'buttons');
-  assert.deepEqual(result.outboundIntents[0].buttons.map((b) => b.id), ['view_cart', 'more_recipes', 'menu']);
+  assert.equal(afterBuy.outboundIntents[0].type, 'buttons');
+  assert.deepEqual(afterBuy.outboundIntents[0].buttons.map((b) => b.id), ['view_cart', 'more_recipes', 'menu']);
 });
 
 test('AfroMarket: View Cart after buying ingredients opens the cart with Checkout/Continue Shopping/Main menu', async () => {
@@ -225,13 +224,11 @@ test('AfroMarket: View Cart after buying ingredients opens the cart with Checkou
   await step('hi');
   await step('recipes');
   await step('browse_recipes');
-  await step('region_west');
-  await step('recipe_jollof_rice');
   await step('buy_ingredients');
 
   const result = await step('view_cart');
   assert.match(result.outboundIntents[0].body, /Your Cart/);
-  assert.match(result.outboundIntents[0].body, /Long-Grain Rice 1kg/);
+  assert.match(result.outboundIntents[0].body, /Ndolè Cameroun/);
   assert.deepEqual(
     result.outboundIntents[0].buttons.map((b) => b.id),
     ['start_checkout', 'continue_shopping', 'menu']
@@ -245,31 +242,21 @@ test('AfroMarket: every recipe_detail_* state always chains straight into recipe
   const flow = botConfig.flows.main_menu;
   const recipeDetailStates = flow.states.filter((s) => s.type === 'image' && s.recipeId);
 
-  assert.ok(recipeDetailStates.length >= 8, 'expected at least 8 recipe_detail_* states');
+  assert.ok(recipeDetailStates.length >= 1, 'expected at least 1 recipe_detail_* state');
   for (const state of recipeDetailStates) {
     assert.equal(state.next, 'recipe_actions', `${state.id} must chain directly into recipe_actions`);
   }
 });
 
-test('AfroMarket: Tonight\'s Dinner recipes send one merged recipe+Bon appetit message, recipe content first', async () => {
+test('AfroMarket: "More recipes" from recipe_actions loops back to the recipes hub', async () => {
   const step = createStepper();
 
   await step('hi');
   await step('recipes');
-  let result = await step('dinner_ideas');
-  assert.match(result.outboundIntents[0].body, /Dinner Ideas/);
+  await step('browse_recipes');
 
-  result = await step('recipe_shakshuka');
-  assert.equal(result.outboundIntents.length, 1);
-  assert.equal(result.outboundIntents[0].type, 'buttons');
-  assert.match(result.outboundIntents[0].image, /Shakshuka/i);
-  const recipeIndex = result.outboundIntents[0].body.indexOf('Shakshuka');
-  const bonAppetitIndex = result.outboundIntents[0].body.search(/Bon app.tit/);
-  assert.ok(recipeIndex >= 0 && bonAppetitIndex > recipeIndex, 'recipe content must come before the Bon appetit follow-up');
-  assert.deepEqual(
-    result.outboundIntents[0].buttons.map((b) => b.id),
-    ['buy_ingredients', 'more_recipes', 'menu']
-  );
+  const result = await step('more_recipes');
+  assert.match(result.outboundIntents[0].body, /Recipe Ideas/);
 });
 
 test('AfroMarket: every recipe in recipeIngredients maps to real product ids', () => {
@@ -286,7 +273,7 @@ test('AfroMarket: current promo, restaurant info and store info are reachable an
 
   await step('hi');
   let result = await step('current_promo');
-  assert.match(result.outboundIntents[0].body, /This Week's Deal/);
+  assert.match(result.outboundIntents[0].body, /New in the shop/);
   result = await step('menu');
   assert.equal(result.outboundIntents[0].type, 'list');
 
@@ -446,7 +433,7 @@ test('AfroMarket: Partner Stores falls back to vertical cards (still followed by
   assert.deepEqual(footer.buttons.map((b) => b.id), ['menu']);
 });
 
-test('AfroMarket: recipes hub still exposes meal plans, dinner ideas and shopping tips', async () => {
+test('AfroMarket: recipes hub still exposes meal plans and shopping tips', async () => {
   const step = createStepper();
 
   await step('hi');
@@ -459,13 +446,8 @@ test('AfroMarket: recipes hub still exposes meal plans, dinner ideas and shoppin
 
   await step('menu');
   await step('recipes');
-  result = await step('dinner_ideas');
-  assert.match(result.outboundIntents[0].body, /Dinner Ideas/);
-
-  await step('menu');
-  await step('recipes');
   result = await step('shopping_tips');
-  assert.match(result.outboundIntents[0].body, /Pantry Essentials/);
+  assert.match(result.outboundIntents[0].body, /Cooking with AfroMarket/);
 
   result = await step('shop_online');
   assert.match(result.outboundIntents[0].body, /Shop Online/);
@@ -486,7 +468,7 @@ test('AfroMarket: every product has a product_detail state with matching data', 
   }
 });
 
-test('AfroMarket: all route/product_route/recipe_route targets reference existing states', () => {
+test('AfroMarket: every state\'s next and every route target reference existing states', () => {
   const flow = botConfig.flows.main_menu;
   const stateIds = new Set(flow.states.map((s) => s.id));
 
@@ -546,20 +528,11 @@ test('AfroMarket: WhatsApp UI limits respected across the whole config', () => {
 test('AfroMarket: recipe_actions dynamic buttonsFromContext sets also respect WhatsApp UI limits', async () => {
   // recipe_actions builds its buttons in JS (buttonsFromContext), not the static
   // JSON `buttons` array the generic scan above covers - check both variants here.
-  // Uses East African (still the interim vertical-cards mechanism) since West
-  // African now fires the real carousel template, covered separately below.
   const step = createStepper();
 
   await step('hi');
   await step('recipes');
-  await step('browse_recipes');
-  const emptyCart = await step('region_east');
-  for (const dish of emptyCart.outboundIntents.slice(1, 3)) {
-    assert.ok(dish.buttons.length <= 3);
-    for (const button of dish.buttons) assert.ok(button.title.length <= 20);
-  }
-
-  const freshRecipeView = await step('recipe_injera_tibs');
+  const freshRecipeView = await step('browse_recipes');
   const freshButtons = freshRecipeView.outboundIntents[0].buttons;
   assert.deepEqual(freshButtons.map((b) => b.id), ['buy_ingredients', 'more_recipes', 'menu']);
   assert.ok(freshButtons.length <= 3);
@@ -571,117 +544,3 @@ test('AfroMarket: recipe_actions dynamic buttonsFromContext sets also respect Wh
   assert.ok(purchaseButtons.length <= 3);
   for (const button of purchaseButtons) assert.ok(button.title.length <= 20, `'${button.title}' exceeds 20 chars`);
 });
-
-const REGION_CAROUSELS = [
-  {
-    regionId: 'region_west',
-    introMatch: /West African Recipes/,
-    templateName: 'afromarket_west_african_recipes',
-    payloads: ['recipe_jollof_rice', 'recipe_egusi_soup', 'recipe_suya_skewers'],
-    sampleDetailPayload: 'recipe_egusi_soup',
-    sampleDetailMatch: /Egusi Soup/
-  },
-  {
-    regionId: 'region_east',
-    introMatch: /East African Recipes/,
-    templateName: 'afromarket_east_african_recipes',
-    payloads: ['recipe_injera_tibs', 'recipe_ugali_sukuma'],
-    sampleDetailPayload: 'recipe_ugali_sukuma',
-    sampleDetailMatch: /Ugali/
-  },
-  {
-    regionId: 'region_north',
-    introMatch: /North African Recipes/,
-    templateName: 'afromarket_north_african_recipes',
-    payloads: ['recipe_tagine_chicken', 'recipe_shakshuka'],
-    sampleDetailPayload: 'recipe_shakshuka',
-    sampleDetailMatch: /Shakshuka/
-  },
-  {
-    regionId: 'region_central',
-    introMatch: /Central African Recipes/,
-    templateName: 'afromarket_central_african_recipes',
-    payloads: ['recipe_fufu_ndole', 'recipe_poulet_dg'],
-    sampleDetailPayload: 'recipe_poulet_dg',
-    sampleDetailMatch: /Poulet DG/
-  }
-];
-
-for (const region of REGION_CAROUSELS) {
-  test(`AfroMarket: ${region.regionId} fires its real approved carousel template, footer comes after it, and a card tap opens the recipe`, async () => {
-    const step = createStepper();
-
-    await step('hi');
-    await step('recipes');
-    await step('browse_recipes');
-
-    const result = await step(region.regionId);
-    assert.equal(result.outboundIntents.length, 2);
-
-    const carousel = result.outboundIntents[0];
-    assert.equal(carousel.type, 'template_carousel');
-    assert.equal(carousel.templateName, region.templateName);
-    assert.equal(carousel.languageCode, 'en_US');
-    assert.deepEqual(
-      carousel.cards.map((c) => c.quickReplyPayload),
-      region.payloads
-    );
-    for (const card of carousel.cards) {
-      assert.match(card.imageLink, /^https:\/\//);
-    }
-
-    // "More options:" must always come after the carousel, never before it.
-    const footer = result.outboundIntents[1];
-    assert.equal(footer.type, 'buttons');
-    assert.deepEqual(footer.buttons.map((b) => b.id), ['back_regions', 'menu']);
-
-    // A quick-reply tap arrives as plain text (message.button.payload) - typing
-    // the payload directly must open that recipe's full detail + Bon appetit,
-    // merged into one image+buttons message so the recipe content can never
-    // display after the "Bon appetit, want to explore more?" follow-up.
-    const detail = await step(region.sampleDetailPayload);
-    assert.equal(detail.outboundIntents.length, 1);
-    assert.equal(detail.outboundIntents[0].type, 'buttons');
-    assert.match(detail.outboundIntents[0].body, region.sampleDetailMatch);
-    assert.match(detail.outboundIntents[0].body, /Bon app.tit/);
-  });
-
-  test(`AfroMarket: ${region.regionId} falls back to vertical cards (still followed by the footer) if the template send fails`, async () => {
-    const flowEngine = new FlowEngine({ botConfig, plugin: new AfroMarketFlowPlugin({ botConfig }) });
-    let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
-    const step = async (text) => {
-      const outboundIntents = [];
-      ({ state: conversationState } = await flowEngine.step({
-        from: '+33600000000',
-        message: { text: { body: text } },
-        state: conversationState,
-        send: async (outboundIntent) => {
-          if (outboundIntent.type === 'template_carousel') {
-            throw new Error('simulated WhatsApp template send failure');
-          }
-          outboundIntents.push(outboundIntent);
-        }
-      }));
-      return { outboundIntents, conversationState };
-    };
-
-    await step('hi');
-    await step('recipes');
-    await step('browse_recipes');
-    const result = await step(region.regionId);
-
-    assert.equal(result.outboundIntents[0].type, 'text');
-    assert.match(result.outboundIntents[0].body, region.introMatch);
-
-    const dishMessages = result.outboundIntents.slice(1, -1);
-    assert.equal(dishMessages.length, region.payloads.length);
-    for (const dish of dishMessages) {
-      assert.equal(dish.type, 'buttons');
-      assert.ok(dish.image, `${dish.body} card is missing its image`);
-    }
-
-    const footer = result.outboundIntents[result.outboundIntents.length - 1];
-    assert.equal(footer.type, 'buttons');
-    assert.deepEqual(footer.buttons.map((b) => b.id), ['back_regions', 'menu']);
-  });
-}

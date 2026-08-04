@@ -8,34 +8,14 @@
   "currency": "EUR",
 
   "products": [
-    { "id": "rice_1kg", "name": "Long-Grain Rice 1kg", "category": "grains", "priceEur": 3.5, "unit": "1 kg", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2a/Bag_of_rice_20221028_150305.jpg/960px-Bag_of_rice_20221028_150305.jpg", "description": "Perfect base for Jollof rice and more." },
-    { "id": "garri_1kg", "name": "Garri (Cassava Flakes) 1kg", "category": "grains", "priceEur": 4.0, "unit": "1 kg", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/13/Cassava_Flakes_%28garri%29.jpg/960px-Cassava_Flakes_%28garri%29.jpg", "description": "Toasted cassava flakes for fufu and eba." },
-    { "id": "maize_flour_1kg", "name": "Maize Flour 1kg", "category": "grains", "priceEur": 2.8, "unit": "1 kg", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Corn_flour_%2820240709%29.jpg/960px-Corn_flour_%2820240709%29.jpg", "description": "Fine maize meal for ugali and pap." },
-    { "id": "tomato_paste_400g", "name": "Tomato Paste 400g", "category": "pantry", "priceEur": 1.5, "unit": "400 g", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3c/Sachets_of_tomato_paste_in_Ghana.jpg/960px-Sachets_of_tomato_paste_in_Ghana.jpg", "description": "Concentrated tomato base for stews and Jollof." },
-    { "id": "canned_tomatoes_400g", "name": "Canned Tomatoes 400g", "category": "pantry", "priceEur": 1.2, "unit": "400 g", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/b/b7/Canned_tomatoes.jpg", "description": "Ready-chopped tomatoes for a quick base." },
-    { "id": "palm_oil_1l", "name": "Red Palm Oil 1L", "category": "pantry", "priceEur": 6.5, "unit": "1 L", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/PALM_OIL_BOTTLES.jpg/960px-PALM_OIL_BOTTLES.jpg", "description": "Unrefined red palm oil, the heart of West African cooking." },
-    { "id": "groundnuts_500g", "name": "Raw Groundnuts 500g", "category": "pantry", "priceEur": 3.2, "unit": "500 g", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/6/6d/Peanuts_Deshelled_%28GROUNDNUTS%29_01.jpg", "description": "Shelled groundnuts for sauces and snacking." },
-    { "id": "egusi_seeds_500g", "name": "Egusi Seeds 500g", "category": "pantry", "priceEur": 6.0, "unit": "500 g", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/EGUSI.JPG/960px-EGUSI.JPG", "description": "Ground melon seeds for a rich egusi soup." },
-    { "id": "suya_spice_100g", "name": "Suya Spice (Yaji) 100g", "category": "spices", "priceEur": 3.9, "unit": "100 g", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a3/Suya_preparation_for_grilling_1.jpg/960px-Suya_preparation_for_grilling_1.jpg", "description": "Smoky peanut-spice blend for grilled skewers." },
-    { "id": "berbere_spice_100g", "name": "Berbere Spice 100g", "category": "spices", "priceEur": 4.2, "unit": "100 g", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dc/Berberespice.jpg/960px-Berberespice.jpg", "description": "Ethiopian chilli-spice blend for tibs and stews." },
-    { "id": "ras_el_hanout_100g", "name": "Ras el Hanout 100g", "category": "spices", "priceEur": 4.2, "unit": "100 g", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cf/Ras_El_Hanout_yellow_red_01.jpg/960px-Ras_El_Hanout_yellow_red_01.jpg", "description": "Warm North African spice mix for tagines." },
-    { "id": "crayfish_powder_200g", "name": "Dried Crayfish Powder 200g", "category": "spices", "priceEur": 5.5, "unit": "200 g", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ad/Dried_crayfish_on_a_tray.jpg/960px-Dried_crayfish_on_a_tray.jpg", "description": "Smoky umami boost for soups and stews." },
-    { "id": "scotch_bonnet_250g", "name": "Fresh Scotch Bonnet Peppers 250g", "category": "fresh", "priceEur": 2.5, "unit": "250 g", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/97/Scotch_bonnet_chili_pepper.jpg/960px-Scotch_bonnet_chili_pepper.jpg", "description": "Fiery, fruity heat for Jollof and shakshuka." },
-    { "id": "collard_greens_bunch", "name": "Collard Greens (Sukuma Wiki) Bunch", "category": "fresh", "priceEur": 2.2, "unit": "1 bunch", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/Collard_Greens_and_Gravy_2.jpg/960px-Collard_Greens_and_Gravy_2.jpg", "description": "Fresh leafy greens for ugali & sukuma wiki." },
-    { "id": "bitterleaf_frozen_400g", "name": "Frozen Bitterleaf (Ndolé) 400g", "category": "fresh", "priceEur": 4.8, "unit": "400 g", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f7/Bitter_leaf%2C.jpg/960px-Bitter_leaf%2C.jpg", "description": "Washed and frozen, ready for ndolé." },
-    { "id": "plantain_1kg", "name": "Ripe Plantains 1kg", "category": "fresh", "priceEur": 3.0, "unit": "1 kg", "imageUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/57/Plantains.jpg/960px-Plantains.jpg", "description": "Sweet ripe plantains for frying and Poulet DG." }
+    { "id": "haricot_rouge_1kg", "name": "Haricot Rouge – Meringué 1kg", "category": "beans_nuts", "priceEur": 7.99, "unit": "1 kg", "imageUrl": "https://legal.botmanagementservice.eu/products/afromarket-haricot-rouge-1kg.jpg", "description": "Carefully selected red beans. Once cooked, they develop a tender texture and a rich, satisfying flavour." },
+    { "id": "arachide_blanche_1kg", "name": "Arachide Blanche Dépulpée 1kg", "category": "beans_nuts", "priceEur": 7.99, "unit": "1 kg", "imageUrl": "https://legal.botmanagementservice.eu/products/afromarket-arachide-blanche-1kg.jpg", "description": "Peeled white peanuts selected for their mild taste and creamy texture. Particularly suitable for Ndolè, peanut sauces, and many traditional African recipes." },
+    { "id": "ndole_250g", "name": "Ndolè Cameroun – Lavé et Séché 250g", "category": "leaves", "priceEur": 9.99, "unit": "250 g", "imageUrl": "https://legal.botmanagementservice.eu/products/afromarket-ndole-250g.jpg", "description": "Washed and dried Cameroonian Ndolè leaves, ready for the well-known traditional dish. One 250 g pack is approximately equivalent to 2 kg of wet Ndolè, or around 18 balls." },
+    { "id": "okok_100g", "name": "Feuilles d'OKOK Séchées 100g", "category": "leaves", "priceEur": 4.99, "unit": "100 g", "imageUrl": "https://legal.botmanagementservice.eu/products/afromarket-okok-100g.jpg", "description": "Dried and finely cut OKOK leaves, ideal for traditional Cameroonian dishes. Easy to store and convenient to use in the kitchen." }
   ],
 
   "recipeIngredients": {
-    "jollof_rice": ["rice_1kg", "tomato_paste_400g", "scotch_bonnet_250g"],
-    "egusi_soup": ["egusi_seeds_500g", "palm_oil_1l", "crayfish_powder_200g"],
-    "suya_skewers": ["suya_spice_100g"],
-    "injera_tibs": ["berbere_spice_100g"],
-    "ugali_sukuma": ["maize_flour_1kg", "collard_greens_bunch"],
-    "tagine_chicken": ["ras_el_hanout_100g"],
-    "shakshuka": ["canned_tomatoes_400g", "scotch_bonnet_250g"],
-    "fufu_ndole": ["garri_1kg", "bitterleaf_frozen_400g", "groundnuts_500g"],
-    "poulet_dg": ["plantain_1kg"]
+    "ndole": ["ndole_250g", "arachide_blanche_1kg"]
   },
 
   "defaultFlowId": "main_menu",
@@ -90,10 +70,8 @@
             {
               "title": "Categories",
               "rows": [
-                { "id": "cat_grains", "title": "🌾 Grains & Starches", "description": "Rice, garri, maize flour" },
-                { "id": "cat_pantry", "title": "🥫 Pantry & Sauces", "description": "Tomato, palm oil, egusi" },
-                { "id": "cat_spices", "title": "🌶️ Spices & Seasoning", "description": "Suya, berbere, ras el hanout" },
-                { "id": "cat_fresh", "title": "🥬 Fresh & Frozen", "description": "Peppers, greens, bitterleaf" },
+                { "id": "cat_beans_nuts", "title": "🫘 Beans & Nuts", "description": "Red beans, white peanuts" },
+                { "id": "cat_leaves", "title": "🌿 Dried Leaves", "description": "Ndolè, Okok" },
                 { "id": "view_cart", "title": "👀 View Cart", "description": "See what you've added" },
                 { "id": "back_menu", "title": "🏠 Main Menu", "description": "Back to the start" }
               ]
@@ -109,10 +87,8 @@
           "params": {
             "from": "categoryChoice",
             "map": {
-              "cat_grains": "grains_products",
-              "cat_pantry": "pantry_products",
-              "cat_spices": "spices_products",
-              "cat_fresh": "fresh_products",
+              "cat_beans_nuts": "beans_nuts_products",
+              "cat_leaves": "leaves_products",
               "view_cart": "cart_view",
               "back_menu": "welcome",
               "menu": "welcome"
@@ -122,17 +98,16 @@
         },
 
         {
-          "id": "grains_products",
+          "id": "beans_nuts_products",
           "type": "list",
-          "template": "🌾 *Grains & Starches*\n\nPick an item for details:",
+          "template": "🫘 *Beans & Nuts*\n\nPick an item for details:",
           "buttonText": "Choose Item",
           "sections": [
             {
-              "title": "Grains & Starches",
+              "title": "Beans & Nuts",
               "rows": [
-                { "id": "product_rice_1kg", "title": "Long-Grain Rice 1kg", "description": "€3.50" },
-                { "id": "product_garri_1kg", "title": "Garri (Cassava) 1kg", "description": "€4.00" },
-                { "id": "product_maize_flour_1kg", "title": "Maize Flour 1kg", "description": "€2.80" },
+                { "id": "product_haricot_rouge_1kg", "title": "Haricot Rouge 1kg", "description": "€7.99" },
+                { "id": "product_arachide_blanche_1kg", "title": "Arachide Blanche 1kg", "description": "€7.99" },
                 { "id": "back_categories", "title": "⬅️ Categories", "description": "Back to category list" }
               ]
             }
@@ -141,59 +116,16 @@
           "next": "product_route"
         },
         {
-          "id": "pantry_products",
+          "id": "leaves_products",
           "type": "list",
-          "template": "🥫 *Pantry & Sauces*\n\nPick an item for details:",
+          "template": "🌿 *Dried Leaves*\n\nPick an item for details:",
           "buttonText": "Choose Item",
           "sections": [
             {
-              "title": "Pantry & Sauces",
+              "title": "Dried Leaves",
               "rows": [
-                { "id": "product_tomato_paste_400g", "title": "Tomato Paste 400g", "description": "€1.50" },
-                { "id": "product_canned_tomatoes_400g", "title": "Canned Tomatoes 400g", "description": "€1.20" },
-                { "id": "product_palm_oil_1l", "title": "Red Palm Oil 1L", "description": "€6.50" },
-                { "id": "product_groundnuts_500g", "title": "Raw Groundnuts 500g", "description": "€3.20" },
-                { "id": "product_egusi_seeds_500g", "title": "Egusi Seeds 500g", "description": "€6.00" },
-                { "id": "back_categories", "title": "⬅️ Categories", "description": "Back to category list" }
-              ]
-            }
-          ],
-          "saveAs": "productChoice",
-          "next": "product_route"
-        },
-        {
-          "id": "spices_products",
-          "type": "list",
-          "template": "🌶️ *Spices & Seasoning*\n\nPick an item for details:",
-          "buttonText": "Choose Item",
-          "sections": [
-            {
-              "title": "Spices & Seasoning",
-              "rows": [
-                { "id": "product_suya_spice_100g", "title": "Suya Spice (Yaji) 100g", "description": "€3.90" },
-                { "id": "product_berbere_spice_100g", "title": "Berbere Spice 100g", "description": "€4.20" },
-                { "id": "product_ras_el_hanout_100g", "title": "Ras el Hanout 100g", "description": "€4.20" },
-                { "id": "product_crayfish_powder_200g", "title": "Dried Crayfish Powder", "description": "200 g · €5.50" },
-                { "id": "back_categories", "title": "⬅️ Categories", "description": "Back to category list" }
-              ]
-            }
-          ],
-          "saveAs": "productChoice",
-          "next": "product_route"
-        },
-        {
-          "id": "fresh_products",
-          "type": "list",
-          "template": "🥬 *Fresh & Frozen*\n\nPick an item for details:",
-          "buttonText": "Choose Item",
-          "sections": [
-            {
-              "title": "Fresh & Frozen",
-              "rows": [
-                { "id": "product_scotch_bonnet_250g", "title": "Scotch Bonnet Peppers", "description": "250 g · €2.50" },
-                { "id": "product_collard_greens_bunch", "title": "Collard Greens Bunch", "description": "€2.20" },
-                { "id": "product_bitterleaf_frozen_400g", "title": "Frozen Bitterleaf 400g", "description": "€4.80" },
-                { "id": "product_plantain_1kg", "title": "Ripe Plantains 1kg", "description": "€3.00" },
+                { "id": "product_ndole_250g", "title": "Ndolè Cameroun 250g", "description": "€9.99" },
+                { "id": "product_okok_100g", "title": "Feuilles d'OKOK 100g", "description": "€4.99" },
                 { "id": "back_categories", "title": "⬅️ Categories", "description": "Back to category list" }
               ]
             }
@@ -208,22 +140,10 @@
           "params": {
             "from": "productChoice",
             "map": {
-              "product_rice_1kg": "product_detail_rice_1kg",
-              "product_garri_1kg": "product_detail_garri_1kg",
-              "product_maize_flour_1kg": "product_detail_maize_flour_1kg",
-              "product_tomato_paste_400g": "product_detail_tomato_paste_400g",
-              "product_canned_tomatoes_400g": "product_detail_canned_tomatoes_400g",
-              "product_palm_oil_1l": "product_detail_palm_oil_1l",
-              "product_groundnuts_500g": "product_detail_groundnuts_500g",
-              "product_egusi_seeds_500g": "product_detail_egusi_seeds_500g",
-              "product_suya_spice_100g": "product_detail_suya_spice_100g",
-              "product_berbere_spice_100g": "product_detail_berbere_spice_100g",
-              "product_ras_el_hanout_100g": "product_detail_ras_el_hanout_100g",
-              "product_crayfish_powder_200g": "product_detail_crayfish_powder_200g",
-              "product_scotch_bonnet_250g": "product_detail_scotch_bonnet_250g",
-              "product_collard_greens_bunch": "product_detail_collard_greens_bunch",
-              "product_bitterleaf_frozen_400g": "product_detail_bitterleaf_frozen_400g",
-              "product_plantain_1kg": "product_detail_plantain_1kg",
+              "product_haricot_rouge_1kg": "product_detail_haricot_rouge_1kg",
+              "product_arachide_blanche_1kg": "product_detail_arachide_blanche_1kg",
+              "product_ndole_250g": "product_detail_ndole_250g",
+              "product_okok_100g": "product_detail_okok_100g",
               "back_categories": "groceries_categories",
               "menu": "welcome"
             },
@@ -231,22 +151,10 @@
           }
         },
 
-        { "id": "product_detail_rice_1kg", "type": "image", "productId": "rice_1kg", "categoryStateId": "grains_products", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2a/Bag_of_rice_20221028_150305.jpg/960px-Bag_of_rice_20221028_150305.jpg", "caption": "*Long-Grain Rice 1kg* — €3.50 / 1 kg\n\nPerfect base for Jollof rice and more.", "next": "product_actions" },
-        { "id": "product_detail_garri_1kg", "type": "image", "productId": "garri_1kg", "categoryStateId": "grains_products", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/13/Cassava_Flakes_%28garri%29.jpg/960px-Cassava_Flakes_%28garri%29.jpg", "caption": "*Garri (Cassava Flakes) 1kg* — €4.00 / 1 kg\n\nToasted cassava flakes for fufu and eba.", "next": "product_actions" },
-        { "id": "product_detail_maize_flour_1kg", "type": "image", "productId": "maize_flour_1kg", "categoryStateId": "grains_products", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Corn_flour_%2820240709%29.jpg/960px-Corn_flour_%2820240709%29.jpg", "caption": "*Maize Flour 1kg* — €2.80 / 1 kg\n\nFine maize meal for ugali and pap.", "next": "product_actions" },
-        { "id": "product_detail_tomato_paste_400g", "type": "image", "productId": "tomato_paste_400g", "categoryStateId": "pantry_products", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3c/Sachets_of_tomato_paste_in_Ghana.jpg/960px-Sachets_of_tomato_paste_in_Ghana.jpg", "caption": "*Tomato Paste 400g* — €1.50 / 400 g\n\nConcentrated tomato base for stews and Jollof.", "next": "product_actions" },
-        { "id": "product_detail_canned_tomatoes_400g", "type": "image", "productId": "canned_tomatoes_400g", "categoryStateId": "pantry_products", "link": "https://upload.wikimedia.org/wikipedia/commons/b/b7/Canned_tomatoes.jpg", "caption": "*Canned Tomatoes 400g* — €1.20 / 400 g\n\nReady-chopped tomatoes for a quick base.", "next": "product_actions" },
-        { "id": "product_detail_palm_oil_1l", "type": "image", "productId": "palm_oil_1l", "categoryStateId": "pantry_products", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/PALM_OIL_BOTTLES.jpg/960px-PALM_OIL_BOTTLES.jpg", "caption": "*Red Palm Oil 1L* — €6.50 / 1 L\n\nUnrefined red palm oil, the heart of West African cooking.", "next": "product_actions" },
-        { "id": "product_detail_groundnuts_500g", "type": "image", "productId": "groundnuts_500g", "categoryStateId": "pantry_products", "link": "https://upload.wikimedia.org/wikipedia/commons/6/6d/Peanuts_Deshelled_%28GROUNDNUTS%29_01.jpg", "caption": "*Raw Groundnuts 500g* — €3.20 / 500 g\n\nShelled groundnuts for sauces and snacking.", "next": "product_actions" },
-        { "id": "product_detail_egusi_seeds_500g", "type": "image", "productId": "egusi_seeds_500g", "categoryStateId": "pantry_products", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/EGUSI.JPG/960px-EGUSI.JPG", "caption": "*Egusi Seeds 500g* — €6.00 / 500 g\n\nGround melon seeds for a rich egusi soup.", "next": "product_actions" },
-        { "id": "product_detail_suya_spice_100g", "type": "image", "productId": "suya_spice_100g", "categoryStateId": "spices_products", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a3/Suya_preparation_for_grilling_1.jpg/960px-Suya_preparation_for_grilling_1.jpg", "caption": "*Suya Spice (Yaji) 100g* — €3.90 / 100 g\n\nSmoky peanut-spice blend for grilled skewers.", "next": "product_actions" },
-        { "id": "product_detail_berbere_spice_100g", "type": "image", "productId": "berbere_spice_100g", "categoryStateId": "spices_products", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dc/Berberespice.jpg/960px-Berberespice.jpg", "caption": "*Berbere Spice 100g* — €4.20 / 100 g\n\nEthiopian chilli-spice blend for tibs and stews.", "next": "product_actions" },
-        { "id": "product_detail_ras_el_hanout_100g", "type": "image", "productId": "ras_el_hanout_100g", "categoryStateId": "spices_products", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cf/Ras_El_Hanout_yellow_red_01.jpg/960px-Ras_El_Hanout_yellow_red_01.jpg", "caption": "*Ras el Hanout 100g* — €4.20 / 100 g\n\nWarm North African spice mix for tagines.", "next": "product_actions" },
-        { "id": "product_detail_crayfish_powder_200g", "type": "image", "productId": "crayfish_powder_200g", "categoryStateId": "spices_products", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ad/Dried_crayfish_on_a_tray.jpg/960px-Dried_crayfish_on_a_tray.jpg", "caption": "*Dried Crayfish Powder 200g* — €5.50 / 200 g\n\nSmoky umami boost for soups and stews.", "next": "product_actions" },
-        { "id": "product_detail_scotch_bonnet_250g", "type": "image", "productId": "scotch_bonnet_250g", "categoryStateId": "fresh_products", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/97/Scotch_bonnet_chili_pepper.jpg/960px-Scotch_bonnet_chili_pepper.jpg", "caption": "*Fresh Scotch Bonnet Peppers 250g* — €2.50 / 250 g\n\nFiery, fruity heat for Jollof and shakshuka.", "next": "product_actions" },
-        { "id": "product_detail_collard_greens_bunch", "type": "image", "productId": "collard_greens_bunch", "categoryStateId": "fresh_products", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/Collard_Greens_and_Gravy_2.jpg/960px-Collard_Greens_and_Gravy_2.jpg", "caption": "*Collard Greens (Sukuma Wiki) Bunch* — €2.20 / bunch\n\nFresh leafy greens for ugali & sukuma wiki.", "next": "product_actions" },
-        { "id": "product_detail_bitterleaf_frozen_400g", "type": "image", "productId": "bitterleaf_frozen_400g", "categoryStateId": "fresh_products", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f7/Bitter_leaf%2C.jpg/960px-Bitter_leaf%2C.jpg", "caption": "*Frozen Bitterleaf (Ndolé) 400g* — €4.80 / 400 g\n\nWashed and frozen, ready for ndolé.", "next": "product_actions" },
-        { "id": "product_detail_plantain_1kg", "type": "image", "productId": "plantain_1kg", "categoryStateId": "fresh_products", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/57/Plantains.jpg/960px-Plantains.jpg", "caption": "*Ripe Plantains 1kg* — €3.00 / 1 kg\n\nSweet ripe plantains for frying and Poulet DG.", "next": "product_actions" },
+        { "id": "product_detail_haricot_rouge_1kg", "type": "image", "productId": "haricot_rouge_1kg", "categoryStateId": "beans_nuts_products", "link": "https://legal.botmanagementservice.eu/products/afromarket-haricot-rouge-1kg.jpg", "caption": "*Haricot Rouge – Meringué 1kg* — €7.99 / 1 kg\n\nCarefully selected red beans. Once cooked, they develop a tender texture and a rich, satisfying flavour.", "next": "product_actions" },
+        { "id": "product_detail_arachide_blanche_1kg", "type": "image", "productId": "arachide_blanche_1kg", "categoryStateId": "beans_nuts_products", "link": "https://legal.botmanagementservice.eu/products/afromarket-arachide-blanche-1kg.jpg", "caption": "*Arachide Blanche Dépulpée 1kg* — €7.99 / 1 kg\n\nPeeled white peanuts selected for their mild taste and creamy texture. Particularly suitable for Ndolè, peanut sauces, and many traditional African recipes.", "next": "product_actions" },
+        { "id": "product_detail_ndole_250g", "type": "image", "productId": "ndole_250g", "categoryStateId": "leaves_products", "link": "https://legal.botmanagementservice.eu/products/afromarket-ndole-250g.jpg", "caption": "*Ndolè Cameroun – Lavé et Séché 250g* — €9.99 / 250 g\n\nWashed and dried Cameroonian Ndolè leaves, ready for the well-known traditional dish. One 250 g pack is approximately equivalent to 2 kg of wet Ndolè, or around 18 balls.", "next": "product_actions" },
+        { "id": "product_detail_okok_100g", "type": "image", "productId": "okok_100g", "categoryStateId": "leaves_products", "link": "https://legal.botmanagementservice.eu/products/afromarket-okok-100g.jpg", "caption": "*Feuilles d'OKOK Séchées 100g* — €4.99 / 100 g\n\nDried and finely cut OKOK leaves, ideal for traditional Cameroonian dishes. Easy to store and convenient to use in the kitchen.", "next": "product_actions" },
 
         {
           "id": "product_actions",
@@ -378,10 +286,9 @@
             {
               "title": "Recipes",
               "rows": [
-                { "id": "browse_recipes", "title": "🍲 Browse Recipes", "description": "Explore dishes by region" },
+                { "id": "browse_recipes", "title": "🍲 Ndolè Recipe", "description": "How to cook real Cameroonian Ndolè" },
                 { "id": "meal_plans", "title": "🥗 Healthy Meal Plans", "description": "7-day curated plans" },
-                { "id": "dinner_ideas", "title": "🌙 Tonight's Dinner", "description": "Quick dinner inspiration" },
-                { "id": "shopping_tips", "title": "📋 Shopping Tips", "description": "African pantry essentials" },
+                { "id": "shopping_tips", "title": "📋 Shopping Tips", "description": "How to prep our products" },
                 { "id": "back_menu", "title": "🏠 Main Menu", "description": "Back to the start" }
               ]
             }
@@ -396,9 +303,8 @@
           "params": {
             "from": "recipesHubChoice",
             "map": {
-              "browse_recipes": "region_menu",
+              "browse_recipes": "recipe_ndole",
               "meal_plans": "plans_menu",
-              "dinner_ideas": "dinner_menu",
               "shopping_tips": "shopping_tips",
               "back_menu": "welcome",
               "menu": "welcome"
@@ -407,174 +313,7 @@
           }
         },
 
-        {
-          "id": "region_menu",
-          "type": "list",
-          "template": "🍲 *Browse Recipes*\n\nPick a region of Africa to explore its dishes:",
-          "buttonText": "Choose Region",
-          "sections": [
-            {
-              "title": "Regions",
-              "rows": [
-                { "id": "region_west", "title": "🌴 West African", "description": "Jollof, Egusi, Suya" },
-                { "id": "region_east", "title": "☕ East African", "description": "Injera & Tibs, Ugali" },
-                { "id": "region_north", "title": "🏜 North African", "description": "Tagine, Shakshuka" },
-                { "id": "region_central", "title": "🌳 Central African", "description": "Fufu & Ndolé" },
-                { "id": "back_recipes", "title": "⬅️ Recipe Menu", "description": "Back to recipe options" }
-              ]
-            }
-          ],
-          "saveAs": "regionChoice",
-          "next": "region_route"
-        },
-        {
-          "id": "region_route",
-          "type": "action",
-          "action": "route",
-          "params": {
-            "from": "regionChoice",
-            "map": {
-              "region_west": "west_recipes",
-              "region_east": "east_recipes",
-              "region_north": "north_recipes",
-              "region_central": "central_recipes",
-              "back_recipes": "recipes_hub",
-              "menu": "welcome"
-            },
-            "default": "region_menu"
-          }
-        },
-
-        {
-          "id": "west_recipes",
-          "type": "cards",
-          "intro": "🌴 *West African Recipes*\n\nOur favorite West African dishes — tap \"Get this recipe\" on the one that looks good:",
-          "carouselTemplate": {
-            "templateName": "afromarket_west_african_recipes",
-            "languageCode": "en_US",
-            "bodyParams": ["there"],
-            "cards": [
-              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Jollof_rice_with_vegetable.jpg/960px-Jollof_rice_with_vegetable.jpg", "quickReplyPayload": "recipe_jollof_rice" },
-              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/89/Egusi_soup_in_a_plate.jpg/960px-Egusi_soup_in_a_plate.jpg", "quickReplyPayload": "recipe_egusi_soup" },
-              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b4/Suya_with_pepper_sauce.jpg/960px-Suya_with_pepper_sauce.jpg", "quickReplyPayload": "recipe_suya_skewers" }
-            ]
-          },
-          "items": [
-            { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Jollof_rice_with_vegetable.jpg/960px-Jollof_rice_with_vegetable.jpg", "caption": "*Jollof Rice*\n45 min · 380 kcal · Easy", "buttonId": "recipe_jollof_rice", "buttonTitle": "➡️ Get this recipe" },
-            { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/89/Egusi_soup_in_a_plate.jpg/960px-Egusi_soup_in_a_plate.jpg", "caption": "*Egusi Soup*\n50 min · 510 kcal · Medium", "buttonId": "recipe_egusi_soup", "buttonTitle": "➡️ Get this recipe" },
-            { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b4/Suya_with_pepper_sauce.jpg/960px-Suya_with_pepper_sauce.jpg", "caption": "*Suya Skewers*\n30 min · 340 kcal · Easy", "buttonId": "recipe_suya_skewers", "buttonTitle": "➡️ Get this recipe" }
-          ],
-          "footerButtons": [
-            { "id": "back_regions", "title": "⬅️ Regions" },
-            { "id": "menu", "title": "🏠 Main menu" }
-          ],
-          "saveAs": "recipeChoice",
-          "next": "recipe_route"
-        },
-        {
-          "id": "east_recipes",
-          "type": "cards",
-          "intro": "☕ *East African Recipes*\n\nOur favorite East African dishes — tap \"Get this recipe\" on the one that looks good:",
-          "carouselTemplate": {
-            "templateName": "afromarket_east_african_recipes",
-            "languageCode": "en_US",
-            "bodyParams": ["there"],
-            "cards": [
-              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/20/Tibs_and_Injera.jpg/960px-Tibs_and_Injera.jpg", "quickReplyPayload": "recipe_injera_tibs" },
-              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/4/48/Ugali_%26_Sukuma_Wiki.jpg", "quickReplyPayload": "recipe_ugali_sukuma" }
-            ]
-          },
-          "items": [
-            { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/20/Tibs_and_Injera.jpg/960px-Tibs_and_Injera.jpg", "caption": "*Injera with Tibs*\n60 min · 450 kcal · Medium", "buttonId": "recipe_injera_tibs", "buttonTitle": "➡️ Get this recipe" },
-            { "image": "https://upload.wikimedia.org/wikipedia/commons/4/48/Ugali_%26_Sukuma_Wiki.jpg", "caption": "*Ugali & Sukuma Wiki*\n20 min · 290 kcal · Easy", "buttonId": "recipe_ugali_sukuma", "buttonTitle": "➡️ Get this recipe" }
-          ],
-          "footerButtons": [
-            { "id": "back_regions", "title": "⬅️ Regions" },
-            { "id": "menu", "title": "🏠 Main menu" }
-          ],
-          "saveAs": "recipeChoice",
-          "next": "recipe_route"
-        },
-        {
-          "id": "north_recipes",
-          "type": "cards",
-          "intro": "🏜 *North African Recipes*\n\nOur favorite North African dishes — tap \"Get this recipe\" on the one that looks good:",
-          "carouselTemplate": {
-            "templateName": "afromarket_north_african_recipes",
-            "languageCode": "en_US",
-            "bodyParams": ["there"],
-            "cards": [
-              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Chicken_Veg_Tagine_Rabat_Nov25_A7CR_08908.jpg/960px-Chicken_Veg_Tagine_Rabat_Nov25_A7CR_08908.jpg", "quickReplyPayload": "recipe_tagine_chicken" },
-              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/Shakshuka_by_Calliopejen1.jpg/960px-Shakshuka_by_Calliopejen1.jpg", "quickReplyPayload": "recipe_shakshuka" }
-            ]
-          },
-          "items": [
-            { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Chicken_Veg_Tagine_Rabat_Nov25_A7CR_08908.jpg/960px-Chicken_Veg_Tagine_Rabat_Nov25_A7CR_08908.jpg", "caption": "*Chicken Tagine*\n90 min · 420 kcal · Medium", "buttonId": "recipe_tagine_chicken", "buttonTitle": "➡️ Get this recipe" },
-            { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/Shakshuka_by_Calliopejen1.jpg/960px-Shakshuka_by_Calliopejen1.jpg", "caption": "*Shakshuka*\n25 min · 310 kcal · Easy", "buttonId": "recipe_shakshuka", "buttonTitle": "➡️ Get this recipe" }
-          ],
-          "footerButtons": [
-            { "id": "back_regions", "title": "⬅️ Regions" },
-            { "id": "menu", "title": "🏠 Main menu" }
-          ],
-          "saveAs": "recipeChoice",
-          "next": "recipe_route"
-        },
-        {
-          "id": "central_recipes",
-          "type": "cards",
-          "intro": "🌳 *Central African Recipes*\n\nOur favorite Central African dishes — tap \"Get this recipe\" on the one that looks good:",
-          "carouselTemplate": {
-            "templateName": "afromarket_central_african_recipes",
-            "languageCode": "en_US",
-            "bodyParams": ["there"],
-            "cards": [
-              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Ndol%C3%A9_camerounais.JPG/960px-Ndol%C3%A9_camerounais.JPG", "quickReplyPayload": "recipe_fufu_ndole" },
-              { "imageLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Poulet_DG.JPG/960px-Poulet_DG.JPG", "quickReplyPayload": "recipe_poulet_dg" }
-            ]
-          },
-          "items": [
-            { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Ndol%C3%A9_camerounais.JPG/960px-Ndol%C3%A9_camerounais.JPG", "caption": "*Fufu with Ndolé*\n55 min · 490 kcal · Medium", "buttonId": "recipe_fufu_ndole", "buttonTitle": "➡️ Get this recipe" },
-            { "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Poulet_DG.JPG/960px-Poulet_DG.JPG", "caption": "*Poulet DG*\n50 min · 520 kcal · Medium", "buttonId": "recipe_poulet_dg", "buttonTitle": "➡️ Get this recipe" }
-          ],
-          "footerButtons": [
-            { "id": "back_regions", "title": "⬅️ Regions" },
-            { "id": "menu", "title": "🏠 Main menu" }
-          ],
-          "saveAs": "recipeChoice",
-          "next": "recipe_route"
-        },
-        {
-          "id": "recipe_route",
-          "type": "action",
-          "action": "route",
-          "params": {
-            "from": "recipeChoice",
-            "map": {
-              "recipe_jollof_rice": "recipe_jollof_rice",
-              "recipe_egusi_soup": "recipe_egusi_soup",
-              "recipe_suya_skewers": "recipe_suya_skewers",
-              "recipe_injera_tibs": "recipe_injera_tibs",
-              "recipe_ugali_sukuma": "recipe_ugali_sukuma",
-              "recipe_tagine_chicken": "recipe_tagine_chicken",
-              "recipe_shakshuka": "recipe_shakshuka",
-              "recipe_fufu_ndole": "recipe_fufu_ndole",
-              "recipe_poulet_dg": "recipe_poulet_dg",
-              "back_regions": "region_menu",
-              "menu": "welcome"
-            },
-            "default": "region_menu"
-          }
-        },
-
-        { "id": "recipe_jollof_rice", "type": "image", "recipeId": "jollof_rice", "recipeName": "Jollof Rice", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Jollof_rice_with_vegetable.jpg/960px-Jollof_rice_with_vegetable.jpg", "caption": "*Jollof Rice* 🌴 West African classic\n\n📋 *Ingredients:*\n• 2 cups long-grain parboiled rice\n• 400g blended tomatoes + 2 tbsp tomato paste\n• 1 onion, 1 red bell pepper, scotch bonnet\n• 60ml vegetable oil, 2 cups chicken stock\n• Thyme, curry powder, bay leaf, salt\n\n👨‍🍳 *Steps:*\n1. Fry onions in oil, add tomato paste and blended tomato-pepper mix; cook down 10 min.\n2. Season with thyme, curry, bay leaf; add stock.\n3. Stir in washed rice, cover with foil + lid, steam on low 25–30 min.\n4. Fluff and let the base toast slightly for smoky party flavour.\n\n⏱ 45 min | 🔥 ~380 kcal | 💪 Easy", "next": "recipe_actions" },
-        { "id": "recipe_egusi_soup", "type": "image", "recipeId": "egusi_soup", "recipeName": "Egusi Soup", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/89/Egusi_soup_in_a_plate.jpg/960px-Egusi_soup_in_a_plate.jpg", "caption": "*Egusi Soup* 🌴 West African favourite\n\n📋 *Ingredients:*\n• 2 cups ground egusi (melon seeds)\n• 300g spinach or bitterleaf\n• Assorted meat/fish, 60ml palm oil\n• 1 onion, ground crayfish, pepper, stock cubes\n\n👨‍🍳 *Steps:*\n1. Cook meat with onions and seasoning; keep the stock.\n2. Heat palm oil, fry ground egusi paste in lumps 10 min.\n3. Add stock gradually, simmer 15 min.\n4. Add crayfish, pepper, greens; simmer 5 more min.\n5. Serve with pounded yam, fufu or rice.\n\n⏱ 50 min | 🔥 ~510 kcal | 💪 Medium", "next": "recipe_actions" },
-        { "id": "recipe_suya_skewers", "type": "image", "recipeId": "suya_skewers", "recipeName": "Suya Skewers", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b4/Suya_with_pepper_sauce.jpg/960px-Suya_with_pepper_sauce.jpg", "caption": "*Suya Skewers* 🌴 West African street food\n\n📋 *Ingredients:*\n• 500g beef sirloin, thinly sliced\n• Suya spice (yaji): ground kuli-kuli/peanut, ginger, garlic, cayenne, paprika, salt\n• Oil for brushing, onions + tomatoes to serve\n\n👨‍🍳 *Steps:*\n1. Thread beef on skewers, brush lightly with oil.\n2. Coat generously in yaji spice, rest 15 min.\n3. Grill on high heat 5–7 min per side.\n4. Dust with extra yaji; serve with sliced onions and tomatoes.\n\n⏱ 30 min | 🔥 ~340 kcal | 💪 Easy", "next": "recipe_actions" },
-        { "id": "recipe_injera_tibs", "type": "image", "recipeId": "injera_tibs", "recipeName": "Injera with Tibs", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/20/Tibs_and_Injera.jpg/960px-Tibs_and_Injera.jpg", "caption": "*Injera with Tibs* ☕ East African (Ethiopia)\n\n📋 *Ingredients:*\n• Injera flatbread (teff sourdough)\n• 500g beef or lamb, cubed\n• 2 onions, 2 tomatoes, jalapeño\n• Niter kibbeh (spiced butter), berbere spice, rosemary\n\n👨‍🍳 *Steps:*\n1. Sear meat cubes in hot niter kibbeh.\n2. Add onions, tomatoes, jalapeño and rosemary; sauté.\n3. Season with berbere; cook until juices thicken.\n4. Serve sizzling over injera — eat with your hands!\n\n⏱ 60 min | 🔥 ~450 kcal | 💪 Medium", "next": "recipe_actions" },
-        { "id": "recipe_ugali_sukuma", "type": "image", "recipeId": "ugali_sukuma", "recipeName": "Ugali with Sukuma Wiki", "link": "https://upload.wikimedia.org/wikipedia/commons/4/48/Ugali_%26_Sukuma_Wiki.jpg", "caption": "*Ugali with Sukuma Wiki* ☕ East African (Kenya)\n\n📋 *Ingredients:*\n• 2 cups maize flour + 4 cups water\n• 1 bunch sukuma wiki (collard greens), sliced\n• 1 onion, 2 tomatoes, oil, salt\n\n👨‍🍳 *Steps:*\n1. Boil water, whisk in maize flour gradually.\n2. Stir vigorously until stiff; steam 3–4 min and mould.\n3. Fry onions, add tomatoes, then greens; cook 5 min.\n4. Serve ugali hot with the sukuma wiki alongside.\n\n⏱ 20 min | 🔥 ~290 kcal | 💪 Easy", "next": "recipe_actions" },
-        { "id": "recipe_tagine_chicken", "type": "image", "recipeId": "tagine_chicken", "recipeName": "Chicken Tagine", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Chicken_Veg_Tagine_Rabat_Nov25_A7CR_08908.jpg/960px-Chicken_Veg_Tagine_Rabat_Nov25_A7CR_08908.jpg", "caption": "*Chicken Tagine* 🏜 North African (Morocco)\n\n📋 *Ingredients:*\n• 1 whole chicken, cut up\n• 2 onions, 3 garlic cloves, preserved lemon\n• Green olives, ginger, turmeric, saffron, cinnamon\n• Olive oil, fresh coriander + parsley\n\n👨‍🍳 *Steps:*\n1. Marinate chicken in spices, garlic and herbs 30 min.\n2. Brown in olive oil in the tagine or heavy pot.\n3. Add onions and a little water; cover, simmer low 1 hour.\n4. Add olives and preserved lemon for the last 10 min.\n\n⏱ 90 min | 🔥 ~420 kcal | 💪 Medium", "next": "recipe_actions" },
-        { "id": "recipe_shakshuka", "type": "image", "recipeId": "shakshuka", "recipeName": "Shakshuka", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/Shakshuka_by_Calliopejen1.jpg/960px-Shakshuka_by_Calliopejen1.jpg", "caption": "*Shakshuka* 🏜 North African brunch star\n\n📋 *Ingredients:*\n• 4–6 eggs\n• 400g crushed tomatoes, 1 red bell pepper\n• 1 onion, 3 garlic cloves\n• Cumin, paprika, harissa or chilli, olive oil, feta (optional)\n\n👨‍🍳 *Steps:*\n1. Sauté onion and pepper in olive oil; add garlic and spices.\n2. Pour in tomatoes; simmer 10 min until thick.\n3. Make wells, crack in eggs; cover and cook 5–8 min.\n4. Finish with herbs (and feta); serve with crusty bread.\n\n⏱ 25 min | 🔥 ~310 kcal | 💪 Easy", "next": "recipe_actions" },
-        { "id": "recipe_fufu_ndole", "type": "image", "recipeId": "fufu_ndole", "recipeName": "Fufu with Ndolé", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Ndol%C3%A9_camerounais.JPG/960px-Ndol%C3%A9_camerounais.JPG", "caption": "*Fufu with Ndolé* 🌳 Central African (Cameroon 🇨🇲)\n\n📋 *Ingredients:*\n• Ndolé (bitterleaf), washed several times\n• 250g groundnuts (peanuts), boiled and blended\n• Beef, smoked fish and/or shrimp\n• 2 onions, garlic, crayfish, palm oil\n• Fufu: cassava or plantain, pounded\n\n👨‍🍳 *Steps:*\n1. Cook meat/fish with onions and garlic; keep stock.\n2. Simmer blended groundnuts in the stock 15 min.\n3. Add washed ndolé leaves, crayfish and shrimp; cook 15 min.\n4. Fry garnish onions in oil, fold in; serve with hot fufu.\n\n⏱ 55 min | 🔥 ~490 kcal | 💪 Medium", "next": "recipe_actions" },
-        { "id": "recipe_poulet_dg", "type": "image", "recipeId": "poulet_dg", "recipeName": "Poulet DG", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Poulet_DG.JPG/960px-Poulet_DG.JPG", "caption": "*Poulet DG* 🌳 Central African (Cameroon 🇨🇲) — \"Chicken for the Director General\"\n\n📋 *Ingredients:*\n• 1 chicken, cut into pieces\n• 3 ripe plantains, sliced and fried\n• Carrots, green beans, bell peppers\n• Garlic, ginger, soy sauce\n• Tomato paste, chicken stock, vegetable oil\n\n👨‍🍳 *Steps:*\n1. Marinate chicken in garlic, ginger and soy sauce 20 min; fry until golden.\n2. Fry plantain slices separately until caramelised; set aside.\n3. Sauté carrots, green beans and peppers in a little oil.\n4. Stir in tomato paste and stock, add the chicken, simmer 10 min.\n5. Fold in the fried plantains just before serving.\n\n⏱ 50 min | 🔥 ~520 kcal | 💪 Medium", "next": "recipe_actions" },
+        { "id": "recipe_ndole", "type": "image", "recipeId": "ndole", "recipeName": "Ndolè", "link": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Ndol%C3%A9_camerounais.JPG/960px-Ndol%C3%A9_camerounais.JPG", "caption": "*Ndolè* 🌳 Cameroon's national dish\n\n📋 *Ingredients:*\n• Ndolè leaves (washed & dried) — from AfroMarket\n• White peanuts (arachide blanche) — from AfroMarket\n• Beef, smoked fish and/or shrimp (bring your own)\n• 2 onions, garlic, crayfish, palm oil (bring your own)\n• Fufu: cassava or plantain, pounded (bring your own)\n\n👨‍🍳 *Steps:*\n1. Cook meat/fish with onions and garlic; keep the stock.\n2. Blend the peanuts and simmer in the stock 15 min.\n3. Add the rehydrated Ndolè leaves, crayfish and shrimp; cook 15 min.\n4. Fry garnish onions in oil, fold in; serve with hot fufu.\n\n⏱ 55 min | 🔥 ~490 kcal | 💪 Medium", "next": "recipe_actions" },
 
         {
           "id": "recipe_actions",
@@ -677,22 +416,9 @@
         },
 
         {
-          "id": "dinner_menu",
-          "type": "buttons",
-          "template": "🌙 *Tonight's Dinner Ideas*\n\nThree quick fixes — all ready in 30 minutes or less. Tap one for the full recipe:",
-          "buttons": [
-            { "id": "recipe_shakshuka", "title": "Shakshuka · 25min" },
-            { "id": "recipe_ugali_sukuma", "title": "Ugali+Sukuma 20min" },
-            { "id": "recipe_suya_skewers", "title": "Suya · 30min" }
-          ],
-          "saveAs": "recipeChoice",
-          "next": "recipe_route"
-        },
-
-        {
           "id": "shopping_tips",
           "type": "buttons",
-          "template": "📋 *African Pantry Essentials*\n\n• *Grains & starch:* rice, maize flour, gari, fonio, couscous\n• *Legumes:* black-eyed beans, lentils, groundnuts\n• *Oils:* palm oil (use sparingly), groundnut oil, olive oil\n• *Spices:* suya/yaji spice, berbere, ras el hanout, grains of selim, crayfish powder\n• *Fresh:* plantain, cassava, yam, okra, bitterleaf, scotch bonnet\n• *Extras:* dried fish, egusi seeds, hibiscus (for zobo), baobab powder\n\n💡 *Tip:* Buy spices whole and grind small batches — flavour lasts much longer.",
+          "template": "📋 *Cooking with AfroMarket*\n\n• *Haricot Rouge (Meringué):* soak 2–4h before cooking for faster, more even results.\n• *Arachide Blanche:* blend into a smooth paste for peanut sauces, or use whole for Ndolè.\n• *Ndolè (dried leaves):* rehydrate in warm water ~20 min before cooking — 250 g makes about 2 kg wet, roughly 18 boules.\n• *Feuilles d'OKOK:* dried and pre-cut, ready to go straight into the pot — no extra prep needed.\n\n💡 *Tip:* Store all four in a cool, dry place — properly dried, they keep for months.",
           "buttons": [
             { "id": "shop_online", "title": "🛒 Shop groceries" },
             { "id": "browse_recipes", "title": "🍲 Recipes" },
@@ -709,7 +435,7 @@
             "from": "tipsFollowChoice",
             "map": {
               "shop_online": "groceries_categories",
-              "browse_recipes": "region_menu",
+              "browse_recipes": "recipe_ndole",
               "menu": "welcome"
             },
             "default": "recipes_hub"
@@ -719,10 +445,10 @@
         {
           "id": "current_promo",
           "type": "buttons",
-          "template": "🎉 *This Week's Deal!*\n\n15% OFF Red Palm Oil 1L — now €5.50 (was €6.50)!\n\nUse code *PALM15* at checkout. Valid through Sunday.\n\nWant to grab it?",
+          "template": "🎉 *New in the shop!*\n\nAuthentic Cameroonian staples now available: Haricot Rouge, Ndolè, Arachide Blanche and Feuilles d'OKOK — everything you need for real home cooking, delivered across Germany.",
           "buttons": [
             { "id": "shop_online", "title": "🛒 Shop now" },
-            { "id": "recipes", "title": "🍲 Recipes with it" },
+            { "id": "recipes", "title": "🍲 Ndolè recipe" },
             { "id": "menu", "title": "🏠 Main menu" }
           ],
           "saveAs": "promoChoice",

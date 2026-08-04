@@ -1,5 +1,32 @@
 # AfroMarket WhatsApp Bot
 
+## v2.1 (2026-08-04): real catalog replaces the 15-product placeholder
+
+The placeholder catalog described throughout this doc (15 products across
+Grains/Pantry/Spices/Fresh, 8 recipes across 4 regional carousels) has been
+**replaced with the business's real 4-product K-AFROMARKET catalog**:
+Haricot Rouge 1kg, Arachide Blanche 1kg (both `beans_nuts` category), Ndolè
+250g, Feuilles d'OKOK 100g (both `leaves` category) — sourced from
+`AfroMarketResources/Shop Products/` (product descriptions doc + branded
+product photos, hosted at `legal.botmanagementservice.eu/products/`).
+Recipes were cut down to a single real Ndolè recipe (`recipeId: "ndole"`,
+state `recipe_ndole`) since it's the only one whose ingredients are actually
+sold — the region browsing menu (`region_menu` and the West/East/North/
+Central carousel states) and the 8 other recipes were removed along with it.
+
+The **4 Meta-approved carousel templates** documented below
+(`afromarket_west_african_recipes`, `_east_african_recipes`,
+`_north_african_recipes`, `_central_african_recipes`) are now **unused** —
+left approved on Meta's side but no longer referenced by any flow state.
+The carousel *mechanism* itself (`flowEngine.js`'s `carouselTemplate` cards
+state, `WhatsAppCloudClient.sendCarouselTemplate`) is untouched and still
+used by `afro_restaurant_list` and `partner_stores_list`, and could be
+reused for recipes again if the catalog grows enough to justify regional
+browsing. The sections below (conversation map, recipe carousel mechanics,
+15-product counts) describe the **pre-v2.1 state** and are kept for their
+still-accurate technical detail on how the carousel/cards mechanism works,
+not as a description of the current catalog.
+
 **v2 (`botVersion2`)**: AfroMarket is now a commerce bot — Afro-grocery
 delivery for Germany, recipes with a "buy these ingredients" shortcut, plus
 info cards for a physical restaurant and store — modeled closely on Meta's own
