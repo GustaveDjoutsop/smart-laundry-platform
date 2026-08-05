@@ -267,11 +267,19 @@ class AfroMarketFlowPlugin extends FlowPlugin {
     try {
       profile = await this.customerProfileStore.get({ botId: this.botConfig.botId, whatsappId: ctx.from });
     } catch (err) {
+      const message = err && err.message ? err.message : String(err);
       // A saved-profile lookup failure must never block checkout - fall
-      // through to the normal fresh-details flow below.
-      logger.warn('AfroMarket: failed to load saved customer profile, falling back to fresh checkout details', {
-        error: err && err.message ? err.message : String(err)
-      });
+      // through to the normal fresh-details flow below either way. Postgres
+      // simply not being configured (local dev, tests) is expected and
+      // routine, not worth a WARN on every single checkout attempt - only
+      // genuine connection/query failures get logged at that level.
+      if (message.includes('DATABASE_URL not set')) {
+        logger.info('AfroMarket: Postgres not configured, skipping saved-address lookup');
+      } else {
+        logger.warn('AfroMarket: failed to load saved customer profile, falling back to fresh checkout details', {
+          error: message
+        });
+      }
     }
 
     if (profile && profile.name && profile.delivery_address) {
