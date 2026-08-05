@@ -1,5 +1,54 @@
 # AfroMarket WhatsApp Bot
 
+## v2.6 (2026-08-04): checkout reuses a saved delivery address, 3-day delivery window, receipt confirmed already covered
+
+Per request: reuse a returning customer's delivery details instead of
+asking them to retype everything on every order, tighten the delivery
+estimate to 3 days, and make sure a payment-confirmation receipt goes out.
+
+**What was already there**: `AfroMarketBot._recordOrder()` already upserts
+`customer_profile` (name + delivery_address, keyed by `bot_id`/`whatsapp_id`)
+after every successfully paid order - the *save* half of this existed
+since the data-retention work (ADR-008). It was just never read back.
+Likewise, `_onPaymentCompleted()` already sends a WhatsApp message with the
+order number, itemized cart, total, delivery address, and delivery
+estimate as soon as `payment.completed` fires - **that already functions
+as the order receipt**; no new receipt mechanism was needed, just the
+3-day wording change described below.
+
+**What's new**:
+- New `checkout_start` flow state (`checkout.start` action,
+  `AfroMarketFlowPlugin._handleCheckoutStart`) sits between tapping
+  "💳 Checkout" and the rest of the checkout flow. It looks up
+  `customerProfileStore.get({ botId, whatsappId })`; if a saved
+  name + address exist, it pre-fills them and jumps straight to
+  `checkout_review` (skipping the free-text "reply with your details"
+  prompt entirely), with the review screen's intro text conditionally
+  saying *"We found your delivery details from last time — please
+  confirm, or tap Start Over to use a different address"*
+  (`{{#checkoutUsingSavedAddress}}`/`{{^checkoutUsingSavedAddress}}` in the
+  template). Tapping the review screen's existing "✏️ Start Over" button
+  still routes to the normal free-text `checkout_details` flow unchanged -
+  that's the "unless he wants to change and provide a new address" case,
+  and it already existed, it just needed the saved-address path to fall
+  back to it.
+- A lookup failure (DB blip, pool not configured, etc.) is caught and
+  falls back to the plain free-text flow rather than blocking checkout -
+  reusing a saved address is a convenience, never a hard dependency.
+- `AfroMarketFlowPlugin` now takes an optional `customerProfileStore`
+  constructor override (shares `AfroMarketBot`'s instance in production,
+  same module-level Postgres pool either way - see `getPool()` in
+  `pgClient.js`) so this is unit-testable without a real DB, matching how
+  the payment gateway is already injected elsewhere.
+- Delivery estimate changed from 5 days to 3
+  (`DELIVERY_WINDOW_DAYS = 3` in `afromarketFlowPlugin.js`), and the order
+  confirmation now says *"We deliver within 3 days"* explicitly rather than
+  only showing a calculated date.
+
+Email is deliberately **not** saved/reused here - it's asked fresh per
+order only when Stripe needs it for the payment receipt, which is a
+separate concern from delivery data and wasn't part of the request.
+
 ## v2.5 (2026-08-04): Official Business Account (blue checkmark) investigated - not attainable yet, blocked by message volume, not config
 
 Looked into getting production's WhatsApp number "prod certified" (the blue

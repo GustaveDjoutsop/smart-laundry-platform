@@ -124,6 +124,134 @@ test('AfroMarket: checking out with an empty cart shows a warning instead of an 
   assert.match(result.outboundIntents[0].body, /cart was empty/);
 });
 
+test('AfroMarket: checkout reuses a saved delivery address instead of asking again', async () => {
+  const customerProfileStore = {
+    calls: [],
+    async get({ botId, whatsappId }) {
+      this.calls.push({ botId, whatsappId });
+      return { name: 'Jane Doe', delivery_address: '12 Main St, Berlin' };
+    }
+  };
+  const flowEngine = new FlowEngine({
+    botConfig,
+    plugin: new AfroMarketFlowPlugin({ botConfig, customerProfileStore })
+  });
+  let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
+  const step = async (text) => {
+    const outboundIntents = [];
+    ({ state: conversationState } = await flowEngine.step({
+      from: '+33600000000',
+      message: { text: { body: text } },
+      state: conversationState,
+      send: async (outboundIntent) => outboundIntents.push(outboundIntent)
+    }));
+    return { outboundIntents, conversationState };
+  };
+
+  await step('hi');
+  await step('shop_online');
+  await step('cat_beans_nuts');
+  await step('product_haricot_rouge_1kg');
+  await step('cart_add');
+  await step('view_cart');
+
+  // Straight to review, pre-filled - no free-text "reply with your details" prompt.
+  const result = await step('start_checkout');
+  assert.match(result.outboundIntents[0].body, /found your delivery details from last time/i);
+  assert.match(result.outboundIntents[0].body, /Name: Jane Doe/);
+  assert.match(result.outboundIntents[0].body, /Address: 12 Main St, Berlin/);
+  assert.match(result.outboundIntents[0].body, /Phone: \+33600000000/);
+  assert.deepEqual(
+    result.outboundIntents[0].buttons.map((b) => b.id),
+    ['confirm_order', 'restart_checkout', 'cancel_checkout']
+  );
+  assert.deepEqual(customerProfileStore.calls, [{ botId: 'afromarket', whatsappId: '+33600000000' }]);
+
+  const confirmed = await step('confirm_order');
+  const confirmation = confirmed.outboundIntents[0].body;
+  assert.match(confirmation, /Order confirmed/);
+  assert.match(confirmation, /Delivering to: 12 Main St, Berlin/);
+  assert.match(confirmation, /deliver within 3 days/i);
+});
+
+test('AfroMarket: "Start Over" on a reused saved address falls back to the free-text checkout flow', async () => {
+  const customerProfileStore = {
+    async get() {
+      return { name: 'Jane Doe', delivery_address: '12 Main St, Berlin' };
+    }
+  };
+  const flowEngine = new FlowEngine({
+    botConfig,
+    plugin: new AfroMarketFlowPlugin({ botConfig, customerProfileStore })
+  });
+  let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
+  const step = async (text) => {
+    const outboundIntents = [];
+    ({ state: conversationState } = await flowEngine.step({
+      from: '+33600000000',
+      message: { text: { body: text } },
+      state: conversationState,
+      send: async (outboundIntent) => outboundIntents.push(outboundIntent)
+    }));
+    return { outboundIntents, conversationState };
+  };
+
+  await step('hi');
+  await step('shop_online');
+  await step('cat_beans_nuts');
+  await step('product_haricot_rouge_1kg');
+  await step('cart_add');
+  await step('view_cart');
+  await step('start_checkout');
+
+  const restarted = await step('restart_checkout');
+  assert.match(restarted.outboundIntents[0].body, /one message/);
+  assert.match(restarted.outboundIntents[0].body, /Name:/);
+
+  const result = await step('Name: New Customer\nAddress: 99 Other St, Hamburg\nEmail: new@example.com');
+  assert.doesNotMatch(result.outboundIntents[0].body, /found your delivery details from last time/i);
+  assert.match(result.outboundIntents[0].body, /Please confirm your order/i);
+  assert.match(result.outboundIntents[0].body, /Address: 99 Other St, Hamburg/);
+});
+
+test('AfroMarket: a saved-profile lookup failure falls back to the free-text checkout flow instead of blocking checkout', async () => {
+  // Deliberately exercises _handleCheckoutStart's own try/catch with an
+  // explicit mock, rather than relying on other tests' incidental coverage
+  // via getPool() throwing when DATABASE_URL is unset in this environment -
+  // keeps this behavior intentionally tested even if that env detail changes.
+  const customerProfileStore = {
+    async get() {
+      throw new Error('connection refused');
+    }
+  };
+  const flowEngine = new FlowEngine({
+    botConfig,
+    plugin: new AfroMarketFlowPlugin({ botConfig, customerProfileStore })
+  });
+  let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
+  const step = async (text) => {
+    const outboundIntents = [];
+    ({ state: conversationState } = await flowEngine.step({
+      from: '+33600000000',
+      message: { text: { body: text } },
+      state: conversationState,
+      send: async (outboundIntent) => outboundIntents.push(outboundIntent)
+    }));
+    return { outboundIntents, conversationState };
+  };
+
+  await step('hi');
+  await step('shop_online');
+  await step('cat_beans_nuts');
+  await step('product_haricot_rouge_1kg');
+  await step('cart_add');
+  await step('view_cart');
+
+  const result = await step('start_checkout');
+  assert.match(result.outboundIntents[0].body, /one message/);
+  assert.match(result.outboundIntents[0].body, /Name:/);
+});
+
 test('AfroMarket: a wrapped multi-line address is joined into the field, not silently truncated', async () => {
   const step = createStepper();
 

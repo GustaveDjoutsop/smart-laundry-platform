@@ -47,9 +47,10 @@ async function withRetries(fn, { attempts = 3, delaysMs = [150, 400] } = {}) {
 
 class AfroMarketBot extends ConfigBot {
   constructor(config) {
-    super(config, { plugin: new AfroMarketFlowPlugin({ botConfig: config }) });
+    const customerProfileStore = new CustomerProfileStore();
+    super(config, { plugin: new AfroMarketFlowPlugin({ botConfig: config, customerProfileStore }) });
 
-    this.customerProfileStore = new CustomerProfileStore();
+    this.customerProfileStore = customerProfileStore;
     this.invoiceRecordStore = new InvoiceRecordStore();
     this.deletionRequestService = new DeletionRequestService({
       customerProfileStore: this.customerProfileStore,

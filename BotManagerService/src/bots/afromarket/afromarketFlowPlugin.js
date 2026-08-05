@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const { FlowPlugin } = require('../../core/flows/flowPlugin');
 const { getPaymentService } = require('../../core/payments/paymentService');
+const { CustomerProfileStore } = require('../../core/customers/customerProfileStore');
 const { logger } = require('../../utils/logger');
 
 function formatEuro(amount) {
@@ -49,8 +50,10 @@ function generateOrderNumber() {
   return `AM-${randomPart}${timePart}`;
 }
 
+const DELIVERY_WINDOW_DAYS = 3;
+
 function estimatedDeliveryDate() {
-  const deliveryDate = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
+  const deliveryDate = new Date(Date.now() + DELIVERY_WINDOW_DAYS * 24 * 60 * 60 * 1000);
   return deliveryDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
@@ -67,7 +70,7 @@ function buildOrderConfirmationText({ orderNumber, cart, name, address, phone })
     `Delivering to: ${address}\n` +
     `Contact: ${phone}\n\n` +
     `We'll start getting your fresh African groceries ready to ship.\n` +
-    `Estimated delivery: ${estimatedDeliveryDate()}.\n\n` +
+    `We deliver within ${DELIVERY_WINDOW_DAYS} days - estimated arrival: ${estimatedDeliveryDate()}.\n\n` +
     `We will let you know when your order ships.`
   );
 }
@@ -77,9 +80,13 @@ function buildOrderConfirmationText({ orderNumber, cart, name, address, phone })
 // checkout. Everything else (menus, recipes, product photos, static info
 // cards) stays plain configuration in afromarket.bot.json.
 class AfroMarketFlowPlugin extends FlowPlugin {
-  constructor({ botConfig } = {}) {
+  constructor({ botConfig, customerProfileStore } = {}) {
     super();
     this.botConfig = botConfig;
+    // No constructor args needed - CustomerProfileStore shares the module-level
+    // Postgres pool (see getPool() in pgClient.js), so a fresh instance here is
+    // cheap. Accepting an override keeps this testable without a real DB.
+    this.customerProfileStore = customerProfileStore || new CustomerProfileStore();
   }
 
   async beforeState(ctx) {
@@ -162,6 +169,10 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       return this._handleCheckout(ctx);
     }
 
+    if (action === 'checkout.start') {
+      return this._handleCheckoutStart(ctx);
+    }
+
     if (action === 'checkout.parseDetails') {
       return this._handleParseCheckoutDetails(ctx);
     }
@@ -239,8 +250,54 @@ class AfroMarketFlowPlugin extends FlowPlugin {
     return true;
   }
 
+  // Checkout entry point: if we already have this customer's delivery
+  // details from a previous paid order (upserted in AfroMarketBot's
+  // _recordOrder), skip straight to the review screen pre-filled with them
+  // instead of asking them to retype everything - "Start Over" on that
+  // screen still routes to the plain free-text checkout_details flow for
+  // anyone who wants to use a different address this time.
+  async _handleCheckoutStart(ctx) {
+    ctx.set('checkoutUsingSavedAddress', false);
+
+    const fromDigits = String(ctx.from || '').trim();
+    const phone = fromDigits ? (fromDigits.startsWith('+') ? fromDigits : `+${fromDigits}`) : '';
+    ctx.set('checkoutPhone', phone);
+
+    let profile = null;
+    try {
+      profile = await this.customerProfileStore.get({ botId: this.botConfig.botId, whatsappId: ctx.from });
+    } catch (err) {
+      const message = err && err.message ? err.message : String(err);
+      // A saved-profile lookup failure must never block checkout - fall
+      // through to the normal fresh-details flow below either way. Postgres
+      // simply not being configured (local dev, tests) is expected and
+      // routine, not worth a WARN on every single checkout attempt - only
+      // genuine connection/query failures get logged at that level.
+      if (message.includes('DATABASE_URL not set')) {
+        logger.info('AfroMarket: Postgres not configured, skipping saved-address lookup');
+      } else {
+        logger.warn('AfroMarket: failed to load saved customer profile, falling back to fresh checkout details', {
+          error: message
+        });
+      }
+    }
+
+    if (profile && profile.name && profile.delivery_address) {
+      ctx.set('checkoutName', profile.name);
+      ctx.set('checkoutAddress', profile.delivery_address);
+      ctx.set('checkoutEmail', '');
+      ctx.set('checkoutUsingSavedAddress', true);
+      ctx.goto('checkout_review');
+      return true;
+    }
+
+    ctx.goto('checkout_details');
+    return true;
+  }
+
   _handleParseCheckoutDetails(ctx) {
     ctx.set('checkoutDetailsError', '');
+    ctx.set('checkoutUsingSavedAddress', false);
 
     const raw = String(ctx.get('checkoutDetailsRaw') || '');
     const fields = { name: '', address: '', email: '' };

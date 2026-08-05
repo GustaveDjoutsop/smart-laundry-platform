@@ -193,12 +193,17 @@
           "params": {
             "from": "cartViewChoice",
             "map": {
-              "start_checkout": "checkout_details",
+              "start_checkout": "checkout_start",
               "continue_shopping": "groceries_categories",
               "menu": "welcome"
             },
             "default": "welcome"
           }
+        },
+        {
+          "id": "checkout_start",
+          "type": "action",
+          "action": "checkout.start"
         },
 
         {
@@ -216,7 +221,7 @@
         {
           "id": "checkout_review",
           "type": "buttons",
-          "template": "📝 *Please confirm your order:*\n\nName: {{checkoutName}}\nAddress: {{checkoutAddress}}\nPhone: {{checkoutPhone}}\nEmail: {{checkoutEmail}}\n\n{{cartSummaryText}}",
+          "template": "{{#checkoutUsingSavedAddress}}📝 *We found your delivery details from last time* — please confirm, or tap Start Over to use a different address:{{/checkoutUsingSavedAddress}}{{^checkoutUsingSavedAddress}}📝 *Please confirm your order:*{{/checkoutUsingSavedAddress}}\n\nName: {{checkoutName}}\nAddress: {{checkoutAddress}}\nPhone: {{checkoutPhone}}\nEmail: {{checkoutEmail}}\n\n{{cartSummaryText}}",
           "buttons": [
             { "id": "confirm_order", "title": "✅ Confirm Order" },
             { "id": "restart_checkout", "title": "✏️ Start Over" },
