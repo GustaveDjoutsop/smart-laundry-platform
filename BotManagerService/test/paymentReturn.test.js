@@ -12,6 +12,12 @@ async function startServer(app) {
   });
 }
 
+function stopServer(server) {
+  return new Promise((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()));
+  });
+}
+
 test('GET /payment-return shows a friendly landing page instead of 404ing', async () => {
   const app = createApp({});
 
@@ -20,11 +26,13 @@ test('GET /payment-return shows a friendly landing page instead of 404ing', asyn
     const res = await fetch(`http://127.0.0.1:${port}/payment-return`);
     assert.equal(res.status, 200);
     assert.match(res.headers.get('content-type') || '', /text\/html/);
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+    assert.equal(res.headers.get('x-robots-tag'), 'noindex');
 
     const body = await res.text();
     assert.match(body, /Payment received/);
     assert.match(body, /close this tab/i);
   } finally {
-    server.close();
+    await stopServer(server);
   }
 });

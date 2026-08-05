@@ -76,6 +76,11 @@ function createApp({ redisManager, mqttManager } = {}) {
   // Without it, the customer's browser tab shows a bare "Cannot GET" error
   // after a successful payment.
   app.get('/payment-return', (req, res) => {
+    // Stripe's success_url is commonly hit with a `?session_id=...` query
+    // param - no-store/noindex keeps that out of shared caches and search
+    // indexes even though this page doesn't itself read or reflect it.
+    res.set('Cache-Control', 'no-store');
+    res.set('X-Robots-Tag', 'noindex');
     res.status(200).type('html').send(`<!doctype html>
 <html lang="en">
   <head>
@@ -91,7 +96,7 @@ function createApp({ redisManager, mqttManager } = {}) {
   </head>
   <body>
     <div class="card">
-      <h1>✅ Payment received</h1>
+      <h1><span aria-hidden="true">✅</span> Payment received</h1>
       <p>You can close this tab now. We'll confirm your order right back in WhatsApp.</p>
     </div>
   </body>
