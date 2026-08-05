@@ -41,13 +41,17 @@ to send — outside that window, only a pre-approved **message template** can
 go out. This isn't optional or configurable; it's a platform rule.
 
 **Confirmed via research: nothing in the codebase handles this today.**
-Searched every outbound send path in `src/core/whatsapp/whatsappClient.js`
-(`sendText`, `sendButtons`, `sendList`, `sendImage`, `sendCtaUrl`) and all of
-`src/core/payments/` — none check window eligibility or fall back to a
-template. This is genuinely new work regardless of which option below is
-chosen, and it's the one piece that blocks Option A from working reliably
-past the first day if orders regularly take more than 24h to ship (likely,
-for a delivery business).
+Searched every *free-form* outbound send path in
+`src/core/whatsapp/whatsappClient.js` (`sendText`, `sendButtons`,
+`sendList`, `sendImage`, `sendCtaUrl`) and all of `src/core/payments/` —
+none check window eligibility or fall back to a template. (The file's one
+template-based path, `sendCarouselTemplate`, always sends a `type:
+'template'` payload regardless of window — but nothing today decides
+*which* path to use based on whether the customer's 24h window is still
+open, which is the actual gap.) This is genuinely new work regardless of
+which option below is chosen, and it's the one piece that blocks Option A
+from working reliably past the first day if orders regularly take more than
+24h to ship (likely, for a delivery business).
 
 **Action:** check the actual typical order-to-ship gap. If it's regularly
 under 24h, this can be deferred. If not, a WhatsApp message template needs to
