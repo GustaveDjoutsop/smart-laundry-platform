@@ -69,6 +69,40 @@ function createApp({ redisManager, mqttManager } = {}) {
   app.use('/api/billing', billingRouter({ adminAuthMiddleware: billingAdminAuth, adminRateLimiter: billingAdminRateLimiter }));
   app.use('/api/whatsapp/webhook', whatsappRateLimiter, whatsappRouter());
 
+  // Stripe Checkout's success_url (STRIPE_SUCCESS_URL) lands the customer's
+  // browser here right after paying. Purely cosmetic - the actual order
+  // confirmation is driven by the Stripe webhook (see routes/payments.js)
+  // and delivered back in WhatsApp, independent of whether this page loads.
+  // Without it, the customer's browser tab shows a bare "Cannot GET" error
+  // after a successful payment.
+  app.get('/payment-return', (req, res) => {
+    // Stripe's success_url is commonly hit with a `?session_id=...` query
+    // param - no-store/noindex keeps that out of shared caches and search
+    // indexes even though this page doesn't itself read or reflect it.
+    res.set('Cache-Control', 'no-store');
+    res.set('X-Robots-Tag', 'noindex');
+    res.status(200).type('html').send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Payment received</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f6f6f6; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+      .card { background: #fff; padding: 2.5rem; border-radius: 12px; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08); text-align: center; max-width: 360px; }
+      h1 { font-size: 1.25rem; margin: 0 0 0.5rem; }
+      p { color: #555; margin: 0; line-height: 1.5; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1><span aria-hidden="true">✅</span> Payment received</h1>
+      <p>You can close this tab now. We'll confirm your order right back in WhatsApp.</p>
+    </div>
+  </body>
+</html>`);
+  });
+
   app.use((err, req, res, next) => {
     // eslint-disable-next-line no-unused-vars
     const ignored = next;
