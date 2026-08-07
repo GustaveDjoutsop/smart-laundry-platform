@@ -120,12 +120,28 @@ test('assertValidPhoneNumber accepts digits-only E.164 without a leading plus', 
 
 test('assertValidPhoneNumber rejects a leading plus', () => {
   // when / then
-  assert.throws(() => assertValidPhoneNumber('+4915123456789'), /must be digits only/);
+  assert.throws(() => assertValidPhoneNumber('+4915123456789'), /must be 8-15 digits/);
 });
 
 test('assertValidPhoneNumber rejects non-digit characters', () => {
   // when / then
-  assert.throws(() => assertValidPhoneNumber('4915 123 456789'), /must be digits only/);
+  assert.throws(() => assertValidPhoneNumber('4915 123 456789'), /must be 8-15 digits/);
+});
+
+test('assertValidPhoneNumber rejects a number shorter than E.164\'s 8-digit floor', () => {
+  // when / then
+  assert.throws(() => assertValidPhoneNumber('1234567'), /must be 8-15 digits/);
+});
+
+test('assertValidPhoneNumber rejects a number longer than E.164\'s 15-digit max', () => {
+  // when / then
+  assert.throws(() => assertValidPhoneNumber('1234567890123456'), /must be 8-15 digits/);
+});
+
+test('assertValidPhoneNumber accepts the 8 and 15 digit boundary lengths', () => {
+  // when / then
+  assert.doesNotThrow(() => assertValidPhoneNumber('12345678'));
+  assert.doesNotThrow(() => assertValidPhoneNumber('123456789012345'));
 });
 
 test('buildBatchRequestBody maps every product in the bot config into one items_batch request', () => {

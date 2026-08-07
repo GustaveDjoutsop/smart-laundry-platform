@@ -31,19 +31,31 @@
  * script; worth revisiting (diff live catalog IDs vs. config IDs, issue
  * DELETEs for the difference) before this becomes the sole source of truth.
  */
-require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
+
+// dotenv is a side effect of loading a local .env file - this module is also
+// require()'d by tests, so that side effect only fires when the script is
+// actually run directly (see the require.main guard around main() below),
+// not as an import-time surprise for test/environment behavior.
+if (require.main === module) {
+  require('dotenv').config();
+}
 
 const API_VERSION = 'v20.0';
 const BRAND = 'AfroMarket';
 
 function assertValidPhoneNumber(phoneNumber) {
   // AFROMARKET_PHONE_NUMBER is operator-set, not user input, but a stray
-  // "+"/space in it would silently break every product's wa.me link with no
-  // error until someone taps one on WhatsApp - cheap to catch here instead.
-  if (!/^\d+$/.test(phoneNumber)) {
-    throw new Error(`AFROMARKET_PHONE_NUMBER must be digits only in E.164 form without "+" (got "${phoneNumber}")`);
+  // "+"/space in it - or a too-short/too-long typo - would silently break
+  // every product's wa.me link with no error until someone taps one on
+  // WhatsApp, so this checks digits-only and E.164's 8-15 digit length
+  // (max length per the spec; 8 as a practical floor for a real number
+  // that includes a country code) rather than just "some digits".
+  if (!/^\d{8,15}$/.test(phoneNumber)) {
+    throw new Error(
+      `AFROMARKET_PHONE_NUMBER must be 8-15 digits in E.164 form without "+" (got "${phoneNumber}")`
+    );
   }
 }
 
