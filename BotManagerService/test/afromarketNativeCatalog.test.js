@@ -72,7 +72,7 @@ test('isNativeCatalogEnabled defaults to false when the env var is unset', () =>
   }
 });
 
-test('isNativeCatalogEnabled is true only for the exact string "true"', () => {
+test('isNativeCatalogEnabled accepts "true" case-insensitively but rejects other truthy-looking values', () => {
   const original = process.env.AFROMARKET_NATIVE_CATALOG_ENABLED;
 
   try {

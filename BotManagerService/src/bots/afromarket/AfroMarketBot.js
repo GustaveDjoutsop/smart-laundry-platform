@@ -154,7 +154,11 @@ class AfroMarketBot extends ConfigBot {
       ? JSON.parse(existingSerializedState)
       : { currentFlowId: null, currentStateId: null, context: {} };
 
-    conversationState.currentFlowId = 'main_menu';
+    // defaultFlowId over a hardcoded 'main_menu' literal, so this doesn't
+    // silently break if afromarket.bot.json's flow id ever changes -
+    // 'main_menu' only remains as the fallback flowEngine.js itself falls
+    // back to when no defaultFlowId is configured.
+    conversationState.currentFlowId = this.config.defaultFlowId || 'main_menu';
     conversationState.currentStateId = 'checkout_start';
     conversationState.context = conversationState.context || {};
     conversationState.context.cart = cart;
