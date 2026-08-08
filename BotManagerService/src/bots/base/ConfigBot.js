@@ -101,6 +101,18 @@ class ConfigBot extends BaseBot {
       return;
     }
 
+    if (outboundIntent.type === 'product_list') {
+      await this.whatsapp.sendProductList({
+        to: outboundIntent.to,
+        catalogId: outboundIntent.catalogId,
+        header: outboundIntent.header,
+        body: outboundIntent.body,
+        footer: outboundIntent.footer,
+        sections: outboundIntent.sections
+      });
+      return;
+    }
+
     if (outboundIntent.type === 'template_carousel') {
       await this.whatsapp.sendCarouselTemplate({
         to: outboundIntent.to,

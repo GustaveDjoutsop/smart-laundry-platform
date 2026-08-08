@@ -254,6 +254,139 @@ test('WhatsAppCloudClient sendCtaUrl rejects a missing url', async () => {
   await assert.rejects(() => client.sendCtaUrl({ to: '237670000000', body: 'x' }), /non-empty url/);
 });
 
+test('WhatsAppCloudClient sendProductList builds a product_list interactive payload with sections', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    return { ok: true, status: 200, json: async () => ({ messages: [{ id: 'wamid.mpm' }] }) };
+  };
+
+  const client = new WhatsAppCloudClient({
+    accessToken: 'token',
+    phoneNumberId: '123',
+    fetchImpl
+  });
+
+  await client.sendProductList({
+    to: '237670000000',
+    catalogId: '1678073176620294',
+    header: 'Shop Online',
+    body: 'Browse our groceries',
+    footer: 'Tap the cart icon to check out',
+    sections: [
+      { title: 'Beans & Nuts', productRetailerIds: ['haricot_rouge_1kg', 'arachide_blanche_1kg'] },
+      { title: 'Dried Leaves', productRetailerIds: ['ndole_250g'] }
+    ]
+  });
+
+  const payload = JSON.parse(calls[0].init.body);
+  assert.equal(payload.messaging_product, 'whatsapp');
+  assert.equal(payload.type, 'interactive');
+  assert.equal(payload.interactive.type, 'product_list');
+  assert.deepEqual(payload.interactive.header, { type: 'text', text: 'Shop Online' });
+  assert.equal(payload.interactive.body.text, 'Browse our groceries');
+  assert.equal(payload.interactive.footer.text, 'Tap the cart icon to check out');
+  assert.deepEqual(payload.interactive.action, {
+    catalog_id: '1678073176620294',
+    sections: [
+      { title: 'Beans & Nuts', product_items: [{ product_retailer_id: 'haricot_rouge_1kg' }, { product_retailer_id: 'arachide_blanche_1kg' }] },
+      { title: 'Dried Leaves', product_items: [{ product_retailer_id: 'ndole_250g' }] }
+    ]
+  });
+});
+
+test('WhatsAppCloudClient sendProductList omits header/footer when not provided', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  const client = new WhatsAppCloudClient({ accessToken: 'token', phoneNumberId: '123', fetchImpl });
+
+  await client.sendProductList({
+    to: '237670000000',
+    catalogId: 'cat_1',
+    body: 'Browse',
+    sections: [{ title: 'Only Section', productRetailerIds: ['p1'] }]
+  });
+
+  const payload = JSON.parse(calls[0].init.body);
+  assert.equal(payload.interactive.header, undefined);
+  assert.equal(payload.interactive.footer, undefined);
+});
+
+test('WhatsAppCloudClient sendProductList drops a section with no valid product items', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  const client = new WhatsAppCloudClient({ accessToken: 'token', phoneNumberId: '123', fetchImpl });
+
+  await client.sendProductList({
+    to: '237670000000',
+    catalogId: 'cat_1',
+    body: 'Browse',
+    sections: [
+      { title: 'Empty Section', productRetailerIds: [] },
+      { title: 'Real Section', productRetailerIds: ['p1'] }
+    ]
+  });
+
+  const payload = JSON.parse(calls[0].init.body);
+  assert.equal(payload.interactive.action.sections.length, 1);
+  assert.equal(payload.interactive.action.sections[0].title, 'Real Section');
+});
+
+test('WhatsAppCloudClient sendProductList rejects a missing catalogId', async () => {
+  const client = new WhatsAppCloudClient({
+    accessToken: 'token',
+    phoneNumberId: '123',
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) })
+  });
+
+  await assert.rejects(
+    () => client.sendProductList({ to: '237670000000', body: 'x', sections: [{ title: 'A', productRetailerIds: ['p1'] }] }),
+    /non-empty catalogId/
+  );
+});
+
+test('WhatsAppCloudClient sendProductList rejects when no section has any valid items', async () => {
+  const client = new WhatsAppCloudClient({
+    accessToken: 'token',
+    phoneNumberId: '123',
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) })
+  });
+
+  await assert.rejects(
+    () => client.sendProductList({ to: '237670000000', catalogId: 'cat_1', body: 'x', sections: [] }),
+    /at least one non-empty section/
+  );
+});
+
+test('WhatsAppCloudClient sendProductList rejects more than 30 total product items', async () => {
+  const client = new WhatsAppCloudClient({
+    accessToken: 'token',
+    phoneNumberId: '123',
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) })
+  });
+
+  const tooManyIds = Array.from({ length: 31 }, (_, i) => `p${i}`);
+
+  await assert.rejects(
+    () =>
+      client.sendProductList({
+        to: '237670000000',
+        catalogId: 'cat_1',
+        body: 'x',
+        sections: [{ title: 'Huge Section', productRetailerIds: tooManyIds }]
+      }),
+    /at most 30 total product items/
+  );
+});
+
 test('WhatsAppCloudClient uploadMedia downloads the image and uploads it to Meta, returning the media id', async () => {
   const calls = [];
   const fetchImpl = async (url, init) => {

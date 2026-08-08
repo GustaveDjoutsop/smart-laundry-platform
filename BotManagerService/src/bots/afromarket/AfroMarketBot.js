@@ -1,11 +1,12 @@
 const { ConfigBot } = require('../base/ConfigBot');
-const { AfroMarketFlowPlugin, buildOrderConfirmationText } = require('./afromarketFlowPlugin');
+const { AfroMarketFlowPlugin, buildOrderConfirmationText, findProduct } = require('./afromarketFlowPlugin');
 const { redisManager } = require('../../core/redisManager');
 const { paymentEvents } = require('../../core/payments/paymentEvents');
 const { CustomerProfileStore } = require('../../core/customers/customerProfileStore');
 const { InvoiceRecordStore } = require('../../core/invoices/invoiceRecordStore');
 const { DeletionRequestLogStore } = require('../../core/customers/deletionRequestLogStore');
 const { DeletionRequestService } = require('../../core/customers/deletionRequestService');
+const { getAppConfig } = require('../../core/appConfig');
 const { logger } = require('../../utils/logger');
 
 // Matches datenloeschung.html's promised keywords, plus French since Cameroon
@@ -63,13 +64,125 @@ class AfroMarketBot extends ConfigBot {
     }
   }
 
-  // Global intercept ahead of normal flow dispatch: a customer mid-checkout
-  // should still be able to trigger erasure, not just from the main menu.
+  // Global intercepts ahead of normal flow dispatch, checked in order:
+  // 1. A native cart submission (WhatsApp's own inbound `type: "order"`
+  //    message) - the one deterministic "customer wants to buy this" signal
+  //    in the system (see afromarket-catalog-cart-migration-todo.md Phase 3).
+  // 2. Erasure - a customer mid-checkout should still be able to trigger it,
+  //    not just from the main menu.
   async handleMessage({ from, message }) {
+    if (message && message.type === 'order') {
+      const handledByOrder = await this._handleNativeOrder({ from, message });
+      if (handledByOrder) return;
+    }
+
     const handledByErasure = await this._handleErasureIntercept({ from, message });
     if (handledByErasure) return;
 
     return super.handleMessage({ from, message });
+  }
+
+  // Native WhatsApp cart submissions arrive as an inbound `type: "order"`
+  // message carrying catalog_id + a list of product_retailer_id/quantity/
+  // item_price lines - this replaces the old manual "Add to Cart" flow as
+  // the way `context.cart` gets populated, but reuses everything downstream
+  // of it (address collection, _handleCheckout, Stripe metadata.cart,
+  // _recordOrder) unchanged.
+  async _handleNativeOrder({ from, message }) {
+    const order = message && message.order ? message.order : null;
+    const items = Array.isArray(order?.product_items) ? order.product_items : [];
+    if (!order || !items.length) return false;
+
+    const botId = this.config && this.config.botId ? this.config.botId : 'afromarket';
+    const cart = [];
+    const unknownRetailerIds = [];
+
+    for (const item of items) {
+      const retailerId = String(item?.product_retailer_id || '').trim();
+      if (!retailerId) continue;
+
+      // Security requirement, not optional: never trust item.item_price/
+      // item.currency from the webhook as authoritative - the customer's
+      // WhatsApp app can be showing a stale cached catalog snapshot. Always
+      // recompute from the current products config, the same source of
+      // truth the (now-legacy) manual add-to-cart flow already used.
+      const product = findProduct(this.config, retailerId);
+      if (!product) {
+        unknownRetailerIds.push(retailerId);
+        continue;
+      }
+
+      const quantity = Math.max(1, Math.trunc(Number(item?.quantity)) || 1);
+      const existingLine = cart.find((line) => line.productId === product.id);
+      if (existingLine) {
+        existingLine.qty += quantity;
+      } else {
+        cart.push({ productId: product.id, name: product.name, unitPrice: Number(product.priceEur) || 0, unit: product.unit, qty: quantity });
+      }
+    }
+
+    if (unknownRetailerIds.length) {
+      logger.warn('AfroMarket: order webhook referenced unknown product_retailer_id(s), skipping those lines', {
+        botId,
+        from,
+        unknownRetailerIds
+      });
+      await this._notifyAdmin(
+        `⚠️ AfroMarket order from ${from} referenced unknown product(s): ${unknownRetailerIds.join(', ')}. Those lines were skipped; the rest of the order (if any) was processed normally.`
+      );
+    }
+
+    if (!cart.length) {
+      await this.sendIntent({
+        type: 'text',
+        to: from,
+        body:
+          "⚠️ We couldn't recognise any of the items in your cart - the catalog may have changed since you added them. " +
+          'Please browse again and add your items fresh.'
+      });
+      return true;
+    }
+
+    // Hand off at the exact point the old manual "View Cart" -> "Checkout"
+    // button did: land on checkout_start with the cart already populated, so
+    // _handleCheckoutStart's saved-address lookup and everything after it
+    // runs completely unchanged.
+    const appConfig = getAppConfig();
+    const conversationKey = `conv:${botId}:${from}`;
+    const existingSerializedState = await redisManager.get(conversationKey);
+    const conversationState = existingSerializedState
+      ? JSON.parse(existingSerializedState)
+      : { currentFlowId: null, currentStateId: null, context: {} };
+
+    // defaultFlowId over a hardcoded 'main_menu' literal, so this doesn't
+    // silently break if afromarket.bot.json's flow id ever changes -
+    // 'main_menu' only remains as the fallback flowEngine.js itself falls
+    // back to when no defaultFlowId is configured.
+    conversationState.currentFlowId = this.config.defaultFlowId || 'main_menu';
+    conversationState.currentStateId = 'checkout_start';
+    conversationState.context = conversationState.context || {};
+    conversationState.context.cart = cart;
+
+    await redisManager.setex(conversationKey, appConfig.redis.ttlSeconds, JSON.stringify(conversationState));
+
+    await super.handleMessage({ from, message });
+    return true;
+  }
+
+  // Best-effort only for now: AFROMARKET_ADMIN_PHONE is optional and unset
+  // by default. Full admin notification (sender-restricted intercept,
+  // configured admin number, etc.) is the separate feature specified in
+  // afromarket-delivery-notifications-todo.md - this just reuses its number
+  // once that lands, rather than building it here.
+  async _notifyAdmin(text) {
+    const adminPhone = String(process.env.AFROMARKET_ADMIN_PHONE || '').trim();
+    if (!adminPhone) return;
+
+    try {
+      await this.whatsapp.sendText({ to: adminPhone, body: text });
+    } catch (err) {
+      logger.error('AfroMarket: failed to notify admin', err && err.message ? err.message : String(err));
+    }
   }
 
   async _handleErasureIntercept({ from, message }) {
