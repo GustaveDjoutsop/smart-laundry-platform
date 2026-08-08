@@ -1,0 +1,44 @@
+name: BotManagerService — CI/CD
+
+on:
+  push:
+    branches: [master, develop]
+    paths:
+      - 'BotManagerService/**'
+      - '.github/workflows/botmanagerservice.yml'
+  pull_request:
+    branches: [master, develop]
+    paths:
+      - 'BotManagerService/**'
+      - '.github/workflows/botmanagerservice.yml'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: BotManagerService
+
+jobs:
+  # ── 1. Build & test ──────────────────────────────────────────────────────────
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: BotManagerService/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+  # Deployment to Railway (dev/production) is handled by Railway's native
+  # GitHub integration (auto-deploys on push, per environment settings) - no
+  # deploy step here, matching the other services' workflows in this repo.
