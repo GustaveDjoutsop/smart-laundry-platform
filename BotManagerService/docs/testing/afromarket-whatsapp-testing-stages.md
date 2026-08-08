@@ -95,10 +95,10 @@ Railway env vars for that environment if it matters.**
   own Verify Token (curl-verify it too — it is a **third, distinct** token
   value from both the PR's and production's).
 - Confirm `dev`'s own env vars have whatever the feature needs
-  (`AFROMARKET_NATIVE_CATALOG_ENABLED`, `AFROMARKET_CATALOG_ID`,
-  `AFROMARKET_PHONE_NUMBER`, etc.) — these do not carry over from a PR
-  environment or from `master` merging; they're set per-environment in
-  Railway directly.
+  (`AFROMARKET_NATIVE_CATALOG_ENABLED`, `AFROMARKET_CATALOG_ID`, and
+  optionally `AFROMARKET_ADMIN_PHONE` for the unknown-product admin
+  notify) — these do not carry over from a PR environment or from
+  `master` merging; they're set per-environment in Railway directly.
 - Message the **Test WhatsApp Business Account** number.
 - **Revert the Callback URL back to production immediately after.**
 
@@ -125,7 +125,8 @@ Railway env vars for that environment if it matters.**
 
 ## Mandatory revert-to-production checklist (do this after every test)
 
-1. Repoint Callback URL back to `https://bot.botmanagementservice.eu/...`.
+1. Repoint Callback URL back to
+   `https://bot.botmanagementservice.eu/api/whatsapp/webhook`.
 2. Paste back production's Verify Token (curl-verify it one more time
    against the production URL after saving, to confirm Meta accepted it —
    don't just trust the save dialog).
