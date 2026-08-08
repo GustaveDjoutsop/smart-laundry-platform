@@ -253,6 +253,78 @@ class WhatsAppCloudClient {
     return this._postWithRetry(messagesUrl, payload);
   }
 
+  // Multi-product message (MPM) - browsable product cards backed by a Meta
+  // Commerce Catalog, grouped into sections. This is the native replacement
+  // for a hand-built "Choose Category"/"Choose Item" list flow; the cart that
+  // results from it is entirely client-side (WhatsApp's own UI), not
+  // anything this bot renders.
+  async sendProductList({ to, catalogId, header, body, footer, sections } = {}) {
+    if (!this.isConfigured()) {
+      throw new Error('WhatsApp client not configured (missing accessToken/phoneNumberId)');
+    }
+
+    const safeCatalogId = String(catalogId || '').trim();
+    if (!safeCatalogId) {
+      throw new Error('sendProductList requires a non-empty catalogId');
+    }
+
+    const safeSections = Array.isArray(sections) ? sections : [];
+    const normalizedSections = safeSections
+      .map((section) => {
+        const title = String(section?.title || '').trim();
+        const retailerIds = Array.isArray(section?.productRetailerIds) ? section.productRetailerIds : [];
+        const productItems = retailerIds
+          .map((id) => String(id || '').trim())
+          .filter(Boolean)
+          .map((id) => ({ product_retailer_id: id }));
+
+        if (!title || productItems.length === 0) return null;
+        return { title, product_items: productItems };
+      })
+      .filter(Boolean)
+      // Same section-count cap as sendList's interactive list message.
+      .slice(0, 10);
+
+    if (!normalizedSections.length) {
+      throw new Error('sendProductList requires at least one non-empty section');
+    }
+
+    // Meta caps a product_list message at 30 total items across all sections.
+    const totalItems = normalizedSections.reduce((sum, section) => sum + section.product_items.length, 0);
+    if (totalItems > 30) {
+      throw new Error(`sendProductList supports at most 30 total product items, got ${totalItems}`);
+    }
+
+    const url = buildMessagesUrl({
+      apiBase: this.apiBase,
+      apiVersion: this.apiVersion,
+      phoneNumberId: this.phoneNumberId
+    });
+
+    // Interactive header/footer text share the same 60-character cap as
+    // sendCtaUrl's footer above.
+    const headerText = utf16SliceSafe(String(header || ''), 60).trim();
+    const footerText = utf16SliceSafe(String(footer || ''), 60).trim();
+
+    const payload = {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'product_list',
+        ...(headerText ? { header: { type: 'text', text: headerText } } : {}),
+        body: { text: String(body || '') },
+        ...(footerText ? { footer: { text: footerText } } : {}),
+        action: {
+          catalog_id: safeCatalogId,
+          sections: normalizedSections
+        }
+      }
+    };
+
+    return this._postWithRetry(url, payload);
+  }
+
   // Carousel template headers reference an uploaded media id, not a public URL
   // (unlike sendImage/sendButtons' image headers) - download the asset and
   // re-upload it to Meta's Media API to get that id.

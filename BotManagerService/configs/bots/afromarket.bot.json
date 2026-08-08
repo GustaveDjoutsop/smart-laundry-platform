@@ -50,7 +50,7 @@
           "params": {
             "from": "mainChoice",
             "map": {
-              "shop_online": "groceries_categories",
+              "shop_online": "shop_entry",
               "recipes": "recipes_hub",
               "current_promo": "current_promo",
               "afro_restaurant": "afro_restaurant_list",
@@ -59,6 +59,12 @@
             },
             "default": "welcome"
           }
+        },
+
+        {
+          "id": "shop_entry",
+          "type": "action",
+          "action": "shop.enter"
         },
 
         {
@@ -194,7 +200,7 @@
             "from": "cartViewChoice",
             "map": {
               "start_checkout": "checkout_start",
-              "continue_shopping": "groceries_categories",
+              "continue_shopping": "shop_entry",
               "menu": "welcome"
             },
             "default": "welcome"
@@ -275,7 +281,7 @@
           "params": {
             "from": "orderConfirmedChoice",
             "map": {
-              "shop_again": "groceries_categories",
+              "shop_again": "shop_entry",
               "menu": "welcome"
             },
             "default": "welcome"
@@ -439,7 +445,7 @@
           "params": {
             "from": "tipsFollowChoice",
             "map": {
-              "shop_online": "groceries_categories",
+              "shop_online": "shop_entry",
               "browse_recipes": "recipe_ndole",
               "menu": "welcome"
             },
@@ -466,7 +472,7 @@
           "params": {
             "from": "promoChoice",
             "map": {
-              "shop_online": "groceries_categories",
+              "shop_online": "shop_entry",
               "recipes": "recipes_hub",
               "menu": "welcome"
             },
@@ -530,7 +536,7 @@
           "params": {
             "from": "storeFollowChoice",
             "map": {
-              "shop_online": "groceries_categories",
+              "shop_online": "shop_entry",
               "partner_stores": "partner_stores_list",
               "menu": "welcome"
             },

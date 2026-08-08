@@ -14,6 +14,40 @@ function findProduct(botConfig, productId) {
   return products.find((p) => p && p.id === productId) || null;
 }
 
+// Ships disabled by default (per afromarket-catalog-cart-migration-todo.md's
+// rollout strategy) - deliberately its own flag rather than reusing
+// isProductionEnv()/hideInProd from flowEngine.js, since that helper's
+// *unset* default is "not production" (dev), which is the opposite polarity
+// of "off unless explicitly turned on". Read fresh per call (not cached at
+// require-time) so it's tunable per Railway environment without a code
+// change, matching the CAROUSEL_FOOTER_DELAY_MS/LAUDRY_OPEN_HOUR convention.
+function isNativeCatalogEnabled() {
+  return String(process.env.AFROMARKET_NATIVE_CATALOG_ENABLED || '').trim().toLowerCase() === 'true';
+}
+
+// Mirrors the section titles already used in afromarket.bot.json's
+// "groceries_categories" list state - kept as a small local map rather than
+// read back out of the JSON config, since it's just the two category labels
+// for this one bot. Update alongside bot.json if categories ever change.
+const CATEGORY_TITLES = {
+  beans_nuts: '🫘 Beans & Nuts',
+  leaves: '🌿 Dried Leaves'
+};
+
+function buildNativeCatalogSections(botConfig) {
+  const products = Array.isArray(botConfig.products) ? botConfig.products : [];
+  const sectionsByCategory = new Map();
+
+  for (const product of products) {
+    if (!product || !product.id || !product.category) continue;
+    const title = CATEGORY_TITLES[product.category] || product.category;
+    if (!sectionsByCategory.has(title)) sectionsByCategory.set(title, []);
+    sectionsByCategory.get(title).push(product.id);
+  }
+
+  return Array.from(sectionsByCategory.entries()).map(([title, productRetailerIds]) => ({ title, productRetailerIds }));
+}
+
 function addProductToCart(cart, product) {
   const existing = cart.find((line) => line.productId === product.id);
   if (existing) {
@@ -157,6 +191,10 @@ class AfroMarketFlowPlugin extends FlowPlugin {
   }
 
   async handleAction(ctx, { action }) {
+    if (action === 'shop.enter') {
+      return this._handleShopEntry(ctx);
+    }
+
     if (action === 'products.route') {
       return this._handleProductAction(ctx);
     }
@@ -178,6 +216,51 @@ class AfroMarketFlowPlugin extends FlowPlugin {
     }
 
     return false;
+  }
+
+  // Gate between the legacy manual "Choose Category"/"Choose Item" flow and
+  // Meta's native product_list (MPM) message - see
+  // afromarket-catalog-cart-migration-todo.md Phase 2. Every "browse
+  // groceries" entry point in bot.json routes to this state now instead of
+  // straight to groceries_categories, so flipping the flag changes behavior
+  // everywhere at once rather than per-entry-point.
+  async _handleShopEntry(ctx) {
+    if (!isNativeCatalogEnabled()) {
+      ctx.goto('groceries_categories');
+      return true;
+    }
+
+    const catalogId = String(process.env.AFROMARKET_CATALOG_ID || '').trim();
+    if (!catalogId) {
+      logger.warn('AfroMarket: AFROMARKET_NATIVE_CATALOG_ENABLED is true but AFROMARKET_CATALOG_ID is not set - falling back to legacy shop flow');
+      ctx.goto('groceries_categories');
+      return true;
+    }
+
+    const sections = buildNativeCatalogSections(this.botConfig);
+    if (!sections.length) {
+      logger.warn('AfroMarket: no products with a category found for native catalog sections - falling back to legacy shop flow');
+      ctx.goto('groceries_categories');
+      return true;
+    }
+
+    await ctx.send({
+      type: 'product_list',
+      to: ctx.from,
+      catalogId,
+      header: '🛒 Shop Online',
+      body: 'Browse our African grocery categories - tap a product to see details, or add it straight to your cart!',
+      footer: 'Tap the cart icon when you’re ready to check out.',
+      sections
+    });
+
+    // Nothing further to render - the customer now browses/builds their cart
+    // entirely in WhatsApp's own UI. Their next message back to the bot is
+    // either an unrelated one (handled normally from "welcome") or a
+    // submitted order, which AfroMarketBot's handleMessage intercepts before
+    // flow dispatch (Phase 3) rather than anything reachable from here.
+    ctx.goto('welcome');
+    return true;
   }
 
   _handleProductAction(ctx) {
@@ -465,4 +548,13 @@ class AfroMarketFlowPlugin extends FlowPlugin {
   }
 }
 
-module.exports = { AfroMarketFlowPlugin, formatEuro, buildCartSummaryText, generateOrderNumber, buildOrderConfirmationText };
+module.exports = {
+  AfroMarketFlowPlugin,
+  formatEuro,
+  buildCartSummaryText,
+  generateOrderNumber,
+  buildOrderConfirmationText,
+  findProduct,
+  isNativeCatalogEnabled,
+  buildNativeCatalogSections
+};
