@@ -254,11 +254,20 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       sections
     });
 
-    // Nothing further to render - the customer now browses/builds their cart
-    // entirely in WhatsApp's own UI. Their next message back to the bot is
-    // either an unrelated one (handled normally from "welcome") or a
-    // submitted order, which AfroMarketBot's handleMessage intercepts before
-    // flow dispatch (Phase 3) rather than anything reachable from here.
+    // Landing state for whatever the customer sends next - not "nothing to
+    // render": goto'ing an action state continues this same engine turn (see
+    // flowEngine.js's step() loop), so the welcome list actually renders and
+    // sends right behind the product_list above, as one two-message turn.
+    // That's a deliberate, tested tradeoff (see the "sends a native
+    // product_list message... " test) rather than an oversight - the
+    // alternative (landing on shop_entry itself with no goto) would leave
+    // the customer stuck re-triggering this same catalog send on every
+    // subsequent message instead of returning to normal menu handling.
+    // Revisit if the double message reads as redundant in practice.
+    // Either way, their real next move - browsing/adding to cart - happens
+    // entirely in WhatsApp's own UI; a submitted order arrives as an inbound
+    // `type: "order"` message that AfroMarketBot.handleMessage intercepts
+    // before flow dispatch (Phase 3), not anything reachable from here.
     ctx.goto('welcome');
     return true;
   }
