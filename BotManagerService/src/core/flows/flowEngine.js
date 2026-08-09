@@ -8,14 +8,26 @@ const { logger } = require('../../utils/logger');
 // this pause, the footer buttons message (sent right after) reliably races
 // ahead and displays before the carousel, even though we sent it second.
 //
-// Confirmed the same race applies to the vertical cards fallback below (not
-// just the native carousel template): each item card also carries an image
-// (`image: item.image`), and a live WhatsApp session showed the plain-text
-// footer ("More options: Main Menu") rendering *before* the intro text and
-// item cards it was sent after - same cause, just more opportunities for it
-// (N image-bearing sends ahead of the footer instead of one). Reused here
-// rather than adding a second delay/env var, since it's the same underlying
-// problem with the same fix.
+// The default here was 2500ms until a live WhatsApp test on the real
+// afromarket_partner_stores_v1 carousel template (3 cards) showed the
+// footer ("More options: Main Menu") still rendering *before* the carousel
+// despite that delay already being in place and firing correctly
+// server-side (confirmed via Railway deploy logs - no
+// "carousel template send failed" fallback log, so this was genuinely the
+// carouselSent=true path, not the vertical items[] fallback below). 2.5s
+// simply wasn't long enough for Meta's own async template assembly in
+// practice; bumped to 6000ms. This is still a heuristic, not a guarantee -
+// Meta's own delivery timing isn't in our control, so a slow enough network
+// could still race past even this. A fully deterministic fix would need to
+// key off WhatsApp's own delivery-status webhooks for the carousel message
+// before sending the footer, which is a meaningfully bigger change than
+// tuning this constant - not done here.
+//
+// Reused (not a second delay/env var) for the vertical cards fallback
+// further below too: each item card also carries an image
+// (`image: item.image`), so the same race applies there for the same
+// reason, just with more image-bearing sends ahead of the footer instead
+// of one.
 //
 // Inbound messages are processed one at a time by QueueManager's single
 // drain loop (see whatsappHandler.js/queueManager.js), so this delay stalls
@@ -24,7 +36,16 @@ const { logger } = require('../../utils/logger');
 // code change, matching the LAUDRY_OPEN_HOUR/LAUDRY_CLOSE_HOUR convention
 // in laundryFlowPlugin.js.
 function getCarouselFooterDelayMs() {
-  return Number(process.env.CAROUSEL_FOOTER_DELAY_MS || 2500);
+  const raw = process.env.CAROUSEL_FOOTER_DELAY_MS;
+  if (!raw) return 6000;
+
+  // A malformed value (e.g. an accidental "6000ms" unit suffix, or
+  // whitespace, in a Railway env var) must never silently become NaN -
+  // setTimeout(fn, NaN) behaves like setTimeout(fn, 0), which would
+  // silently disable the very race-condition guard this delay exists for.
+  // Falls back to the default rather than defaulting to "off".
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 6000;
 }
 
 // CONFIG_ENV is already set per Railway environment (see appConfig.js) -
@@ -867,4 +888,4 @@ class FlowEngine {
   }
 }
 
-module.exports = { FlowEngine, validateFlowConfig };
+module.exports = { FlowEngine, validateFlowConfig, getCarouselFooterDelayMs };

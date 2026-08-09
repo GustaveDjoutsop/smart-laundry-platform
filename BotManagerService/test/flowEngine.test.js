@@ -1,7 +1,62 @@
+// getCarouselFooterDelayMs() defaults to 6000ms in production (see
+// flowEngine.js's comment on why) - none of these tests assert on actual
+// wall-clock timing, only send order/content, so there's nothing to gain
+// from eating that delay for real on every run. Set before requiring
+// flowEngine.js since the value is read fresh per call, not cached.
+process.env.CAROUSEL_FOOTER_DELAY_MS = '0';
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { FlowEngine } = require('../src/core/flows/flowEngine');
+const { FlowEngine, getCarouselFooterDelayMs } = require('../src/core/flows/flowEngine');
+
+function withCarouselFooterDelayMsEnv(rawValue, fn) {
+  const original = process.env.CAROUSEL_FOOTER_DELAY_MS;
+  if (rawValue === undefined) delete process.env.CAROUSEL_FOOTER_DELAY_MS;
+  else process.env.CAROUSEL_FOOTER_DELAY_MS = rawValue;
+
+  try {
+    fn();
+  } finally {
+    // Every other test in this file relies on this staying '0' for speed
+    // (see the file-level comment above) - always restore it, success or not.
+    if (original === undefined) delete process.env.CAROUSEL_FOOTER_DELAY_MS;
+    else process.env.CAROUSEL_FOOTER_DELAY_MS = original;
+  }
+}
+
+test('getCarouselFooterDelayMs falls back to the 6000ms default when the env var is unset', () => {
+  withCarouselFooterDelayMsEnv(undefined, () => {
+    assert.equal(getCarouselFooterDelayMs(), 6000);
+  });
+});
+
+test('getCarouselFooterDelayMs reads a valid numeric env var, including 0', () => {
+  withCarouselFooterDelayMsEnv('1234', () => {
+    assert.equal(getCarouselFooterDelayMs(), 1234);
+  });
+  withCarouselFooterDelayMsEnv('0', () => {
+    assert.equal(getCarouselFooterDelayMs(), 0);
+  });
+});
+
+test('getCarouselFooterDelayMs falls back to the default on a malformed value instead of NaN', () => {
+  // A malformed value must never reach setTimeout as NaN - setTimeout(fn,
+  // NaN) behaves like setTimeout(fn, 0), silently disabling the delay this
+  // function exists to provide. Note Number('   ') is a genuine JS quirk
+  // that coerces to 0, not NaN - that's a different, already-legitimate
+  // "explicitly disable" value (see the '0' case above), not something
+  // this guard needs to catch.
+  withCarouselFooterDelayMsEnv('6000ms', () => {
+    assert.equal(getCarouselFooterDelayMs(), 6000);
+  });
+});
+
+test('getCarouselFooterDelayMs falls back to the default on a negative value', () => {
+  withCarouselFooterDelayMsEnv('-100', () => {
+    assert.equal(getCarouselFooterDelayMs(), 6000);
+  });
+});
 
 test('FlowEngine runs message state and advances', async () => {
   const botConfig = {

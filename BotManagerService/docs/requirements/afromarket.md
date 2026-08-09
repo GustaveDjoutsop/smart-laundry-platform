@@ -31,14 +31,35 @@ already documented for the native-carousel-template path in the same file
 send() only means Meta accepted the call, actual on-device delivery is
 async and slower for image-bearing messages, so a lighter footer sent right
 after can race ahead and display first - it just wasn't guarded for the
-*vertical fallback* rendering path (individual per-store card bubbles,
-which is what's actually showing right now - see the carouselTemplate
-branch's own comment for when the real native carousel would be used
-instead). Fixed by reusing the same `CAROUSEL_FOOTER_DELAY_MS` pause before
+*vertical fallback* rendering path (individual per-store card bubbles;
+**see the correction below - this turned out not to be what was actually
+rendering for this customer**). Fixed by reusing the same `CAROUSEL_FOOTER_DELAY_MS` pause before
 the fallback path's footer send too - unconditionally, since
 `validateFlowConfig` already guarantees every `cards` item carries an
 image, so there's always at least one image-bearing send ahead of that
 footer by the time this code runs.
+
+**Correction, same day**: the fix above was real but incomplete - re-tested
+live after it deployed and the footer was *still* rendering before the
+cards. Checked Railway's deploy logs for the actual test: no "carousel
+template send failed" line appears, meaning `carouselSent` was `true` -
+this customer's Partner Stores screen has always been rendering via the
+real, Meta-approved `afromarket_partner_stores_v1` template (confirmed by
+the live text itself: WhatsApp showed the template's own approved body
+copy, substituted with `bodyParams: ["there"]` from `carouselTemplate` in
+`afromarket.bot.json` - text that was never in this repo at all, hence
+turning up nothing in `git log -S`). So the actual race was in the
+carousel-template branch's *pre-existing* delay, not (only) the vertical
+fallback fixed above - and that pre-existing 2500ms default just wasn't
+long enough for Meta's own async template assembly in practice. Bumped
+`getCarouselFooterDelayMs`'s default to 6000ms. Still a heuristic, not a
+guarantee - see the updated comment in `flowEngine.js` for why a fully
+deterministic fix would need to key off WhatsApp's delivery-status
+webhooks instead, which wasn't done here. Also set
+`CAROUSEL_FOOTER_DELAY_MS=0` in `flowEngine.test.js`/`afromarketFlow.test.js`
+so the higher default (2500ms → 6000ms, ~2.4x) doesn't inflate the test
+suite's wall-clock time - none of them assert on actual timing, only send
+order/content.
 
 ## v2.7 (2026-08-09): two live bugs fixed - duplicate welcome menu after "Shop online", rigid checkout format - plus email now persisted
 
