@@ -14,14 +14,17 @@ and silently falling back to the fresh-details flow - which is exactly what
 a customer saw on their second order: asked for name/address again despite
 a successful first purchase. Not a code bug; a deployment-step bug. Fixed by
 actually running `migrations/003_add_customer_profile_email.sql` against the
-live `botmanagerservice` Supabase project. **Lesson: "not yet applied" in a
+`botmanagerservice` Supabase project (this service's `dev`-environment
+database - not verified whether production shares the same project or has
+its own; confirm the actual `DATABASE_URL` per Railway environment before
+assuming either way). **Lesson: "not yet applied" in a
 PR description is not the same as tracking it as a real follow-up task** -
 this one slipped through.
 
 **Partner Stores' fallback footer was rendering before its own cards.** A
 live WhatsApp session showed "More options: Main Menu" arriving *before*
 the intro text and the three store cards it was sent after, even though
-`_flowEngine.js`'s `cards`-state handler sends them in the correct
+`flowEngine.js`'s `cards`-state handler sends them in the correct
 intro → items → footer order, each awaited sequentially. Same root cause
 already documented for the native-carousel-template path in the same file
 (`getCarouselFooterDelayMs`'s comment): a successful WhatsApp Cloud API
