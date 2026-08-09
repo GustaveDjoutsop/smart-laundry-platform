@@ -7,6 +7,16 @@ const { logger } = require('../../utils/logger');
 // is measurably slower than a plain interactive buttons message. Without
 // this pause, the footer buttons message (sent right after) reliably races
 // ahead and displays before the carousel, even though we sent it second.
+//
+// Confirmed the same race applies to the vertical cards fallback below (not
+// just the native carousel template): each item card also carries an image
+// (`image: item.image`), and a live WhatsApp session showed the plain-text
+// footer ("More options: Main Menu") rendering *before* the intro text and
+// item cards it was sent after - same cause, just more opportunities for it
+// (N image-bearing sends ahead of the footer instead of one). Reused here
+// rather than adding a second delay/env var, since it's the same underlying
+// problem with the same fix.
+//
 // Inbound messages are processed one at a time by QueueManager's single
 // drain loop (see whatsappHandler.js/queueManager.js), so this delay stalls
 // every other pending message for its duration - read fresh (not cached at
@@ -696,6 +706,14 @@ class FlowEngine {
           }
 
           if (Array.isArray(stateDefinition.footerButtons) && stateDefinition.footerButtons.length) {
+            // Same image-send race the carousel path guards against above -
+            // see getCarouselFooterDelayMs's comment. Unconditional here
+            // (not "only if an item had an image"): validateFlowConfig
+            // requires every 'cards' state to have a non-empty items[] where
+            // every item carries a non-empty image, so by the time a
+            // stateDefinition reaches this code, at least one image-bearing
+            // send has always already gone out ahead of this footer.
+            await sleep(getCarouselFooterDelayMs());
             await trySend({
               type: 'buttons',
               to: from,
