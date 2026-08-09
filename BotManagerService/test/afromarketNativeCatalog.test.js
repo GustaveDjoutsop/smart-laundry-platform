@@ -121,7 +121,7 @@ test('shop_entry falls back to the legacy category list when the native catalog 
   }
 });
 
-test('shop_entry sends a native product_list message and returns to welcome when the flag is on', async () => {
+test('shop_entry sends only the native product_list message (no immediate second "welcome" message) when the flag is on', async () => {
   const originalFlag = process.env.AFROMARKET_NATIVE_CATALOG_ENABLED;
   const originalCatalogId = process.env.AFROMARKET_CATALOG_ID;
   process.env.AFROMARKET_NATIVE_CATALOG_ENABLED = 'true';
@@ -133,18 +133,111 @@ test('shop_entry sends a native product_list message and returns to welcome when
     await step(from, 'hi');
     const result = await step(from, 'shop_online');
 
-    // shop_entry's ctx.goto('welcome') continues the same turn straight into
-    // rendering the welcome list too (this engine always renders the state
-    // it just goto'd into, same as every other action handler in this
-    // plugin) - the product_list is the first of the two, and landing on
-    // 'welcome' is what matters for the *next* customer message to route
-    // normally instead of re-triggering shop.enter forever.
-    assert.equal(result.outboundIntents.length, 2);
+    // Regression test: shop_entry used to goto('welcome') directly, which
+    // continued the same engine turn straight into rendering the welcome
+    // list right behind the product_list - two messages in one turn, read
+    // by customers as the bot answering itself (see bug report). It now
+    // lands on the silent 'shop_landing' state instead, so only the
+    // product_list is sent this turn.
+    assert.equal(result.outboundIntents.length, 1);
     assert.equal(result.outboundIntents[0].type, 'product_list');
     assert.equal(result.outboundIntents[0].catalogId, 'cat_test_123');
     assert.equal(result.outboundIntents[0].sections.length, 2);
-    assert.equal(result.outboundIntents[1].type, 'list');
+    assert.equal(result.conversationState.currentStateId, 'shop_landing');
+  } finally {
+    if (originalFlag === undefined) delete process.env.AFROMARKET_NATIVE_CATALOG_ENABLED;
+    else process.env.AFROMARKET_NATIVE_CATALOG_ENABLED = originalFlag;
+    if (originalCatalogId === undefined) delete process.env.AFROMARKET_CATALOG_ID;
+    else process.env.AFROMARKET_CATALOG_ID = originalCatalogId;
+  }
+});
+
+test('shop_landing redirects to welcome on the customer\'s next message, without re-sending the product_list', async () => {
+  const originalFlag = process.env.AFROMARKET_NATIVE_CATALOG_ENABLED;
+  const originalCatalogId = process.env.AFROMARKET_CATALOG_ID;
+  process.env.AFROMARKET_NATIVE_CATALOG_ENABLED = 'true';
+  process.env.AFROMARKET_CATALOG_ID = 'cat_test_123';
+
+  try {
+    const step = createStepper();
+    const from = nextFrom();
+    await step(from, 'hi');
+    await step(from, 'shop_online');
+
+    // Whatever the customer sends next (here: plain free text, since a real
+    // order bypasses the flow engine entirely) lands on 'shop_landing' and
+    // is redirected to 'welcome' in this separate turn - exactly one
+    // 'welcome' list, no repeated product_list.
+    const result = await step(from, 'hello again');
+
+    assert.equal(result.outboundIntents.length, 1);
+    assert.equal(result.outboundIntents[0].type, 'list');
+    assert.match(result.outboundIntents[0].body, /Welcome to/);
     assert.equal(result.conversationState.currentStateId, 'welcome');
+  } finally {
+    if (originalFlag === undefined) delete process.env.AFROMARKET_NATIVE_CATALOG_ENABLED;
+    else process.env.AFROMARKET_NATIVE_CATALOG_ENABLED = originalFlag;
+    if (originalCatalogId === undefined) delete process.env.AFROMARKET_CATALOG_ID;
+    else process.env.AFROMARKET_CATALOG_ID = originalCatalogId;
+  }
+});
+
+test('shop_landing: a message matching a main_menu option (e.g. a stale button tap) routes straight there instead of re-rendering welcome first - deliberate, not a bug', async () => {
+  const originalFlag = process.env.AFROMARKET_NATIVE_CATALOG_ENABLED;
+  const originalCatalogId = process.env.AFROMARKET_CATALOG_ID;
+  process.env.AFROMARKET_NATIVE_CATALOG_ENABLED = 'true';
+  process.env.AFROMARKET_CATALOG_ID = 'cat_test_123';
+
+  try {
+    const step = createStepper();
+    const from = nextFrom();
+    await step(from, 'hi');
+    await step(from, 'shop_online');
+
+    // WhatsApp lets a customer tap an older, still-visible interactive
+    // button/list row at any time - normalizeInbound() turns that tap into
+    // literal text identical to the row's id (e.g. "recipes"). Landing on
+    // 'shop_landing' unarmed and receiving that exact text hands off to
+    // 'welcome' -> main_route with the same value main_route would have
+    // gotten from a live tap on welcome itself, so it routes directly to
+    // recipes_hub in one hop rather than re-showing the welcome menu first.
+    // Exactly one message goes out either way - see _handleShopLanding's
+    // comment for why this is intentional, not a reintroduction of the
+    // double-message bug.
+    const result = await step(from, 'recipes');
+
+    assert.equal(result.outboundIntents.length, 1);
+    assert.equal(result.outboundIntents[0].type, 'list');
+    assert.match(result.outboundIntents[0].body, /Recipe Ideas/);
+    assert.equal(result.conversationState.currentStateId, 'recipes_hub');
+  } finally {
+    if (originalFlag === undefined) delete process.env.AFROMARKET_NATIVE_CATALOG_ENABLED;
+    else process.env.AFROMARKET_NATIVE_CATALOG_ENABLED = originalFlag;
+    if (originalCatalogId === undefined) delete process.env.AFROMARKET_CATALOG_ID;
+    else process.env.AFROMARKET_CATALOG_ID = originalCatalogId;
+  }
+});
+
+test('shop_landing: a stale "shop_online" tap re-sends the catalog once and re-arms, without ever double-sending welcome', async () => {
+  const originalFlag = process.env.AFROMARKET_NATIVE_CATALOG_ENABLED;
+  const originalCatalogId = process.env.AFROMARKET_CATALOG_ID;
+  process.env.AFROMARKET_NATIVE_CATALOG_ENABLED = 'true';
+  process.env.AFROMARKET_CATALOG_ID = 'cat_test_123';
+
+  try {
+    const step = createStepper();
+    const from = nextFrom();
+    await step(from, 'hi');
+    await step(from, 'shop_online');
+
+    // Same collision as above, but with the "shop_online" id itself: routes
+    // back through shop_entry (re-sending the catalog, once) and re-arms
+    // shop_landing for the next round - still exactly one message this turn.
+    const result = await step(from, 'shop_online');
+
+    assert.equal(result.outboundIntents.length, 1);
+    assert.equal(result.outboundIntents[0].type, 'product_list');
+    assert.equal(result.conversationState.currentStateId, 'shop_landing');
   } finally {
     if (originalFlag === undefined) delete process.env.AFROMARKET_NATIVE_CATALOG_ENABLED;
     else process.env.AFROMARKET_NATIVE_CATALOG_ENABLED = originalFlag;

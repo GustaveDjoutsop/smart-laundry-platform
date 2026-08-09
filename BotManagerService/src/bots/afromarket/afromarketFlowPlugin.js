@@ -195,6 +195,10 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       return this._handleShopEntry(ctx);
     }
 
+    if (action === 'shop.landing') {
+      return this._handleShopLanding(ctx);
+    }
+
     if (action === 'products.route') {
       return this._handleProductAction(ctx);
     }
@@ -244,30 +248,95 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       return true;
     }
 
-    await ctx.send({
-      type: 'product_list',
-      to: ctx.from,
+    try {
+      await ctx.send({
+        type: 'product_list',
+        to: ctx.from,
+        catalogId,
+        header: '🛒 Shop Online',
+        body: 'Browse our African grocery categories - tap a product to see details, or add it straight to your cart!',
+        footer: 'Tap the cart icon when you’re ready to check out.',
+        sections
+      });
+    } catch (err) {
+      // No PII here on purpose (no ctx.from/name/address) - just enough to
+      // spot a broken catalogId or a Meta API outage from the logs alone,
+      // since a throw here also means the conversation state below never
+      // gets persisted (see ConfigBot.handleMessage) - the customer silently
+      // stays wherever they were before tapping "Shop online".
+      logger.error('AfroMarket: failed to send native product_list from shop_entry', {
+        catalogId,
+        sectionsCount: sections.length,
+        error: err && err.message ? err.message : String(err)
+      });
+      throw err;
+    }
+
+    logger.info('AfroMarket: shop_entry sent native product_list', {
       catalogId,
-      header: '🛒 Shop Online',
-      body: 'Browse our African grocery categories - tap a product to see details, or add it straight to your cart!',
-      footer: 'Tap the cart icon when you’re ready to check out.',
-      sections
+      sectionsCount: sections.length
     });
 
-    // Landing state for whatever the customer sends next - not "nothing to
-    // render": goto'ing an action state continues this same engine turn (see
-    // flowEngine.js's step() loop), so the welcome list actually renders and
-    // sends right behind the product_list above, as one two-message turn.
-    // That's a deliberate, tested tradeoff (see the "sends a native
-    // product_list message... " test) rather than an oversight - the
-    // alternative (landing on shop_entry itself with no goto) would leave
-    // the customer stuck re-triggering this same catalog send on every
-    // subsequent message instead of returning to normal menu handling.
-    // Revisit if the double message reads as redundant in practice.
-    // Either way, their real next move - browsing/adding to cart - happens
-    // entirely in WhatsApp's own UI; a submitted order arrives as an inbound
-    // `type: "order"` message that AfroMarketBot.handleMessage intercepts
-    // before flow dispatch (Phase 3), not anything reachable from here.
+    // Land on 'shop_landing' instead of 'welcome' directly - but note that
+    // ctx.goto() alone does NOT end this engine turn: flowEngine.js's step()
+    // loop only halts on an action state that neither goto's nor has a
+    // `next` (see its `if (!flowContext._didGoto && !stateDefinition.next)
+    // break;`). A plain goto('shop_landing') would still chain straight
+    // through shop_landing's own handler in this same turn, landing right
+    // back on 'welcome' and rendering its list message behind the
+    // product_list above - the exact two-messages-in-one-turn bug this is
+    // fixing (confirmed by a failing test before this flag was added).
+    // 'shopLandingArmed' is what actually breaks that chain: on this first,
+    // synchronous pass through shop_landing (armed), _handleShopLanding
+    // below deliberately does NOT goto anywhere, which - combined with
+    // shop_landing having no `next` in bot.json - is what makes the loop
+    // stop here for real, with only the product_list sent. The customer's
+    // next genuine inbound message re-enters shop_landing fresh (armed
+    // cleared), and *that* call goto's 'welcome' - see _handleShopLanding's
+    // comment for exactly what that does and doesn't guarantee. Their real
+    // next move - browsing/adding to cart - happens entirely in WhatsApp's
+    // own UI; a submitted order arrives as an inbound `type: "order"`
+    // message that AfroMarketBot.handleMessage intercepts before flow
+    // dispatch (Phase 3), not anything reachable from here.
+    ctx.set('shopLandingArmed', true);
+    ctx.goto('shop_landing');
+    return true;
+  }
+
+  // See the long comment in _handleShopEntry for why this needs the
+  // 'shopLandingArmed' flag rather than just always redirecting: this
+  // handler runs twice per catalog browse - once synchronously right after
+  // shop_entry (armed - stay silent, end the turn), and once on the
+  // customer's actual next message (not armed).
+  //
+  // The unarmed goto('welcome') is NOT a guaranteed re-render of the welcome
+  // menu - verified by tracing flowEngine.js's step() loop and confirmed
+  // with a live repro during review. 'welcome' is a `list`-type state, and
+  // the engine only renders a list when it hasn't already consumed this
+  // turn's inbound text as an answer (`hasConsumedInboundText`); reaching
+  // 'welcome' via goto() from an action state never sets that flag, so the
+  // engine treats the customer's fresh message as if it WERE their answer
+  // to welcome's list and routes it through `main_route` immediately:
+  //   - text matching a main_route option (e.g. a customer re-tapping a
+  //     stale "🛒 Shop online"/"🍲 Get recipe ideas" button still visible
+  //     from an earlier message - WhatsApp lets that happen at any time)
+  //     goes straight to that destination in one hop, welcome never renders.
+  //   - anything else falls through main_route's `default: "welcome"` and
+  //     welcome renders on that second internal hop, same turn.
+  // Either way exactly one message is sent this turn - this does NOT
+  // reintroduce the double-message bug the armed flag exists to fix - and a
+  // stale tap always lands wherever that tap's own label says it goes. This
+  // is deliberate opportunistic routing, not a bug: forcing an unconditional
+  // welcome re-render here would make direct, unambiguous stale-tap intent
+  // worse UX, not better. See the regression test covering this exact case.
+  _handleShopLanding(ctx) {
+    if (ctx.get('shopLandingArmed')) {
+      ctx.set('shopLandingArmed', false);
+      logger.info('AfroMarket: shop_landing armed - ending turn silently after product_list');
+      return true;
+    }
+
+    logger.info('AfroMarket: shop_landing unarmed - handing off to main_route via welcome');
     ctx.goto('welcome');
     return true;
   }
