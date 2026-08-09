@@ -47,7 +47,8 @@ function completedPaymentEvent(overrides = {}) {
         cart: [{ productId: 'rice_1kg', qty: 2 }],
         name: 'Jane Doe',
         address: '12 Main St, Berlin',
-        phone: '+491701234567'
+        phone: '+491701234567',
+        email: 'jane@example.com'
       }
     },
     ...overrides
@@ -76,7 +77,8 @@ test('AfroMarket order recording: a completed payment snapshots an invoice and u
     botId: 'afromarket',
     whatsappId: '+491701234567',
     name: 'Jane Doe',
-    deliveryAddress: '12 Main St, Berlin'
+    deliveryAddress: '12 Main St, Berlin',
+    email: 'jane@example.com'
   });
 
   // The customer-facing order confirmation must still go out.

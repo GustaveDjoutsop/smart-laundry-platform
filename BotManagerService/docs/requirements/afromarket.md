@@ -1,5 +1,69 @@
 # AfroMarket WhatsApp Bot
 
+## v2.7 (2026-08-09): two live bugs fixed - duplicate welcome menu after "Shop online", rigid checkout format - plus email now persisted
+
+Both reported from real customer sessions (one via a WhatsApp screenshot, one
+via a customer complaint about the delivery-details format).
+
+**Bug 1 - "Shop online" sent the catalog, then immediately the full welcome
+menu again**, reading as the bot answering itself. Root cause: `shop_entry`'s
+`ctx.goto('welcome')` continued the same flow-engine turn straight into
+rendering `welcome`'s list right behind the native `product_list` (see
+`flowEngine.js`'s `step()` loop - it only ends a turn when an action state
+neither `goto()`s nor has a `next`). Fixed with a `shop_landing` action state
++ `shopLandingArmed` context flag: `shop_entry` now lands there instead,
+which genuinely ends the turn after the catalog send; the customer's actual
+next message is what triggers the handoff back to `welcome`. A code-review
+subagent traced one real follow-on edge case (a customer re-tapping an
+older, still-visible interactive button routes straight to that destination
+via `main_route` instead of always re-showing `welcome` first) and confirmed
+it's a single-message, deliberate outcome, not a reintroduction of the bug -
+documented in `_handleShopLanding`'s comment and locked in with regression
+tests.
+
+**Bug 2 - the checkout format was too rigid for real customers.** The
+`checkout_details` combined message (added 2026-07-21, see "Cart visibility
+from recipes, and one-message checkout" below) required exact
+`Name: .../Address: .../Email: ...` labels, regex-parsed line by line.
+Anything else - a plain sentence, a missing colon, wrong label - silently
+failed to populate name/address and just re-showed the same "resend in this
+exact format" error. **This reverses that 2026-07-21 consolidation**: the
+single combined-message design traded away exactly the robustness the
+original four-separate-prompts design had, and a live customer complaint
+confirmed the cost was real. `checkout_details`/`checkout_details_parse`
+are replaced with three sequential `input` states -
+`checkout_name` → `checkout_address` → `checkout_email` (reply *skip* to
+skip) - finished by `checkout.finishDetails`
+(`AfroMarketFlowPlugin._handleFinishCheckoutDetails`). Each field is asked
+on its own, so whatever the customer types literally *is* that field - no
+format to violate, nothing to reject. Phone is still taken from `ctx.from`,
+unchanged.
+
+**Email is now persisted**, reversing v2.6's "deliberately not saved/reused"
+decision below - it wasn't part of that request; it is part of this one,
+since Stripe's hosted checkout requires it and repeat customers were being
+asked for it on every single order despite already having paid before.
+`customer_profile` gains a nullable `email` column
+(`migrations/003_add_customer_profile_email.sql`, applied by hand against
+Supabase per this project's existing migration convention - **not yet
+applied to any environment as of this entry**, apply to `dev` before
+relying on it there). `CustomerProfileStore.upsert`/`get` and
+`AfroMarketBot._recordOrder` now read/write it; `_handleCheckoutStart`
+prefills `checkoutEmail` from the saved profile instead of always blanking
+it, so a returning customer with an email on file isn't asked again.
+
+**Deliberate trade-off, flagged in review**: `upsert`'s
+`email = COALESCE(EXCLUDED.email, customer_profile.email)` means an explicit
+"skip" at `checkout_email` (which upserts `email: null`) never clears a
+previously-saved email - a "skip" reply means "not required for this
+specific order," never "forget the email I gave you before" (there's no
+code path for the latter today). In practice this rarely matters: whenever
+Stripe is configured, `_handleCheckout` forces `checkout_email_required`
+before any order with a still-empty email can actually pay, so a real email
+always exists by the time `_recordOrder` upserts for any order that
+completes. It only has any effect at all in the no-payment-provider dev/test
+path, which doesn't call `_recordOrder` in the first place.
+
 ## v2.6 (2026-08-04): checkout reuses a saved delivery address, 3-day delivery window, receipt confirmed already covered
 
 Per request: reuse a returning customer's delivery details instead of

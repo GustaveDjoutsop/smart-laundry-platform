@@ -317,11 +317,27 @@ class AfroMarketBot extends ConfigBot {
     }
 
     try {
+      // `email: metadata.email || null` means an explicit "skip" at
+      // checkout_email (which sets checkoutEmail = '') upserts as null here,
+      // and customerProfileStore's COALESCE(EXCLUDED.email,
+      // customer_profile.email) then keeps whatever email is already on
+      // file rather than clearing it - a "skip" only ever means "not
+      // required for this specific order" here, never "forget the email I
+      // gave you before" (there's no code path today for the latter).
+      // Reviewed and confirmed unreachable on the actual paying-customer
+      // path anyway: _handleCheckout forces checkout_email_required
+      // whenever Stripe is configured and email is still empty, so a real
+      // email always exists by the time this upsert runs for any order that
+      // actually completes payment. This only matters at all in the
+      // no-payment-provider-configured dev/test path, which doesn't call
+      // _recordOrder in the first place (see _handleCheckout's early
+      // `!paymentsConfigured` branch).
       await this.customerProfileStore.upsert({
         botId,
         whatsappId: customerPhone,
         name: metadata.name || null,
-        deliveryAddress: metadata.address || null
+        deliveryAddress: metadata.address || null,
+        email: metadata.email || null
       });
     } catch (err) {
       logger.error('Failed to upsert customer profile for AfroMarket order', err && err.message ? err.message : String(err));

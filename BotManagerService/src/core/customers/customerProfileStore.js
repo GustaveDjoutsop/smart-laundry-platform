@@ -13,23 +13,24 @@ class CustomerProfileStore {
     return this.pool || getPool();
   }
 
-  async upsert({ botId, whatsappId, name, deliveryAddress }) {
+  async upsert({ botId, whatsappId, name, deliveryAddress, email }) {
     if (!botId || !whatsappId) throw new Error('CustomerProfileStore.upsert requires botId and whatsappId');
 
     await this._getPool().query(
-      `INSERT INTO customer_profile (bot_id, whatsapp_id, name, delivery_address, created_at, last_active_at)
-       VALUES ($1, $2, $3, $4, now(), now())
+      `INSERT INTO customer_profile (bot_id, whatsapp_id, name, delivery_address, email, created_at, last_active_at)
+       VALUES ($1, $2, $3, $4, $5, now(), now())
        ON CONFLICT (bot_id, whatsapp_id) DO UPDATE SET
          name = COALESCE(EXCLUDED.name, customer_profile.name),
          delivery_address = COALESCE(EXCLUDED.delivery_address, customer_profile.delivery_address),
+         email = COALESCE(EXCLUDED.email, customer_profile.email),
          last_active_at = now()`,
-      [botId, whatsappId, name || null, deliveryAddress || null]
+      [botId, whatsappId, name || null, deliveryAddress || null, email || null]
     );
   }
 
   async get({ botId, whatsappId }) {
     const result = await this._getPool().query(
-      `SELECT bot_id, whatsapp_id, name, delivery_address, created_at, last_active_at
+      `SELECT bot_id, whatsapp_id, name, delivery_address, email, created_at, last_active_at
        FROM customer_profile WHERE bot_id = $1 AND whatsapp_id = $2`,
       [botId, whatsappId]
     );

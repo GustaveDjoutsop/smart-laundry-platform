@@ -219,16 +219,30 @@
         },
 
         {
-          "id": "checkout_details",
+          "id": "checkout_name",
           "type": "input",
-          "prompt": "{{checkoutDetailsError}}🚚 Let's arrange delivery! Please reply with your details in *one message*, like this:\n\nName: Jane Doe\nAddress: 12 Main St, 10115 Berlin, Germany\nEmail: jane@example.com (optional)\n\nWe'll use your WhatsApp number for delivery contact - no need to type it.",
-          "saveAs": "checkoutDetailsRaw",
-          "next": "checkout_details_parse"
+          "prompt": "🚚 Let's arrange delivery! What's your full name?",
+          "saveAs": "checkoutName",
+          "next": "checkout_address"
         },
         {
-          "id": "checkout_details_parse",
+          "id": "checkout_address",
+          "type": "input",
+          "prompt": "📍 And what's your delivery address? (street, house number, postcode, city)",
+          "saveAs": "checkoutAddress",
+          "next": "checkout_email"
+        },
+        {
+          "id": "checkout_email",
+          "type": "input",
+          "prompt": "📧 Last one - your email address, for the payment receipt. Reply *skip* if you'd rather not share it now.",
+          "saveAs": "checkoutEmailRaw",
+          "next": "checkout_details_finish"
+        },
+        {
+          "id": "checkout_details_finish",
           "type": "action",
-          "action": "checkout.parseDetails"
+          "action": "checkout.finishDetails"
         },
         {
           "id": "checkout_review",
@@ -250,7 +264,7 @@
             "from": "checkoutReviewChoice",
             "map": {
               "confirm_order": "checkout_confirm_action",
-              "restart_checkout": "checkout_details",
+              "restart_checkout": "checkout_name",
               "cancel_checkout": "cart_view",
               "menu": "welcome"
             },

@@ -25,12 +25,28 @@ test('CustomerProfileStore.upsert issues an INSERT ... ON CONFLICT with the give
   const pool = fakePool();
   const store = new CustomerProfileStore({ pool });
 
-  await store.upsert({ botId: 'afromarket', whatsappId: '+491701234567', name: 'Jane Doe', deliveryAddress: '12 Main St' });
+  await store.upsert({
+    botId: 'afromarket',
+    whatsappId: '+491701234567',
+    name: 'Jane Doe',
+    deliveryAddress: '12 Main St',
+    email: 'jane@example.com'
+  });
 
   assert.equal(pool.calls.length, 1);
   assert.match(pool.calls[0].sql, /INSERT INTO customer_profile/);
   assert.match(pool.calls[0].sql, /ON CONFLICT/);
-  assert.deepEqual(pool.calls[0].params, ['afromarket', '+491701234567', 'Jane Doe', '12 Main St']);
+  assert.match(pool.calls[0].sql, /email = COALESCE\(EXCLUDED\.email, customer_profile\.email\)/);
+  assert.deepEqual(pool.calls[0].params, ['afromarket', '+491701234567', 'Jane Doe', '12 Main St', 'jane@example.com']);
+});
+
+test('CustomerProfileStore.upsert defaults email to null when not given, without breaking existing callers', async () => {
+  const pool = fakePool();
+  const store = new CustomerProfileStore({ pool });
+
+  await store.upsert({ botId: 'afromarket', whatsappId: '+491701234567', name: 'Jane Doe', deliveryAddress: '12 Main St' });
+
+  assert.deepEqual(pool.calls[0].params, ['afromarket', '+491701234567', 'Jane Doe', '12 Main St', null]);
 });
 
 test('CustomerProfileStore.get returns null when no row exists', async () => {
@@ -42,12 +58,14 @@ test('CustomerProfileStore.get returns null when no row exists', async () => {
 });
 
 test('CustomerProfileStore.get returns the row when one exists', async () => {
-  const row = { bot_id: 'afromarket', whatsapp_id: '+491701234567', name: 'Jane Doe' };
-  const store = new CustomerProfileStore({ pool: fakePool(() => ({ rows: [row] })) });
+  const row = { bot_id: 'afromarket', whatsapp_id: '+491701234567', name: 'Jane Doe', email: 'jane@example.com' };
+  const pool = fakePool(() => ({ rows: [row] }));
+  const store = new CustomerProfileStore({ pool });
 
   const result = await store.get({ botId: 'afromarket', whatsappId: '+491701234567' });
 
   assert.deepEqual(result, row);
+  assert.match(pool.calls[0].sql, /SELECT bot_id, whatsapp_id, name, delivery_address, email,/);
 });
 
 test('CustomerProfileStore.delete issues a DELETE scoped to botId and whatsappId', async () => {
