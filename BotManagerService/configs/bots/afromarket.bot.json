@@ -68,6 +68,12 @@
         },
 
         {
+          "id": "shop_landing",
+          "type": "action",
+          "action": "shop.landing"
+        },
+
+        {
           "id": "groceries_categories",
           "type": "list",
           "template": "🛒 *Shop Online*\n\nBrowse our African grocery categories:",
