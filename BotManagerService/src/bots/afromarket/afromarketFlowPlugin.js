@@ -215,8 +215,8 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       return this._handleCheckoutStart(ctx);
     }
 
-    if (action === 'checkout.parseDetails') {
-      return this._handleParseCheckoutDetails(ctx);
+    if (action === 'checkout.finishDetails') {
+      return this._handleFinishCheckoutDetails(ctx);
     }
 
     return false;
@@ -415,8 +415,9 @@ class AfroMarketFlowPlugin extends FlowPlugin {
   // details from a previous paid order (upserted in AfroMarketBot's
   // _recordOrder), skip straight to the review screen pre-filled with them
   // instead of asking them to retype everything - "Start Over" on that
-  // screen still routes to the plain free-text checkout_details flow for
-  // anyone who wants to use a different address this time.
+  // screen still routes to the plain checkout_name -> checkout_address ->
+  // checkout_email sequence for anyone who wants to use different details
+  // this time.
   async _handleCheckoutStart(ctx) {
     ctx.set('checkoutUsingSavedAddress', false);
 
@@ -446,59 +447,49 @@ class AfroMarketFlowPlugin extends FlowPlugin {
     if (profile && profile.name && profile.delivery_address) {
       ctx.set('checkoutName', profile.name);
       ctx.set('checkoutAddress', profile.delivery_address);
-      ctx.set('checkoutEmail', '');
+      // Prefill from the saved profile's email (added alongside name/address -
+      // see migrations/003_add_customer_profile_email.sql) rather than always
+      // blanking it, so a repeat customer isn't asked for their email on
+      // every single order once we actually have one on file.
+      ctx.set('checkoutEmail', profile.email || '');
       ctx.set('checkoutUsingSavedAddress', true);
       ctx.goto('checkout_review');
       return true;
     }
 
-    ctx.goto('checkout_details');
+    ctx.goto('checkout_name');
     return true;
   }
 
-  _handleParseCheckoutDetails(ctx) {
-    ctx.set('checkoutDetailsError', '');
+  // Runs once checkout_name -> checkout_address -> checkout_email have each
+  // captured their own field via the engine's plain `input`-state saveAs
+  // (see afromarket.bot.json) - replaced the old single "reply in one
+  // message with Name:/Address:/Email: labels" parser (regex-matched those
+  // exact labels; anything else silently failed to populate name/address and
+  // just re-showed a "resend in this exact format" error - real customer
+  // pain, confirmed from a live bug report). Asking one field at a time
+  // structurally removes that failure class: whatever the customer types IS
+  // the field, no format to violate.
+  _handleFinishCheckoutDetails(ctx) {
     ctx.set('checkoutUsingSavedAddress', false);
 
-    const raw = String(ctx.get('checkoutDetailsRaw') || '');
-    const fields = { name: '', address: '', email: '' };
-    let lastField = null;
-
-    for (const line of raw.split(/\r?\n/)) {
-      const trimmedLine = line.trim();
-      const match = trimmedLine.match(/^(name|address|email)\s*:\s*(.+)$/i);
-      if (match) {
-        const field = match[1].toLowerCase();
-        fields[field] = match[2].trim();
-        lastField = field;
-        continue;
-      }
-      // A line with no "Field:" prefix is a wrapped continuation of whichever
-      // field came last (e.g. a multi-line address) - not a new, unrelated line
-      // to silently drop.
-      if (trimmedLine && lastField) {
-        fields[lastField] = `${fields[lastField]} ${trimmedLine}`.trim();
-      }
-    }
-
-    const { name, address, email } = fields;
-
-    if (!name || !address) {
-      ctx.set(
-        'checkoutDetailsError',
-        `⚠️ I couldn't find both a name and an address in that message. Please resend using the exact format below:\n\n`
-      );
-      ctx.goto('checkout_details');
-      return true;
-    }
+    const rawEmail = String(ctx.get('checkoutEmailRaw') || '').trim();
+    const email = /^skip$/i.test(rawEmail) ? '' : rawEmail;
 
     const fromDigits = String(ctx.from || '').trim();
     const phone = fromDigits ? (fromDigits.startsWith('+') ? fromDigits : `+${fromDigits}`) : '';
 
-    ctx.set('checkoutName', name);
-    ctx.set('checkoutAddress', address);
     ctx.set('checkoutEmail', email);
     ctx.set('checkoutPhone', phone);
+
+    // No PII (no name/address/email/phone) - just enough to tell from the
+    // logs alone whether the sequential name/address/email chain actually
+    // completed for a given turn, and whether email was supplied or
+    // skipped, without printing any of the fields themselves.
+    logger.info('AfroMarket: checkout details finished, handing off to checkout_review', {
+      emailProvided: Boolean(email)
+    });
+
     ctx.goto('checkout_review');
     return true;
   }
@@ -564,7 +555,7 @@ class AfroMarketFlowPlugin extends FlowPlugin {
         customerEmail: email,
         customerName: name,
         idempotencyKey,
-        metadata: { service: 'afromarket_order', orderNumber, cart: cartSnapshot, name, address, phone }
+        metadata: { service: 'afromarket_order', orderNumber, cart: cartSnapshot, name, address, phone, email }
       });
 
       if (!payment.checkoutUrl) {

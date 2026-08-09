@@ -291,11 +291,12 @@ test('AfroMarket native order: recomputes price from bot.json, ignoring a tamper
 
   assert.equal(handled, true);
   // Handing off to checkout_start with no saved profile lands on the
-  // checkout_details prompt, whose text includes the cart summary indirectly
-  // via cartSummaryText only at checkout_review - but checkout_start itself
-  // just routes there. Assert on the persisted cart instead, which is the
-  // actual value under test: the real bot.json price (€7.99), not the
-  // tampered webhook price (€0.01).
+  // checkout_name prompt (first of the sequential name/address/email
+  // questions - see afromarket.bot.json), whose text includes the cart
+  // summary indirectly via cartSummaryText only at checkout_review - but
+  // checkout_start itself just routes there. Assert on the persisted cart
+  // instead, which is the actual value under test: the real bot.json price
+  // (€7.99), not the tampered webhook price (€0.01).
   const redisManagerModule = require('../src/core/redisManager');
   const raw = await redisManagerModule.redisManager.get(`conv:afromarket:${from}`);
   const state = JSON.parse(raw);
@@ -304,7 +305,7 @@ test('AfroMarket native order: recomputes price from bot.json, ignoring a tamper
   assert.equal(state.currentFlowId, 'main_menu');
   // _handleCheckoutStart ran and moved past checkout_start since there's no
   // saved profile for this fresh phone number.
-  assert.equal(state.currentStateId, 'checkout_details');
+  assert.equal(state.currentStateId, 'checkout_name');
   assert.equal(sent.length, 1);
   assert.match(sent[0].body, /delivery/i);
 });
@@ -404,7 +405,7 @@ test('AfroMarket native order: does not notify any admin when AFROMARKET_ADMIN_P
       message: orderMessage({ items: [{ product_retailer_id: 'ghost_product', quantity: 1 }, { product_retailer_id: 'okok_100g', quantity: 1 }] })
     });
 
-    // Only the customer-facing checkout_details prompt should have gone out.
+    // Only the customer-facing checkout_name prompt should have gone out.
     assert.equal(sent.length, 1);
   } finally {
     if (original === undefined) delete process.env.AFROMARKET_ADMIN_PHONE;

@@ -69,11 +69,15 @@ test('AfroMarket: full shop -> product -> cart -> checkout flow', async () => {
   assert.match(result.outboundIntents[0].body, /Total: €15\.98/);
 
   result = await step('start_checkout');
-  assert.match(result.outboundIntents[0].body, /one message/);
-  assert.match(result.outboundIntents[0].body, /Name:/);
-  assert.match(result.outboundIntents[0].body, /WhatsApp number/);
+  assert.match(result.outboundIntents[0].body, /full name/i);
 
-  result = await step('Name: Jane Doe\nAddress: 12 Main St, Berlin\nEmail: jane@example.com');
+  result = await step('Jane Doe');
+  assert.match(result.outboundIntents[0].body, /delivery address/i);
+
+  result = await step('12 Main St, Berlin');
+  assert.match(result.outboundIntents[0].body, /email address/i);
+
+  result = await step('jane@example.com');
   assert.match(result.outboundIntents[0].body, /confirm your order/i);
   assert.match(result.outboundIntents[0].body, /Name: Jane Doe/);
   assert.match(result.outboundIntents[0].body, /Address: 12 Main St, Berlin/);
@@ -118,7 +122,9 @@ test('AfroMarket: checking out with an empty cart shows a warning instead of an 
   await step('product_haricot_rouge_1kg');
   await step('view_cart');
   await step('start_checkout');
-  await step('Name: Jane Doe\nAddress: Some Address\nEmail: jane@example.com');
+  await step('Jane Doe');
+  await step('Some Address');
+  await step('jane@example.com');
   const result = await step('confirm_order');
 
   assert.match(result.outboundIntents[0].body, /cart was empty/);
@@ -174,7 +180,48 @@ test('AfroMarket: checkout reuses a saved delivery address instead of asking aga
   assert.match(confirmation, /deliver within 3 days/i);
 });
 
-test('AfroMarket: "Start Over" on a reused saved address falls back to the free-text checkout flow', async () => {
+test('AfroMarket: a saved profile with an email on file prefills it too, instead of leaving it blank', async () => {
+  // Closes a real coverage gap flagged in review: every other saved-profile
+  // test's mock returns only name/delivery_address (matching the shape
+  // saved profiles had before this migration), so _handleCheckoutStart's
+  // new `ctx.set('checkoutEmail', profile.email || '')` line had zero
+  // coverage. A returning customer with an email on file should see it
+  // pre-filled on checkout_review, not be asked again.
+  const customerProfileStore = {
+    async get() {
+      return { name: 'Jane Doe', delivery_address: '12 Main St, Berlin', email: 'jane@example.com' };
+    }
+  };
+  const flowEngine = new FlowEngine({
+    botConfig,
+    plugin: new AfroMarketFlowPlugin({ botConfig, customerProfileStore })
+  });
+  let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
+  const step = async (text) => {
+    const outboundIntents = [];
+    ({ state: conversationState } = await flowEngine.step({
+      from: '+33600000000',
+      message: { text: { body: text } },
+      state: conversationState,
+      send: async (outboundIntent) => outboundIntents.push(outboundIntent)
+    }));
+    return { outboundIntents, conversationState };
+  };
+
+  await step('hi');
+  await step('shop_online');
+  await step('cat_beans_nuts');
+  await step('product_haricot_rouge_1kg');
+  await step('cart_add');
+  await step('view_cart');
+
+  const result = await step('start_checkout');
+  assert.match(result.outboundIntents[0].body, /found your delivery details from last time/i);
+  assert.match(result.outboundIntents[0].body, /Email: jane@example\.com/);
+  assert.equal(conversationState.context.checkoutEmail, 'jane@example.com');
+});
+
+test('AfroMarket: "Start Over" on a reused saved address falls back to the sequential checkout flow', async () => {
   const customerProfileStore = {
     async get() {
       return { name: 'Jane Doe', delivery_address: '12 Main St, Berlin' };
@@ -205,16 +252,17 @@ test('AfroMarket: "Start Over" on a reused saved address falls back to the free-
   await step('start_checkout');
 
   const restarted = await step('restart_checkout');
-  assert.match(restarted.outboundIntents[0].body, /one message/);
-  assert.match(restarted.outboundIntents[0].body, /Name:/);
+  assert.match(restarted.outboundIntents[0].body, /full name/i);
 
-  const result = await step('Name: New Customer\nAddress: 99 Other St, Hamburg\nEmail: new@example.com');
+  await step('New Customer');
+  await step('99 Other St, Hamburg');
+  const result = await step('new@example.com');
   assert.doesNotMatch(result.outboundIntents[0].body, /found your delivery details from last time/i);
   assert.match(result.outboundIntents[0].body, /Please confirm your order/i);
   assert.match(result.outboundIntents[0].body, /Address: 99 Other St, Hamburg/);
 });
 
-test('AfroMarket: a saved-profile lookup failure falls back to the free-text checkout flow instead of blocking checkout', async () => {
+test('AfroMarket: a saved-profile lookup failure falls back to the sequential checkout flow instead of blocking checkout', async () => {
   // Deliberately exercises _handleCheckoutStart's own try/catch with an
   // explicit mock, rather than relying on other tests' incidental coverage
   // via getPool() throwing when DATABASE_URL is unset in this environment -
@@ -248,11 +296,10 @@ test('AfroMarket: a saved-profile lookup failure falls back to the free-text che
   await step('view_cart');
 
   const result = await step('start_checkout');
-  assert.match(result.outboundIntents[0].body, /one message/);
-  assert.match(result.outboundIntents[0].body, /Name:/);
+  assert.match(result.outboundIntents[0].body, /full name/i);
 });
 
-test('AfroMarket: a wrapped multi-line address is joined into the field, not silently truncated', async () => {
+test('AfroMarket: a multi-line address is captured verbatim, newlines included', async () => {
   const step = createStepper();
 
   await step('hi');
@@ -261,10 +308,19 @@ test('AfroMarket: a wrapped multi-line address is joined into the field, not sil
   await step('product_haricot_rouge_1kg');
   await step('view_cart');
   await step('start_checkout');
-  const result = await step('Name: Jane Doe\nAddress: 12 Main St\nApt 4B, near the market\nEmail: jane@example.com');
+  await step('Jane Doe');
+  await step('12 Main St\nApt 4B, near the market');
+  const result = await step('jane@example.com');
 
+  // Each field is now its own single question (see afromarket.bot.json's
+  // checkout_name -> checkout_address -> checkout_email chain), so a
+  // multi-line reply to "what's your delivery address?" is simply the whole
+  // answer, embedded newline and all - no continuation-line parsing needed
+  // (the old combined-message parser used to join wrapped lines with a
+  // space; that mechanism doesn't exist anymore because there's nothing left
+  // for a line to be a "continuation" of).
   assert.match(result.outboundIntents[0].body, /confirm your order/i);
-  assert.match(result.outboundIntents[0].body, /Address: 12 Main St Apt 4B, near the market/);
+  assert.match(result.outboundIntents[0].body, /Address: 12 Main St\nApt 4B, near the market/);
 });
 
 test('AfroMarket: checkout phone is derived from the WhatsApp sender even without a leading +', async () => {
@@ -287,16 +343,22 @@ test('AfroMarket: checkout phone is derived from the WhatsApp sender even withou
   await step('product_haricot_rouge_1kg');
   await step('view_cart');
   await step('start_checkout');
-  const result = await step('Name: Jane Doe\nAddress: 12 Main St, Berlin');
+  await step('Jane Doe');
+  await step('12 Main St, Berlin');
+  const result = await step('skip');
 
   assert.match(result.outboundIntents[0].body, /Phone: \+491701234567/);
 });
 
-test('AfroMarket: an unstructured reply to checkout_details re-prompts instead of silently placing an order', async () => {
-  // Regression coverage for the combined name/address/email message: free
-  // text with no "Name:"/"Address:" prefixes (e.g. a reserved word like
-  // "menu") must never be captured as garbage delivery data - it should
-  // re-show the checkout prompt with an error, leaving the cart untouched.
+test('AfroMarket: free-text replies to checkout_name/checkout_address are accepted as-is, no required format', async () => {
+  // Direct regression coverage for a real customer bug report: the old
+  // combined "reply with Name: X / Address: Y / Email: Z in one message"
+  // prompt required exact "Field:" labels and silently failed to capture
+  // anything that didn't match - the customer just saw the same "resend in
+  // this exact format" error over and over. Each field is now its own
+  // single question (checkout_name -> checkout_address -> checkout_email),
+  // so whatever the customer types literally IS that field - no format to
+  // violate, nothing left to reject.
   const step = createStepper();
 
   await step('hi');
@@ -306,14 +368,21 @@ test('AfroMarket: an unstructured reply to checkout_details re-prompts instead o
   await step('cart_add');
   await step('view_cart');
   await step('start_checkout');
-  const afterBadReply = await step('menu');
 
-  assert.match(afterBadReply.outboundIntents[0].body, /couldn't find both a name and an address/);
-  assert.match(afterBadReply.outboundIntents[0].body, /one message/);
+  // Even a reserved-looking word like "menu" - which used to trip the old
+  // parser's "couldn't find both a name and an address" error - is simply
+  // captured as the name: checkout_name is a plain `input` state, and
+  // "menu" only carries special meaning for list/buttons row-matching
+  // states, not for freeform text capture.
+  const afterName = await step('menu');
+  assert.match(afterName.outboundIntents[0].body, /delivery address/i);
 
-  const afterGoodReply = await step('Name: Jane Doe\nAddress: 12 Main St, Berlin');
-  assert.match(afterGoodReply.outboundIntents[0].body, /confirm your order/i);
-  assert.match(afterGoodReply.outboundIntents[0].body, /Name: Jane Doe/);
+  const afterAddress = await step('12 Main St, Berlin');
+  assert.match(afterAddress.outboundIntents[0].body, /email address/i);
+
+  const afterEmail = await step('skip');
+  assert.match(afterEmail.outboundIntents[0].body, /confirm your order/i);
+  assert.match(afterEmail.outboundIntents[0].body, /Name: menu/);
 
   const result = await step('cancel_checkout');
   assert.match(result.outboundIntents[0].body, /Your Cart/);

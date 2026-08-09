@@ -48,7 +48,9 @@ async function driveToCheckoutReview(step) {
   await step('cart_add');
   await step('view_cart');
   await step('start_checkout');
-  return step('Name: Jane Doe\nAddress: 12 Main St, Berlin\nEmail: jane@example.com');
+  await step('Jane Doe');
+  await step('12 Main St, Berlin');
+  return step('jane@example.com');
 }
 
 test('AfroMarket checkout: successful Stripe initiation sends a real payment link and does not confirm the order yet', async () => {
@@ -130,8 +132,10 @@ test('AfroMarket checkout: omitting the optional email is asked for specifically
   await step('cart_add');
   await step('view_cart');
   await step('start_checkout');
+  await step('Jane Doe');
+  await step('12 Main St, Berlin');
 
-  const review = await step('Name: Jane Doe\nAddress: 12 Main St, Berlin');
+  const review = await step('skip');
   assert.match(review.outboundIntents[0].body, /confirm your order/i);
   assert.match(review.outboundIntents[0].body, /Email:\s*\n/);
 
@@ -143,6 +147,66 @@ test('AfroMarket checkout: omitting the optional email is asked for specifically
   assert.equal(result.outboundIntents[0].type, 'cta_url');
   assert.equal(result.outboundIntents[0].url, 'https://checkout.stripe.com/c/pay/cs_test_noemail');
   assert.deepEqual(result.conversationState.context.cart, []);
+});
+
+test('AfroMarket checkout: a saved profile\'s prefilled email actually reaches the Stripe checkout session, not just the review screen', async () => {
+  // Closes a coverage gap flagged in review: prior saved-profile tests only
+  // asserted the *review screen* shows the prefilled email
+  // (afromarketFlow.test.js) - none confirmed it survives all the way
+  // through _handleCheckoutStart -> checkout_review -> _handleCheckout's
+  // `email` variable -> gateway.initiatePayment's `customerEmail` -> the
+  // actual Stripe API request. Asserting on the real outbound HTTP request
+  // body (Stripe's own `customer_email` field, not our app-internal
+  // metadata - see stripeProvider.js's comment on why the full metadata
+  // never reaches Stripe) is the most direct way to prove that chain is
+  // actually connected end-to-end, not just that a context variable got set.
+  let capturedBody = null;
+  currentFetchImpl = async (url, init) => {
+    capturedBody = init.body;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ id: 'cs_test_prefilled', url: 'https://checkout.stripe.com/c/pay/cs_test_prefilled' })
+    };
+  };
+
+  const customerProfileStore = {
+    async get() {
+      return { name: 'Jane Doe', delivery_address: '12 Main St, Berlin', email: 'jane@example.com' };
+    }
+  };
+  const flowEngine = new FlowEngine({
+    botConfig,
+    plugin: new AfroMarketFlowPlugin({ botConfig, customerProfileStore })
+  });
+  let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
+  const step = async (text) => {
+    const outboundIntents = [];
+    ({ state: conversationState } = await flowEngine.step({
+      from: '+491701234567',
+      message: { text: { body: text } },
+      state: conversationState,
+      send: async (outboundIntent) => outboundIntents.push(outboundIntent)
+    }));
+    return { outboundIntents, conversationState };
+  };
+
+  await step('hi');
+  await step('shop_online');
+  await step('cat_beans_nuts');
+  await step('product_haricot_rouge_1kg');
+  await step('cart_add');
+  await step('view_cart');
+  await step('start_checkout');
+
+  // No checkout_name/address/email prompts here - straight to review,
+  // prefilled from the saved profile (including email).
+  const result = await step('confirm_order');
+
+  assert.equal(result.outboundIntents[0].type, 'cta_url');
+  assert.equal(result.outboundIntents[0].url, 'https://checkout.stripe.com/c/pay/cs_test_prefilled');
+  assert.ok(capturedBody, 'expected a captured Stripe request body');
+  assert.match(capturedBody, /customer_email=jane%40example\.com/);
 });
 
 test('AfroMarket checkout: a double-tap on Confirm Order reuses the same idempotency key and does not call Stripe twice', async () => {
