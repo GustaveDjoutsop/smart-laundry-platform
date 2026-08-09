@@ -1,5 +1,42 @@
 # AfroMarket WhatsApp Bot
 
+## v2.8 (2026-08-09): migration actually applied to dev, plus a second real ordering bug found and fixed
+
+Two follow-ups from v2.7, both found by testing live on WhatsApp rather than
+assumed fixed once the code merged.
+
+**The v2.7 email migration was reviewed, merged, and documented as "not yet
+applied" - and then genuinely wasn't, for a while.** After v2.7 deployed to
+dev, every `CustomerProfileStore.get()`/`upsert()` call started throwing
+`column "email" does not exist` (confirmed directly in Supabase Postgres
+logs), caught by `_handleCheckoutStart`'s deliberately-permissive try/catch
+and silently falling back to the fresh-details flow - which is exactly what
+a customer saw on their second order: asked for name/address again despite
+a successful first purchase. Not a code bug; a deployment-step bug. Fixed by
+actually running `migrations/003_add_customer_profile_email.sql` against the
+live `botmanagerservice` Supabase project. **Lesson: "not yet applied" in a
+PR description is not the same as tracking it as a real follow-up task** -
+this one slipped through.
+
+**Partner Stores' fallback footer was rendering before its own cards.** A
+live WhatsApp session showed "More options: Main Menu" arriving *before*
+the intro text and the three store cards it was sent after, even though
+`_flowEngine.js`'s `cards`-state handler sends them in the correct
+intro → items → footer order, each awaited sequentially. Same root cause
+already documented for the native-carousel-template path in the same file
+(`getCarouselFooterDelayMs`'s comment): a successful WhatsApp Cloud API
+send() only means Meta accepted the call, actual on-device delivery is
+async and slower for image-bearing messages, so a lighter footer sent right
+after can race ahead and display first - it just wasn't guarded for the
+*vertical fallback* rendering path (individual per-store card bubbles,
+which is what's actually showing right now - see the carouselTemplate
+branch's own comment for when the real native carousel would be used
+instead). Fixed by reusing the same `CAROUSEL_FOOTER_DELAY_MS` pause before
+the fallback path's footer send too - unconditionally, since
+`validateFlowConfig` already guarantees every `cards` item carries an
+image, so there's always at least one image-bearing send ahead of that
+footer by the time this code runs.
+
 ## v2.7 (2026-08-09): two live bugs fixed - duplicate welcome menu after "Shop online", rigid checkout format - plus email now persisted
 
 Both reported from real customer sessions (one via a WhatsApp screenshot, one
