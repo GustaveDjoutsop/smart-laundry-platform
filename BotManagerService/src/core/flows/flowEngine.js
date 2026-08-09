@@ -36,7 +36,16 @@ const { logger } = require('../../utils/logger');
 // code change, matching the LAUDRY_OPEN_HOUR/LAUDRY_CLOSE_HOUR convention
 // in laundryFlowPlugin.js.
 function getCarouselFooterDelayMs() {
-  return Number(process.env.CAROUSEL_FOOTER_DELAY_MS || 6000);
+  const raw = process.env.CAROUSEL_FOOTER_DELAY_MS;
+  if (!raw) return 6000;
+
+  // A malformed value (e.g. an accidental "6000ms" unit suffix, or
+  // whitespace, in a Railway env var) must never silently become NaN -
+  // setTimeout(fn, NaN) behaves like setTimeout(fn, 0), which would
+  // silently disable the very race-condition guard this delay exists for.
+  // Falls back to the default rather than defaulting to "off".
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 6000;
 }
 
 // CONFIG_ENV is already set per Railway environment (see appConfig.js) -
@@ -879,4 +888,4 @@ class FlowEngine {
   }
 }
 
-module.exports = { FlowEngine, validateFlowConfig };
+module.exports = { FlowEngine, validateFlowConfig, getCarouselFooterDelayMs };
