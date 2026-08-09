@@ -1,3 +1,10 @@
+// getCarouselFooterDelayMs() defaults to 6000ms in production (see
+// flowEngine.js's comment on why) - none of these tests assert on actual
+// wall-clock timing, only send order/content, so there's nothing to gain
+// from eating that delay for real on every run. Set before requiring
+// flowEngine.js since the value is read fresh per call, not cached.
+process.env.CAROUSEL_FOOTER_DELAY_MS = '0';
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
