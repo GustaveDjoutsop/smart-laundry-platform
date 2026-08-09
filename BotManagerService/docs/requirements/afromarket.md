@@ -112,6 +112,9 @@ as the order receipt**; no new receipt mechanism was needed, just the
 Email is deliberately **not** saved/reused here - it's asked fresh per
 order only when Stripe needs it for the payment receipt, which is a
 separate concern from delivery data and wasn't part of the request.
+**Superseded by v2.7 above**, which does now save/reuse it - noted here
+rather than rewritten, since this section is describing what shipped in
+v2.6 at the time.
 
 ## v2.5 (2026-08-04): Official Business Account (blue checkmark) investigated - not attainable yet, blocked by message volume, not config
 
