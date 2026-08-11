@@ -1,5 +1,96 @@
 # AfroMarket WhatsApp Bot
 
+## v2.9 (2026-08-11): production native catalog populated - root cause of the `catalog_management` permission wall, and how dev's catalog actually worked
+
+A from-scratch investigation into why `scripts/submitCatalogBatch.js` (added
+in #73) kept failing with `(#100) Missing Permission` against the new
+production catalog, even after granting the system user asset-level "Full
+access" and regenerating tokens with every WhatsApp permission the
+`AfroMarket-Bot` app offered - the native-catalog code itself (#74) had
+already been live in production since PR #81's carousel-footer fix (v2.8)
+was deployed; only the catalog *data* was missing.
+
+**Root cause: `catalog_management` is a Marketing/Catalog API permission, not
+a WhatsApp permission - it lives behind a completely separate Meta
+authorization surface from `whatsapp_business_management` /
+`whatsapp_business_messaging`.**
+Confirmed via [Graph API Explorer](https://developers.facebook.com/tools/explorer):
+switching the "Meta App" selector from `AfroMarket-Bot` to `AfroMarket-Dev`
+and opening "Add a Permission" showed `catalog_management` listed under
+"Other" for `AfroMarket-Dev` but not for `AfroMarket-Bot` - same Meta login,
+same business, different apps, different permission surface.
+
+**Why dev's catalog worked and prod's didn't - this is how it was actually
+done for dev:** `AfroMarket-Dev` (App ID `1062969406286663`, mode: In
+development) is an older-style Meta Business app with **Marketing API**
+added as a product alongside WhatsApp (visible under Dashboard → "Added
+products"). `catalog_management` is part of that Marketing API product's
+permission set. `AfroMarket-Bot` (App ID `1515363753048080`, mode: **Live** -
+the actual production app) was set up through Meta's newer "Use Cases" model
+and had only one use case added: "Connect with customers through WhatsApp" -
+no Marketing/Catalog API product, so no `catalog_management`, regardless of
+token type or how many WhatsApp scopes were requested. That's the wall this
+session kept hitting.
+
+**Fix applied to the production app itself** (Dashboard → "Add use cases" →
+filter "All (15)", not the default "Featured (3)" view, which is why this
+was missed on earlier passes): added **"Manage products with Catalog API"**
+to `AfroMarket-Bot`. This gives the actual production app its own
+`catalog_management` access - the correct fix, versus the alternative of
+permanently borrowing `AfroMarket-Dev`'s (a dev-mode app's) credentials to
+manage a production commerce resource.
+
+**A second, narrower platform limitation surfaced after that fix, and is
+worth recording so it isn't re-discovered the hard way:** Meta Business
+Suite's System User "Generate token" flow (Settings → Users → System users →
+`AfroMarket Bot API` → Generate token) **never surfaces `catalog_management`
+as a selectable permission for `AfroMarket-Bot`, even after the Catalog API
+use case was added** - confirmed not a propagation-delay/caching issue by
+retrying after several minutes; a permission search for "catalog" returns
+"No matching results" every time. The System User flow's permission picker
+appears to be hardcoded to a fixed allowlist of WhatsApp-only permissions
+(`manage_app_solution`, `whatsapp_business_manage_events`,
+`whatsapp_business_management`, `whatsapp_business_messaging`), independent
+of what the app's use cases actually grant.
+
+**The Graph API Explorer's personal "User Token" flow is the one that does
+expose it.** After adding the use case, `catalog_management` appeared as
+a selectable "Add a Permission" option for `AfroMarket-Bot` there, and a
+User Token generated with it successfully read the production catalog
+(`GET /1333066702319721?fields=id,name` → `200`). **Practical implication:
+there is currently no stable, non-interactive (System User) credential for
+managing this catalog** - only a personal, short-lived User Token via Graph
+API Explorer (extendable to a 60-day long-lived token via the standard
+`fb_exchange_token` OAuth grant if a longer-lived credential is ever needed
+for a recurring/automated job). This is fine for how catalog population
+actually happens today (`submitCatalogBatch.js` is a manual, occasional
+script run from a developer machine, not a server-side route), so no
+Railway-side change was needed for `WHATSAPP_ACCESS_TOKEN_AFROMARKET` -
+serving the native catalog in chat only needs `whatsapp_business_messaging`
+to reference a `catalog_id`, not `catalog_management` to edit it.
+
+**Actions taken, in order:**
+1. Added the "Manage products with Catalog API" use case to `AfroMarket-Bot`.
+2. Generated a personal User Token (via Graph API Explorer) scoped to
+   `catalog_management` + `whatsapp_business_management` +
+   `whatsapp_business_messaging` against `AfroMarket-Bot`.
+3. Ran `scripts/submitCatalogBatch.js` against catalog ID
+   `1333066702319721` ("AfroMarket-Production-Catalog") with
+   `AFROMARKET_PHONE_NUMBER=4915905495011` (K-AfroMarket's real number,
+   from v2.4) overridden via shell env vars - confirmed in Commerce Manager:
+   4 products, all "In stock".
+4. Set `AFROMARKET_NATIVE_CATALOG_ENABLED=true`,
+   `AFROMARKET_CATALOG_ID=1333066702319721`, and
+   `AFROMARKET_PHONE_NUMBER=4915905495011` on Railway **production**
+   (previously only present in `dev`) and manually deployed - production's
+   manual-deploy-only convention followed as usual. Deploy logs confirm a
+   clean start (`GET /api/health 200`), no errors related to this change.
+
+**Not yet done:** end-to-end verification of the native catalog flow live on
+WhatsApp against the production number - do that before considering this
+fully shipped, per this session's established practice of testing on
+WhatsApp rather than assuming a config change works.
+
 ## v2.8 (2026-08-09): migration actually applied to dev, plus a second real ordering bug found and fixed
 
 Two follow-ups from v2.7, both found by testing live on WhatsApp rather than
