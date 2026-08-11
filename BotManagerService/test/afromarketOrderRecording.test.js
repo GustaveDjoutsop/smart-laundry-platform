@@ -27,6 +27,10 @@ function createBot(t) {
   const profileCalls = [];
   bot.customerProfileStore = { upsert: async (args) => profileCalls.push(args) };
 
+  // Avoids a real DB round trip through CustomerIdentityLinkStore/getPool()
+  // in these tests - see afromarket-identity-linkage-design.md.
+  bot.identityResolver = { resolve: async () => 'canonical-test-customer-id' };
+
   return { bot, sent, invoiceCalls, profileCalls };
 }
 
@@ -78,12 +82,28 @@ test('AfroMarket order recording: a completed payment snapshots an invoice and u
     whatsappId: '+491701234567',
     name: 'Jane Doe',
     deliveryAddress: '12 Main St, Berlin',
-    email: 'jane@example.com'
+    email: 'jane@example.com',
+    customerId: 'canonical-test-customer-id'
   });
 
   // The customer-facing order confirmation must still go out.
   assert.equal(sent.length, 1);
   assert.equal(sent[0].type, 'buttons');
+});
+
+test('AfroMarket order recording: an identity-resolution failure does not block the profile upsert or order confirmation', async (t) => {
+  const { bot, sent, profileCalls } = createBot(t);
+  bot.identityResolver = {
+    resolve: async () => {
+      throw new Error('db unreachable');
+    }
+  };
+
+  await bot._onPaymentCompleted(completedPaymentEvent({ transactionId: 'tx_4' }));
+
+  assert.equal(profileCalls.length, 1);
+  assert.equal(profileCalls[0].customerId, null);
+  assert.equal(sent.length, 1, 'the customer must still get their order confirmation');
 });
 
 test('AfroMarket order recording: an invoice write failure does not block the order confirmation from sending', async (t) => {

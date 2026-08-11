@@ -421,8 +421,14 @@ class AfroMarketFlowPlugin extends FlowPlugin {
   async _handleCheckoutStart(ctx) {
     ctx.set('checkoutUsingSavedAddress', false);
 
-    const fromDigits = String(ctx.from || '').trim();
-    const phone = fromDigits ? (fromDigits.startsWith('+') ? fromDigits : `+${fromDigits}`) : '';
+    // ctx.phone (not ctx.from): from is a routing identifier that's a BSUID
+    // for username adopters, not a phone number - see
+    // afromarket-bsuid-codebase-readiness-agent-instructions.md. Blindly
+    // "+"-prefixing ctx.from here used to fabricate a garbage phone-shaped
+    // string (e.g. "+user.9373795779eb...") for a BSUID-only customer,
+    // which would have been stored as their delivery/invoice phone number.
+    const rawPhone = String(ctx.phone || '').trim();
+    const phone = rawPhone ? (rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`) : '';
     ctx.set('checkoutPhone', phone);
 
     let profile = null;
@@ -476,8 +482,9 @@ class AfroMarketFlowPlugin extends FlowPlugin {
     const rawEmail = String(ctx.get('checkoutEmailRaw') || '').trim();
     const email = /^skip$/i.test(rawEmail) ? '' : rawEmail;
 
-    const fromDigits = String(ctx.from || '').trim();
-    const phone = fromDigits ? (fromDigits.startsWith('+') ? fromDigits : `+${fromDigits}`) : '';
+    // ctx.phone, not ctx.from - see _handleCheckoutStart's comment above.
+    const rawPhone = String(ctx.phone || '').trim();
+    const phone = rawPhone ? (rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`) : '';
 
     ctx.set('checkoutEmail', email);
     ctx.set('checkoutPhone', phone);

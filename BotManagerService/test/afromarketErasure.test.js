@@ -125,3 +125,47 @@ test('AfroMarket erasure: does not throw when WhatsApp is not configured - logs 
 
   assert.equal(deletionCalls.length, 1, 'the deletion itself still runs even though no confirmation could be sent');
 });
+
+test('AfroMarket identity linkage: handleMessage does not await it (fire-and-forget, per review)', async (t) => {
+  // Regression test: awaiting a DB-backed resolve() in handleMessage's hot
+  // path would add latency to every paired-identifier message and, since
+  // QueueManager drains inbound messages serially, back up every other
+  // customer's message behind it - flagged in review. Only fires when both
+  // identifiers are present (contact-book pairing signal); see
+  // afromarket-identity-linkage-design.md.
+  const { bot } = createBot(t);
+  const from = nextFrom();
+
+  let resolveLinkage;
+  const linkagePromise = new Promise((resolve) => {
+    resolveLinkage = resolve;
+  });
+  let linkageSettled = false;
+  bot.identityResolver = {
+    resolve: async () => {
+      await linkagePromise;
+      linkageSettled = true;
+      return 'canonical-x';
+    }
+  };
+
+  const handled = bot.handleMessage({
+    from,
+    message: { text: { body: 'hi' } },
+    phone: from,
+    bsuid: 'user.paired-with-this-phone'
+  });
+
+  // If handleMessage awaited identity resolution, this would hang until the
+  // 500ms timeout instead of resolving immediately - linkagePromise is
+  // deliberately never resolved until after the race below.
+  await Promise.race([
+    handled,
+    new Promise((_resolve, reject) =>
+      setTimeout(() => reject(new Error('handleMessage did not resolve - identity linkage may be blocking it')), 500)
+    )
+  ]);
+
+  assert.equal(linkageSettled, false, 'identity resolution should still be pending when handleMessage completes');
+  resolveLinkage();
+});

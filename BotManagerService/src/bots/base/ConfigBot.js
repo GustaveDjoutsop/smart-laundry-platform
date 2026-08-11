@@ -15,7 +15,7 @@ class ConfigBot extends BaseBot {
     this.whatsapp = createWhatsAppClientForBot(config);
   }
 
-  async handleMessage({ from, message }) {
+  async handleMessage({ from, message, phone }) {
     const appConfig = getAppConfig();
     const conversationKey = `conv:${this.config.botId}:${from}`;
 
@@ -27,6 +27,7 @@ class ConfigBot extends BaseBot {
     const result = await this.flowEngine.step({
       from,
       message,
+      phone,
       state: conversationState,
       send: (outboundIntent) => this.sendIntent(outboundIntent)
     });

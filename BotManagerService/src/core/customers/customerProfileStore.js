@@ -14,33 +14,47 @@ class CustomerProfileStore {
   }
 
   // Postgres error code 42703 is undefined_column - the one failure mode
-  // that's actually actionable here (migrations/003_add_customer_profile_email.sql
-  // not applied yet on this environment). Rethrown with the migration
-  // filename attached so an operator sees exactly what to run instead of a
-  // bare "column email does not exist" with no context; every other error
-  // (connection refused, bad params, etc.) passes through unchanged.
+  // that's actually actionable here (a migration not applied yet on this
+  // environment). Rethrown with the migration filename attached so an
+  // operator sees exactly what to run instead of a bare "column X does not
+  // exist" with no context; every other error (connection refused, bad
+  // params, etc.) passes through unchanged.
   _rethrowWithMigrationHint(err) {
-    if (err && err.code === '42703' && /email/i.test(err.message || '')) {
-      throw new Error(
-        `${err.message} - has migrations/003_add_customer_profile_email.sql been applied to this database yet?`
-      );
+    if (err && err.code === '42703') {
+      if (/email/i.test(err.message || '')) {
+        throw new Error(
+          `${err.message} - has migrations/003_add_customer_profile_email.sql been applied to this database yet?`
+        );
+      }
+      if (/customer_id/i.test(err.message || '')) {
+        throw new Error(
+          `${err.message} - has migrations/004_add_customer_identity_link.sql been applied to this database yet?`
+        );
+      }
     }
     throw err;
   }
 
-  async upsert({ botId, whatsappId, name, deliveryAddress, email }) {
+  // customerId is the canonical id from IdentityResolver (see
+  // afromarket-identity-linkage-design.md) - nullable and additive, same
+  // pattern as email in migration 003. COALESCE keeps whatever's already on
+  // file when a caller doesn't have a resolved id yet (e.g. identity
+  // resolution failed but the profile write shouldn't be blocked by that -
+  // see AfroMarketBot._recordOrder), never clears a previously-linked id.
+  async upsert({ botId, whatsappId, name, deliveryAddress, email, customerId }) {
     if (!botId || !whatsappId) throw new Error('CustomerProfileStore.upsert requires botId and whatsappId');
 
     try {
       await this._getPool().query(
-        `INSERT INTO customer_profile (bot_id, whatsapp_id, name, delivery_address, email, created_at, last_active_at)
-         VALUES ($1, $2, $3, $4, $5, now(), now())
+        `INSERT INTO customer_profile (bot_id, whatsapp_id, name, delivery_address, email, customer_id, created_at, last_active_at)
+         VALUES ($1, $2, $3, $4, $5, $6, now(), now())
          ON CONFLICT (bot_id, whatsapp_id) DO UPDATE SET
            name = COALESCE(EXCLUDED.name, customer_profile.name),
            delivery_address = COALESCE(EXCLUDED.delivery_address, customer_profile.delivery_address),
            email = COALESCE(EXCLUDED.email, customer_profile.email),
+           customer_id = COALESCE(EXCLUDED.customer_id, customer_profile.customer_id),
            last_active_at = now()`,
-        [botId, whatsappId, name || null, deliveryAddress || null, email || null]
+        [botId, whatsappId, name || null, deliveryAddress || null, email || null, customerId || null]
       );
     } catch (err) {
       this._rethrowWithMigrationHint(err);
@@ -51,7 +65,7 @@ class CustomerProfileStore {
     let result;
     try {
       result = await this._getPool().query(
-        `SELECT bot_id, whatsapp_id, name, delivery_address, email, created_at, last_active_at
+        `SELECT bot_id, whatsapp_id, name, delivery_address, email, customer_id, created_at, last_active_at
          FROM customer_profile WHERE bot_id = $1 AND whatsapp_id = $2`,
         [botId, whatsappId]
       );

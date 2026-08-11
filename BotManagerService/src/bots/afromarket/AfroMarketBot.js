@@ -6,6 +6,8 @@ const { CustomerProfileStore } = require('../../core/customers/customerProfileSt
 const { InvoiceRecordStore } = require('../../core/invoices/invoiceRecordStore');
 const { DeletionRequestLogStore } = require('../../core/customers/deletionRequestLogStore');
 const { DeletionRequestService } = require('../../core/customers/deletionRequestService');
+const { CustomerIdentityLinkStore } = require('../../core/customers/customerIdentityLinkStore');
+const { IdentityResolver } = require('../../core/customers/identityResolver');
 const { getAppConfig } = require('../../core/appConfig');
 const { logger } = require('../../utils/logger');
 
@@ -53,9 +55,12 @@ class AfroMarketBot extends ConfigBot {
 
     this.customerProfileStore = customerProfileStore;
     this.invoiceRecordStore = new InvoiceRecordStore();
+    this.customerIdentityLinkStore = new CustomerIdentityLinkStore();
+    this.identityResolver = new IdentityResolver({ customerIdentityLinkStore: this.customerIdentityLinkStore });
     this.deletionRequestService = new DeletionRequestService({
       customerProfileStore: this.customerProfileStore,
-      deletionRequestLogStore: new DeletionRequestLogStore()
+      deletionRequestLogStore: new DeletionRequestLogStore(),
+      customerIdentityLinkStore: this.customerIdentityLinkStore
     });
 
     this._onPaymentCompleted = this._onPaymentCompleted.bind(this);
@@ -70,7 +75,15 @@ class AfroMarketBot extends ConfigBot {
   //    in the system (see afromarket-catalog-cart-migration-todo.md Phase 3).
   // 2. Erasure - a customer mid-checkout should still be able to trigger it,
   //    not just from the main menu.
-  async handleMessage({ from, message }) {
+  async handleMessage({ from, message, phone, bsuid }) {
+    // Fire-and-forget, not awaited: QueueManager drains inbound messages
+    // one at a time (see whatsappHandler.js), so awaiting a DB-backed
+    // resolve() here - flagged in review - would add real latency to every
+    // paired-identifier message and back up every other customer's message
+    // behind it. Errors are still caught and logged inside the helper; they
+    // just aren't allowed to block or be awaited by this turn's handling.
+    this._maybeLinkIdentity({ phone, bsuid });
+
     if (message && message.type === 'order') {
       const handledByOrder = await this._handleNativeOrder({ from, message });
       if (handledByOrder) return;
@@ -79,7 +92,25 @@ class AfroMarketBot extends ConfigBot {
     const handledByErasure = await this._handleErasureIntercept({ from, message });
     if (handledByErasure) return;
 
-    return super.handleMessage({ from, message });
+    return super.handleMessage({ from, message, phone });
+  }
+
+  // Best-effort, genuinely non-blocking (see handleMessage's comment - not
+  // awaited by its caller). Only fires when this specific webhook carried
+  // both identifiers together (Meta's Portfolio Contact Book pairing) - see
+  // afromarket-identity-linkage-design.md. Most messages carry only one
+  // identifier and this is a no-op for them.
+  async _maybeLinkIdentity({ phone, bsuid }) {
+    if (!phone || !bsuid) return;
+
+    try {
+      await this.identityResolver.resolve({
+        primary: { type: 'phone', value: phone },
+        pairedWith: { type: 'bsuid', value: bsuid }
+      });
+    } catch (err) {
+      logger.error('AfroMarket: identity linkage failed', err && err.message ? err.message : String(err));
+    }
   }
 
   // Native WhatsApp cart submissions arrive as an inbound `type: "order"`
@@ -255,7 +286,24 @@ class AfroMarketBot extends ConfigBot {
 
     const transactionId = event.transactionId;
     const customerPhone = payment && payment.customerPhone ? payment.customerPhone : null;
-    if (!transactionId || !customerPhone) return;
+
+    if (!transactionId) return;
+
+    if (!customerPhone) {
+      // Known gap, not yet fixed: a BSUID-only customer (no real phone
+      // number captured at checkout - see afromarketFlowPlugin's
+      // _handleCheckoutStart) can complete payment and land exactly here,
+      // silently losing their order confirmation, invoice, and profile
+      // write. The real fix is prompting for a phone via WhatsApp's
+      // REQUEST_CONTACT_INFO button before checkout, deferred per
+      // afromarket-identity-linkage-design.md - this WARN only makes the
+      // loss observable instead of invisible until it's built.
+      logger.warn('AfroMarket order paid but has no customerPhone - confirmation/invoice/profile write skipped', {
+        botId,
+        transactionId
+      });
+      return;
+    }
 
     const lockKey = buildOrderConfirmLockKey({ botId, transactionId });
     const acquiredLock = await redisManager.setnx(lockKey, '1', 60 * 60 * 24);
@@ -316,6 +364,20 @@ class AfroMarketBot extends ConfigBot {
       );
     }
 
+    // Best-effort, and deliberately outside the upsert's try/catch below: a
+    // failed identity resolution must still let the profile upsert proceed
+    // (with customerId left null) rather than lose the whole write - see
+    // customerProfileStore.upsert's COALESCE comment.
+    let customerId = null;
+    try {
+      customerId = await this.identityResolver.resolve({ primary: { type: 'phone', value: customerPhone } });
+    } catch (err) {
+      logger.error(
+        'AfroMarket: identity resolution failed while recording order',
+        err && err.message ? err.message : String(err)
+      );
+    }
+
     try {
       // `email: metadata.email || null` means an explicit "skip" at
       // checkout_email (which sets checkoutEmail = '') upserts as null here,
@@ -337,7 +399,8 @@ class AfroMarketBot extends ConfigBot {
         whatsappId: customerPhone,
         name: metadata.name || null,
         deliveryAddress: metadata.address || null,
-        email: metadata.email || null
+        email: metadata.email || null,
+        customerId
       });
     } catch (err) {
       logger.error('Failed to upsert customer profile for AfroMarket order', err && err.message ? err.message : String(err));
