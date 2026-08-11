@@ -14,18 +14,19 @@ deterministic `conv:<botId>:<whatsappId>` key, not a pattern sweep.
 ## Context
 
 An audit of the AfroMarket bot code against the published Datenschutzerklärung /
-Löschanleitung surfaced two related gaps:
+Löschanleitung, at the time this ADR was originally drafted, surfaced two related gaps
+(both now closed — see Status above):
 
-1. **No erasure mechanism exists.** No `LÖSCHEN`/`DELETE` handler in
-   `AfroMarketBot.js` or the flow config. `redisManager.js` doesn't even expose
-   a `del()` primitive. A customer invoking their Art. 17 DSGVO right today
-   gets no response mechanism at all.
+1. **No erasure mechanism existed.** No `LÖSCHEN`/`DELETE` handler in
+   `AfroMarketBot.js` or the flow config. `redisManager.js` didn't expose
+   a `del()` primitive. A customer invoking their Art. 17 DSGVO right had
+   no response mechanism at all.
 
-2. **No persistent order/invoice store exists.** All state lives in Redis with
+2. **No persistent order/invoice store existed.** All state lived in Redis with
    short TTLs (`conv:*` = 30 min, `payment:*` = 24h). The privacy policy
-   promises invoice retention "up to 10 years per § 147 AO / § 257 HGB" — but
-   there is no store that survives 24 hours, let alone 10 years. That promise
-   is currently unbacked by any actual data store. This is a bookkeeping/tax-law
+   promised invoice retention "up to 10 years per § 147 AO / § 257 HGB" — but
+   there was no store that survived 24 hours, let alone 10 years. That promise
+   was unbacked by any actual data store. This is a bookkeeping/tax-law
    exposure independent of GDPR — § 147 AO retention is not optional once a
    taxable sale occurs.
 
@@ -76,8 +77,7 @@ DeletionRequestService.execute(whatsappId)
    │      { whatsappId, requestedAt, completedAt, status }
    │      (Art. 5(2) accountability — you must be able to prove you handled it)
    ├── 2. Delete customer_profile row (hard delete)
-   ├── 3. redisManager.del() on all conv:*, payment:* keys for this ID
-   │      (new primitive — currently missing)
+   ├── 3. redisManager.del() on the conv:* key for this ID
    ├── 4. Invoice records: NOT touched. Explicitly left alone by design.
    └── 5. Send WhatsApp confirmation: "Ihre persönlichen Daten wurden
           gelöscht. Rechnungsdaten bleiben aus gesetzlichen Gründen bis
@@ -99,16 +99,15 @@ ever trigger erasure of their own data. Self-service GDPR erasure correctly
 requires no allowlist, since the sender's identity *is* the data subject.
 No code change was needed here, and none was made.
 
-### 3. Required code changes
+### 3. Code changes made
 
-| Component | Change |
+| Component | What shipped |
 |---|---|
-| `redisManager.js` | Add `del(key)` and `delByPattern(prefix)` — currently missing entirely |
-| `AfroMarketBot.js` / flow router | Add a **global intercept** for `LÖSCHEN`/`DELETE`/`SUPPRIMER` (French, given Cameroon user base per other bots) ahead of normal flow dispatch, not inside a specific flow — a user mid-checkout should still be able to trigger it |
-| New: `CustomerProfileStore` (Postgres) | CRUD for `customer_profile`; the only store the erasure flow touches for personal data |
-| New: `InvoiceRecordStore` (Postgres, append-only) | Insert-only on order confirmation; no update/delete methods exposed at all — enforce this at the code level, not just by convention, so a future refactor can't accidentally add a `.update()` |
-| New: `DeletionRequestService` | Orchestrates the 5 steps above; single place this logic lives |
-| Config | `PRESSING_LAUNDRY_BOT_ID`-style env var pattern already exists elsewhere in the codebase — follow the same convention for any per-bot retention overrides |
+| `redisManager.js` | `del(key)` added. `delByPattern(prefix)` was scoped but never needed in practice — see Status above. |
+| `AfroMarketBot.js` | Global intercept for `LÖSCHEN`/`DELETE` (`ERASURE_TRIGGER_WORDS`) ahead of normal flow dispatch, not inside a specific flow — a user mid-checkout can still trigger it. |
+| `CustomerProfileStore` (Postgres) | CRUD for `customer_profile`; the only store the erasure flow touches for personal data. |
+| `InvoiceRecordStore` (Postgres, append-only) | Insert-only on order confirmation; no update/delete methods exposed at the code level, not just by convention. |
+| `DeletionRequestService` | Orchestrates the erasure steps above; single place this logic lives. |
 
 ### 4. Retention enforcement (the other half of "10 years")
 
@@ -143,11 +142,16 @@ their retention deadline. Store the deadline as a computed column
   this, no new gap, but worth re-confirming Meta's own retention/deletion
   behavior isn't assumed to be covered by this ADR
 
-## Open questions for Sunday to confirm before implementation
+## Follow-ups
 
-1. Should the 3-year inactivity auto-delete on `customer_profile` be
-   automatic, or opt-in only (some businesses prefer to ask before
-   auto-purging a dormant customer)?
+Implemented as shipped: 3-year inactivity auto-delete on `customer_profile` runs
+automatically (`RetentionWorker`, no opt-in gate), matching item 1 below as originally
+posed. Items 2-3 were never explicitly revisited post-implementation and remain worth
+confirming; item 4 is a genuinely open, unimplemented extension.
+
+1. ~~Should the 3-year inactivity auto-delete on `customer_profile` be automatic, or
+   opt-in only~~ — shipped as automatic; revisit only if a business wants the opt-in
+   behavior instead.
 2. Confirm whether Orange Money/CamPay transaction IDs need to appear on the
    invoice snapshot for reconciliation purposes — affects what fields get
    copied at order-confirmation time.
