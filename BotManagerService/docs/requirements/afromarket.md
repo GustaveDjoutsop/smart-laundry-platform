@@ -12,8 +12,9 @@ was deployed; only the catalog *data* was missing.
 
 **Root cause: `catalog_management` is a Marketing/Catalog API permission, not
 a WhatsApp permission - it lives behind a completely separate Meta
-authorization surface from `whatsapp_business_management`/`_messaging`.**
-Confirmed via Graph API Explorer (`developers.facebook.com/tools/explorer`):
+authorization surface from `whatsapp_business_management` /
+`whatsapp_business_messaging`.**
+Confirmed via [Graph API Explorer](https://developers.facebook.com/tools/explorer):
 switching the "Meta App" selector from `AfroMarket-Bot` to `AfroMarket-Dev`
 and opening "Add a Permission" showed `catalog_management` listed under
 "Other" for `AfroMarket-Dev` but not for `AfroMarket-Bot` - same Meta login,
