@@ -46,13 +46,24 @@ const whatsappHandler = {
       }
 
       const payload = req.body;
+      const value = payload?.entry?.[0]?.changes?.[0]?.value;
 
-      const phoneNumberId =
-        payload?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
-
-      const message = payload?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-      const from = message?.from;
+      const phoneNumberId = value?.metadata?.phone_number_id;
+      const message = value?.messages?.[0];
+      const contact = value?.contacts?.[0];
       const messageId = message?.id || null;
+
+      // Once a customer adopts a WhatsApp username, Meta may omit the phone
+      // number entirely (message.from and contacts[0].wa_id both become "")
+      // and send only contacts[0].user_id (their Business-Scoped User ID)
+      // instead - see afromarket-bsuid-codebase-readiness-agent-instructions.md.
+      // Previously this branch required `from` truthy and silently dropped
+      // every BSUID-only message with no log, no reply, no error. Fall back
+      // to the BSUID so the customer is still routed instead of ignored.
+      const phone = (contact?.wa_id || message?.from || '').trim() || null;
+      const bsuid = (contact?.user_id || '').trim() || null;
+      const from = phone || bsuid;
+      const identifierType = phone ? 'phone' : bsuid ? 'bsuid' : null;
 
       if (!phoneNumberId || !message || !from) {
         return res.status(200).json({ ok: true }); // Ignore non-message events
@@ -67,6 +78,14 @@ const whatsappHandler = {
       queueManager.enqueue({
         phoneNumberId,
         from,
+        identifierType,
+        // Carried separately (not just derived from `from`/identifierType)
+        // so a bot can detect when Meta's Portfolio Contact Book has already
+        // paired both identifiers for this customer (both present on the
+        // same contacts[] entry) and link them - see
+        // afromarket-identity-linkage-design.md. Either may be null.
+        phone,
+        bsuid,
         messageId,
         message,
         raw: payload
