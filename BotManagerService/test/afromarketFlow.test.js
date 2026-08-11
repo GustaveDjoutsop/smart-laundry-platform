@@ -22,6 +22,7 @@ function createStepper() {
     const outboundIntents = [];
     ({ state: conversationState } = await flowEngine.step({
       from: '+33600000000',
+      phone: '+33600000000',
       message: { text: { body: text } },
       state: conversationState,
       send: async (outboundIntent) => outboundIntents.push(outboundIntent)
@@ -154,6 +155,7 @@ test('AfroMarket: checkout reuses a saved delivery address instead of asking aga
     const outboundIntents = [];
     ({ state: conversationState } = await flowEngine.step({
       from: '+33600000000',
+      phone: '+33600000000',
       message: { text: { body: text } },
       state: conversationState,
       send: async (outboundIntent) => outboundIntents.push(outboundIntent)
@@ -208,6 +210,7 @@ test('AfroMarket: a saved profile with an email on file prefills it too, instead
     const outboundIntents = [];
     ({ state: conversationState } = await flowEngine.step({
       from: '+33600000000',
+      phone: '+33600000000',
       message: { text: { body: text } },
       state: conversationState,
       send: async (outboundIntent) => outboundIntents.push(outboundIntent)
@@ -243,6 +246,7 @@ test('AfroMarket: "Start Over" on a reused saved address falls back to the seque
     const outboundIntents = [];
     ({ state: conversationState } = await flowEngine.step({
       from: '+33600000000',
+      phone: '+33600000000',
       message: { text: { body: text } },
       state: conversationState,
       send: async (outboundIntent) => outboundIntents.push(outboundIntent)
@@ -288,6 +292,7 @@ test('AfroMarket: a saved-profile lookup failure falls back to the sequential ch
     const outboundIntents = [];
     ({ state: conversationState } = await flowEngine.step({
       from: '+33600000000',
+      phone: '+33600000000',
       message: { text: { body: text } },
       state: conversationState,
       send: async (outboundIntent) => outboundIntents.push(outboundIntent)
@@ -337,6 +342,7 @@ test('AfroMarket: checkout phone is derived from the WhatsApp sender even withou
     const outboundIntents = [];
     ({ state: conversationState } = await flowEngine.step({
       from: '491701234567',
+      phone: '491701234567',
       message: { text: { body: text } },
       state: conversationState,
       send: async (outboundIntent) => outboundIntents.push(outboundIntent)
@@ -355,6 +361,41 @@ test('AfroMarket: checkout phone is derived from the WhatsApp sender even withou
   const result = await step('skip');
 
   assert.match(result.outboundIntents[0].body, /Phone: \+491701234567/);
+});
+
+test('AfroMarket: a BSUID-only customer (no phone) gets an empty checkout Phone field, not a fabricated one', async () => {
+  // Regression test flagged in review: `from` is a routing identifier that
+  // may be a BSUID once WhatsApp usernames are in play - `ctx.from` used to
+  // be blindly "+"-prefixed into the checkout Phone field, which would have
+  // produced garbage like "+user.9373795779eb..." for a username adopter
+  // with no phone number on this interaction. See
+  // afromarket-bsuid-codebase-readiness-agent-instructions.md.
+  const flowEngine = new FlowEngine({ botConfig, plugin: new AfroMarketFlowPlugin({ botConfig }) });
+  let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
+  const step = async (text) => {
+    const outboundIntents = [];
+    ({ state: conversationState } = await flowEngine.step({
+      from: 'user.9373795779eb6441c8adb2eaee5b848e7dd174ddd302d7db62142f4722d574b6',
+      phone: null,
+      message: { text: { body: text } },
+      state: conversationState,
+      send: async (outboundIntent) => outboundIntents.push(outboundIntent)
+    }));
+    return { outboundIntents, conversationState };
+  };
+
+  await step('hi');
+  await step('shop_online');
+  await step('cat_beans_nuts');
+  await step('product_haricot_rouge_1kg');
+  await step('view_cart');
+  await step('start_checkout');
+  await step('Jane Doe');
+  await step('12 Main St, Berlin');
+  const result = await step('skip');
+
+  assert.match(result.outboundIntents[0].body, /Phone: \n/);
+  assert.doesNotMatch(result.outboundIntents[0].body, /user\.9373795779eb/);
 });
 
 test('AfroMarket: free-text replies to checkout_name/checkout_address are accepted as-is, no required format', async () => {
@@ -618,6 +659,7 @@ test('AfroMarket: Partner Stores falls back to vertical cards (still followed by
     const outboundIntents = [];
     ({ state: conversationState } = await flowEngine.step({
       from: '+33600000000',
+      phone: '+33600000000',
       message: { text: { body: text } },
       state: conversationState,
       send: async (outboundIntent) => {

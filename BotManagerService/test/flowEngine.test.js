@@ -78,6 +78,7 @@ test('FlowEngine runs message state and advances', async () => {
 
   const res = await engine.step({
     from: '237670000000',
+    phone: '237670000000',
     message: { text: { body: 'hi' } },
     state: { currentFlowId: null, currentStateId: null, context: { name: 'World' } },
     send: async (intent) => sent.push(intent)
@@ -118,6 +119,7 @@ test('FlowEngine route action branches on saved context value', async () => {
     const sent = [];
     await engine.step({
       from: '237670000000',
+    phone: '237670000000',
       message: { text: { body: text } },
       state: { currentFlowId: 'main_menu', currentStateId: 'ask', context: {} },
       send: async (intent) => sent.push(intent)
@@ -167,6 +169,7 @@ test('FlowEngine image state chaining into a buttons state sends one merged imag
 
   const res = await engine.step({
     from: '237670000000',
+    phone: '237670000000',
     message: { text: { body: 'hi' } },
     state: { currentFlowId: null, currentStateId: null, context: { dish: 'jollof' } },
     send: async (intent) => sent.push(intent)
@@ -208,6 +211,7 @@ test('FlowEngine image state chaining into a buttons state resolves buttonsFromC
 
   await engine.step({
     from: '237670000000',
+    phone: '237670000000',
     message: { text: { body: 'hi' } },
     state: { currentFlowId: null, currentStateId: null, context: {} },
     send: async (intent) => sent.push(intent)
@@ -248,6 +252,7 @@ test('FlowEngine image state chaining into a buttons state also filters hideInPr
   try {
     await engine.step({
       from: '237670000000',
+    phone: '237670000000',
       message: { text: { body: 'hi' } },
       state: { currentFlowId: null, currentStateId: null, context: {} },
       send: async (intent) => sent.push(intent)
@@ -304,6 +309,7 @@ test('FlowEngine list state filters hideInProd rows in production and drops sect
   try {
     await engine.step({
       from: '237670000000',
+    phone: '237670000000',
       message: { text: { body: 'hi' } },
       state: { currentFlowId: null, currentStateId: null, context: {} },
       send: async (intent) => sent.push(intent)
@@ -337,6 +343,7 @@ test('FlowEngine image state without a next buttons state still sends a standalo
 
   await engine.step({
     from: '237670000000',
+    phone: '237670000000',
     message: { text: { body: 'hi' } },
     state: { currentFlowId: null, currentStateId: null, context: {} },
     send: async (intent) => sent.push(intent)
@@ -399,6 +406,7 @@ test('FlowEngine image cycle sends each image at most once per turn', async () =
 
   await engine.step({
     from: '237670000000',
+    phone: '237670000000',
     message: { text: { body: 'hi' } },
     state: { currentFlowId: null, currentStateId: null, context: {} },
     send: async (intent) => sent.push(intent)
@@ -535,6 +543,7 @@ test('FlowEngine cards state sends intro + one image-button message per item + f
     const sent = [];
     ({ state } = await engine.step({
       from: '237670000000',
+    phone: '237670000000',
       message: { text: { body: text } },
       state,
       send: async (intent) => sent.push(intent)
@@ -616,6 +625,7 @@ test('FlowEngine cards state survives a mid-loop send() failure: later cards, fo
 
   const result = await engine.step({
     from: '237670000000',
+    phone: '237670000000',
     message: { text: { body: 'hi' } },
     state: { currentFlowId: null, currentStateId: null, context: {} },
     send: flakySend
@@ -639,6 +649,7 @@ test('FlowEngine cards state survives a mid-loop send() failure: later cards, fo
   // client only shows what actually arrived) still routes correctly.
   const answered = await engine.step({
     from: '237670000000',
+    phone: '237670000000',
     message: { text: { body: 'dish_c' } },
     state: result.state,
     send: async () => {}
@@ -697,6 +708,7 @@ test('FlowEngine cards state sends CTA-URL (not quick-reply) messages for items 
 
   const rendered = await engine.step({
     from: '237670000000',
+    phone: '237670000000',
     message: { text: { body: 'hi' } },
     state: { currentFlowId: null, currentStateId: null, context: {} },
     send: async (intent) => sent.push(intent)
@@ -716,6 +728,7 @@ test('FlowEngine cards state sends CTA-URL (not quick-reply) messages for items 
   // real path forward is the footer's quick-reply button.
   const afterMenu = await engine.step({
     from: '237670000000',
+    phone: '237670000000',
     message: { text: { body: 'menu' } },
     state: rendered.state,
     send: async () => {}
@@ -739,6 +752,7 @@ test('FlowEngine action without goto or next ends the turn instead of looping', 
 
   const res = await engine.step({
     from: '237670000000',
+    phone: '237670000000',
     message: { text: { body: 'hi' } },
     state: { currentFlowId: null, currentStateId: null, context: {} },
     send: async () => {}
@@ -767,6 +781,7 @@ test('FlowEngine input state saves value then transitions', async () => {
 
   const res = await engine.step({
     from: '237670000000',
+    phone: '237670000000',
     message: { text: { body: '42' } },
     state: { currentFlowId: 'main_menu', currentStateId: 'ask', context: {} },
     send: async () => {}

@@ -307,15 +307,22 @@ class FlowEngine {
   // (`{{#env.isProduction}}...{{/env.isProduction}}` for production-only text,
   // `{{^env.isProduction}}...{{/env.isProduction}}` for everywhere else)
   // without any new per-environment config.
-  buildTemplateContext(from) {
+  //
+  // `phone` is the real WhatsApp phone number if the sender has one, `null`
+  // otherwise - NOT the same as `from` (the routing identifier, which may be
+  // a BSUID once WhatsApp usernames are in play; see
+  // afromarket-bsuid-codebase-readiness-agent-instructions.md). Templates
+  // that render {{user.phone}} would otherwise show a raw BSUID string to a
+  // customer who has no phone number on the interaction at all.
+  buildTemplateContext(from, phone) {
     return {
-      user: { phone: from },
+      user: { phone: phone || '' },
       bot: { name: this.botConfig.botName },
       env: { isProduction: isProductionEnv() }
     };
   }
 
-  async step({ from, message, state, send }) {
+  async step({ from, message, phone, state, send }) {
     const inboundMessage = normalizeInbound(message);
     const conversationState = state || { currentFlowId: null, currentStateId: null, context: {} };
 
@@ -340,6 +347,10 @@ class FlowEngine {
 
     const flowContext = {
       from,
+      // The real WhatsApp phone number, or null - see buildTemplateContext's
+      // comment. Plugins must use this (not `from`) wherever they actually
+      // need a phone-shaped value; `from` is only a routing identifier.
+      phone: phone || null,
       inbound: inboundMessage,
       bot: this.botConfig,
       get flowId() {
@@ -383,7 +394,7 @@ class FlowEngine {
       if (stateDefinition.type === 'message') {
         const body = renderTemplate(stateDefinition.template || '', {
           ...flowContext.context,
-          ...this.buildTemplateContext(from)
+          ...this.buildTemplateContext(from, phone)
         });
 
         const outboundIntent = { type: 'text', to: from, body };
@@ -417,7 +428,7 @@ class FlowEngine {
 
         const templateContext = {
           ...flowContext.context,
-          ...this.buildTemplateContext(from)
+          ...this.buildTemplateContext(from, phone)
         };
         const link = renderTemplate(stateDefinition.link || '', templateContext);
         const caption = renderTemplate(stateDefinition.caption || '', templateContext);
@@ -447,7 +458,7 @@ class FlowEngine {
 
           const menuTemplateContext = {
             ...flowContext.context,
-            ...this.buildTemplateContext(from)
+            ...this.buildTemplateContext(from, phone)
           };
           const menuBody = renderTemplate(nextStateDefinition.template || nextStateDefinition.body || '', menuTemplateContext);
           const combinedBody = [caption, menuBody].filter((part) => part && part.trim()).join('\n\n');
@@ -509,7 +520,7 @@ class FlowEngine {
         if (inboundMessage.type !== 'text' || hasConsumedInboundText) {
           const body = renderTemplate(stateDefinition.template || stateDefinition.body || '', {
             ...flowContext.context,
-            ...this.buildTemplateContext(from)
+            ...this.buildTemplateContext(from, phone)
           });
 
           let buttons = [];
@@ -556,7 +567,7 @@ class FlowEngine {
         if (inboundMessage.type !== 'text' || hasConsumedInboundText) {
           const body = renderTemplate(stateDefinition.template || stateDefinition.body || '', {
             ...flowContext.context,
-            ...this.buildTemplateContext(from)
+            ...this.buildTemplateContext(from, phone)
           });
 
           const buttonText =
@@ -619,7 +630,7 @@ class FlowEngine {
         if (inboundMessage.type !== 'text' || hasConsumedInboundText) {
           const templateContext = {
             ...flowContext.context,
-            ...this.buildTemplateContext(from)
+            ...this.buildTemplateContext(from, phone)
           };
 
           // A single 'cards' render fans out into several independent WhatsApp
@@ -773,7 +784,7 @@ class FlowEngine {
         if (inboundMessage.type !== 'text' || hasConsumedInboundText) {
           const body = renderTemplate(stateDefinition.prompt || 'Please enter a value.', {
             ...flowContext.context,
-            ...this.buildTemplateContext(from)
+            ...this.buildTemplateContext(from, phone)
           });
           const outboundIntent = { type: 'text', to: from, body };
           outboundIntents.push(outboundIntent);

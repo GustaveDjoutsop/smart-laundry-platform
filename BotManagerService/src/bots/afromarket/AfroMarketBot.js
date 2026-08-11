@@ -76,7 +76,13 @@ class AfroMarketBot extends ConfigBot {
   // 2. Erasure - a customer mid-checkout should still be able to trigger it,
   //    not just from the main menu.
   async handleMessage({ from, message, phone, bsuid }) {
-    await this._maybeLinkIdentity({ phone, bsuid });
+    // Fire-and-forget, not awaited: QueueManager drains inbound messages
+    // one at a time (see whatsappHandler.js), so awaiting a DB-backed
+    // resolve() here - flagged in review - would add real latency to every
+    // paired-identifier message and back up every other customer's message
+    // behind it. Errors are still caught and logged inside the helper; they
+    // just aren't allowed to block or be awaited by this turn's handling.
+    this._maybeLinkIdentity({ phone, bsuid });
 
     if (message && message.type === 'order') {
       const handledByOrder = await this._handleNativeOrder({ from, message });
@@ -86,14 +92,14 @@ class AfroMarketBot extends ConfigBot {
     const handledByErasure = await this._handleErasureIntercept({ from, message });
     if (handledByErasure) return;
 
-    return super.handleMessage({ from, message });
+    return super.handleMessage({ from, message, phone });
   }
 
-  // Best-effort, non-blocking: a linkage failure must never stop the
-  // message itself from being handled. Only fires when this specific
-  // webhook carried both identifiers together (Meta's Portfolio Contact
-  // Book pairing) - see afromarket-identity-linkage-design.md. Most
-  // messages carry only one identifier and this is a no-op for them.
+  // Best-effort, genuinely non-blocking (see handleMessage's comment - not
+  // awaited by its caller). Only fires when this specific webhook carried
+  // both identifiers together (Meta's Portfolio Contact Book pairing) - see
+  // afromarket-identity-linkage-design.md. Most messages carry only one
+  // identifier and this is a no-op for them.
   async _maybeLinkIdentity({ phone, bsuid }) {
     if (!phone || !bsuid) return;
 
@@ -280,7 +286,24 @@ class AfroMarketBot extends ConfigBot {
 
     const transactionId = event.transactionId;
     const customerPhone = payment && payment.customerPhone ? payment.customerPhone : null;
-    if (!transactionId || !customerPhone) return;
+
+    if (!transactionId) return;
+
+    if (!customerPhone) {
+      // Known gap, not yet fixed: a BSUID-only customer (no real phone
+      // number captured at checkout - see afromarketFlowPlugin's
+      // _handleCheckoutStart) can complete payment and land exactly here,
+      // silently losing their order confirmation, invoice, and profile
+      // write. The real fix is prompting for a phone via WhatsApp's
+      // REQUEST_CONTACT_INFO button before checkout, deferred per
+      // afromarket-identity-linkage-design.md - this WARN only makes the
+      // loss observable instead of invisible until it's built.
+      logger.warn('AfroMarket order paid but has no customerPhone - confirmation/invoice/profile write skipped', {
+        botId,
+        transactionId
+      });
+      return;
+    }
 
     const lockKey = buildOrderConfirmLockKey({ botId, transactionId });
     const acquiredLock = await redisManager.setnx(lockKey, '1', 60 * 60 * 24);

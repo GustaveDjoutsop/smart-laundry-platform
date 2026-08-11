@@ -38,9 +38,15 @@ class DeletionRequestService {
       }
 
       await this.deletionRequestLogStore.markCompleted(logId);
+      // Count only, not the identifiers themselves - flagged in review:
+      // logger's redaction covers E.164-ish "+<digits>" strings but not
+      // plain digit strings or BSUIDs, so joining raw identifiersToErase
+      // into this line would expand how much unredacted personal data
+      // reaches the logs beyond what the pre-existing single-identifier
+      // log already did.
       logger.info(
         `Deletion request completed for ${botId}:${whatsappId}` +
-          (identifiersToErase.length > 1 ? ` (linked identifiers: ${identifiersToErase.join(', ')})` : '')
+          (identifiersToErase.length > 1 ? ` (${identifiersToErase.length} linked identifiers erased)` : '')
       );
     } catch (err) {
       await this.deletionRequestLogStore.markFailed(logId);
