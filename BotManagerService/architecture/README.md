@@ -13,6 +13,7 @@ This directory contains architecture decisions for the Bot-as-a-Service Platform
 | [ADR-005](ADR-005-singleton-patterns.md) | Singleton Pattern for Core Services | Accepted | Jan 2026 |
 | [ADR-006](ADR-006-graceful-degradation.md) | Graceful Degradation Strategy | Accepted | Jan 2026 |
 | [ADR-007](ADR-007-mqtt-protocol.md) | MQTT for IoT Communication | Accepted | Jan 2026 |
+| [ADR-008](ADR-008-data-retention-and-erasure.md) | Data Retention & Right-to-Erasure Architecture | Implemented | Aug 2026 |
 
 ## ADR Template
 
