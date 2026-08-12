@@ -45,10 +45,24 @@ test('MessageStatusWaiter.waitFor resolves the earlier caller instead of hanging
   assert.deepEqual(secondResult, { status: 'delivered', timedOut: false });
 });
 
-test('waitForCarouselDelivery times out and proceeds when a real messageId never gets notified', async () => {
-  const start = Date.now();
-  await waitForCarouselDelivery('wamid.never-notified-integration', 10);
-  assert.ok(Date.now() - start >= 10);
+test('waitForCarouselDelivery times out and proceeds when a real messageId never gets notified', async (t) => {
+  // Deterministic (mocked timers) rather than measuring real elapsed wall
+  // time - a tight `Date.now()` threshold like this one used to fail
+  // intermittently in CI (confirmed, not hypothetical: see PR #85's first
+  // CI run) since setTimeout/Date.now() granularity isn't guaranteed down
+  // to single milliseconds on every runner.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let resolved = false;
+  const promise = waitForCarouselDelivery('wamid.never-notified-integration', 10).then(() => {
+    resolved = true;
+  });
+
+  await Promise.resolve();
+  assert.equal(resolved, false, 'should not resolve before the timer fires');
+
+  t.mock.timers.tick(10);
+  await promise;
+  assert.equal(resolved, true);
 });
 
 test('MessageStatusWaiter.notify is a no-op for an id nobody is waiting on', () => {
@@ -75,8 +89,18 @@ test('MessageStatusWaiter.reset clears pending waiters without resolving or reje
   assert.equal(outcome, 'still-pending');
 });
 
-test('waitForCarouselDelivery falls back to a timed sleep when there is no messageId to correlate', async () => {
-  const start = Date.now();
-  await waitForCarouselDelivery(null, 10);
-  assert.ok(Date.now() - start >= 10);
+test('waitForCarouselDelivery falls back to a timed sleep when there is no messageId to correlate', async (t) => {
+  // Deterministic (mocked timers), same reasoning as the test above.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let resolved = false;
+  const promise = waitForCarouselDelivery(null, 10).then(() => {
+    resolved = true;
+  });
+
+  await Promise.resolve();
+  assert.equal(resolved, false, 'should not resolve before the timer fires');
+
+  t.mock.timers.tick(10);
+  await promise;
+  assert.equal(resolved, true);
 });
