@@ -27,19 +27,19 @@ was written - the business-side configuration is not the problem.**
 Re-opened: why does a customer's fresh WhatsApp chat still show
 `+49 1590 5495011` instead of "K-AfroMarket"?
 
-**Leading theory, not yet confirmed - per Meta's own "Display names" docs:
-"if a WhatsApp user edits your profile name in the WhatsApp client, the
-name they set will appear instead."** A "fresh chat" (new conversation
-thread) is not the same test as "a number never saved as a contact." If
-the test customer already has this number saved in their phone's system
-Contacts app (not just their WhatsApp chat list) - plausible, given
-AfroMarket's ~5 test customers are a small repeat pool who may have saved
-the number from prior testing or a business card - WhatsApp shows their
-own saved contact info instead of the registered business name,
-regardless of how correctly the business side is configured. Verification
-in progress: checking whether the test customer's phone Contacts app
-already has this number saved, and/or testing with a number that's
-genuinely never seen it before.
+**Confirmed (2026-08-12): the saved-contact theory was correct.** The test
+customer had `+49 1590 5495011` already saved in their phone's Contacts
+app from prior testing, so WhatsApp displayed their own saved contact
+info instead of the registered "K-AfroMarket" business name - exactly the
+documented behavior ("if a WhatsApp user edits your profile name in the
+WhatsApp client, the name they set will appear instead"), not a
+misconfiguration on any side. **Closed - not a bug, nothing to fix.**
+Business-side setup (verified_name, Business Verification, certificate)
+was correct throughout this entire investigation; the customer simply
+already knew this number. A genuinely first-time contact (nothing saved)
+should see "K-AfroMarket" correctly - not independently re-verified with
+a truly fresh number, but no longer expected to be necessary given the
+mechanism is now understood and explains every observed symptom.
 
 ## v2.12 (2026-08-12): Partner Stores carousel gets the same fix as Afro Restaurants - `afromarket_partner_stores_v1` retired, submitted to production for the first time
 
