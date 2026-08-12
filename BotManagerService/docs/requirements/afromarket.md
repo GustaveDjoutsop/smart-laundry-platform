@@ -60,6 +60,37 @@ the original check: an item silently missing its `id` is excluded from the
 set rather than flagged directly - still caught today via the resulting
 size mismatch, but a compensating miscount elsewhere could mask it.
 
+**Update (2026-08-12): actually submitted, on both WABAs, status PENDING.**
+Also confirmed while doing so - **`afromarket_partner_stores_v1` exists only
+on the Test/sandbox WABA (`4464369590494418`); the real K-AfroMarket
+production WABA (`878603275008509`) had zero message templates before this
+submission.** Partner Stores' carousel has never actually rendered for a
+real production customer - only ever silently fallen back to vertical
+cards, logging an `error`-level line on every attempt. Not fixed here
+(tracked as the same fast-follow as the static-body-text issue above), but
+worth knowing this affects *today's* real customers, not just future risk.
+
+`afromarket_restaurants_v2` submitted to both:
+- Sandbox WABA `4464369590494418`: template id `1256941286482149`
+- Production WABA `878603275008509`: template id `2188265671958576`
+
+Two real bugs found and fixed in `scripts/submitCarouselTemplate.js` while
+actually running it against production (see that commit for detail): a
+hardcoded upload `APP_ID` that only worked by coincidence for whichever
+token had last used it (failed outright for the AfroMarket-Bot production
+system user token - fixed by resolving `app_id` from the token itself via
+`/debug_token`, mirroring `scripts/setWhatsAppProfilePhoto.js`'s existing
+pattern instead of duplicating a different hardcoded guess); and a card
+body that's 100% the `{{1}}` variable with no static framing text fails
+Meta's template validation ("Parameters words ratio exceeds limit")
+regardless of the example value's length - fixed with a short static
+call-to-action sentence wrapped around the variable.
+
+Check approval with `node scripts/checkTemplateStatus.js afromarket_restaurants_v2`
+(add `AFROMARKET_WABA_ID=878603275008509` for the production WABA) - no
+config or code change needed once it flips to `APPROVED`, the flow picks it
+up automatically.
+
 ## v2.9 (2026-08-11): production native catalog populated - root cause of the `catalog_management` permission wall, and how dev's catalog actually worked
 
 A from-scratch investigation into why `scripts/submitCatalogBatch.js` (added
