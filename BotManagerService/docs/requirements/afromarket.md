@@ -1,5 +1,51 @@
 # AfroMarket WhatsApp Bot
 
+## v2.11 (2026-08-12): production shows the phone number instead of "K-AfroMarket" - root cause is the same messaging-volume tier that already blocked Official Business Account status in v2.5, not Business Verification
+
+A test customer's screenshot on the real production number (+49 1590 5495011,
+phone_number_id `1214372845096561`) showed `+49 1590 5495011` in the WhatsApp chat
+header instead of "K-AfroMarket", profile photo rendering correctly. Reproduced on a
+genuinely fresh (never-contacted) chat thread, ruling out client-side caching of an
+older chat.
+
+**Investigated in `afromarket-production-trust-onboarding-issues.md`, which initially
+attributed this (plus a WhatsApp-username-eligibility failure) to incomplete Meta
+Business Verification, sourced from general research (a Meta help-center error string
+plus an unspecified second source) rather than a direct account check.** Confirming
+that hypothesis directly (per that doc's own Task 1) instead disproved it: three
+independent live checks against the real account all say verification is done -
+- WABA `878603275008509` `business_verification_status`: **verified**
+- WABA `account_review_status`: **APPROVED**
+- App review requirements (`1515363753048080`) `business_verification_passes`: **true**
+
+**The actual mechanism, per Meta's "Display names" documentation**
+(<https://developers.facebook.com/documentation/business-messaging/whatsapp/display-names>):
+the display name only appears in chat headers once the phone number passes **display
+name verification** - a separate, later check from Business Verification, which
+"automatically undergoes" only "when you reach a higher messaging limit." The account's
+`name_status` is `AVAILABLE_WITHOUT_REVIEW` (the name itself passed the basic content
+check when set in v2.4 - no violation) rather than `APPROVED` (what display name
+verification sets once it actually runs) - confirming display name verification has
+simply never run yet, because the volume trigger for it hasn't been crossed.
+
+**This is the identical gate v2.5 already found blocking Official Business Account
+(blue checkmark) status** - entry tier caps at 250 business-initiated conversations/24h;
+the next tier needs 1,000 unique customers messaged in a rolling 7 days, production is
+at 3. Nobody had previously connected that this same threshold also gates the *basic*
+display-name-in-chat-header behavior, not just the blue checkmark on top of it.
+
+**Business-growth gate, not a technical one - nothing to build or fix in code.**
+Resolves on its own once real weekly customer volume crosses that line; v2.4's fix
+(setting `verified_name` to "K-AfroMarket") was necessary but not sufficient on its own
+- it's correctly configured and waiting on volume, not broken or incomplete.
+
+Also reframes the sibling username-eligibility issue in the same doc: since Business
+Verification is confirmed complete and the username request still fails, verification
+status doesn't explain that failure either - more likely gated by this same
+volume/trust tier, though Meta hasn't published exact criteria for that specific
+feature, so it stays a reasonable bet rather than a confirmed mechanism the way display
+names now are.
+
 ## v2.10 (2026-08-12): Afro Restaurant carousel rebuilt as a reusable, variable-based template - `afromarket_restaurants_v1` retired
 
 Fixes `afromarket-carousel-bugs-todo.md`'s Issue 1 (restaurant cards rendered
