@@ -1,5 +1,46 @@
 # AfroMarket WhatsApp Bot
 
+## v2.13 (2026-08-12): Correction to v2.11 - the messaging-volume-gate explanation was wrong; `AVAILABLE_WITHOUT_REVIEW` means ready now, not blocked
+
+v2.11 below concluded the display-name-not-showing issue was gated behind
+the same messaging-volume tier that blocks Official Business Account
+status (v2.5), based on reading the general "Display names" doc page's
+description of a separate, messaging-volume-triggered "display name
+verification" process. **That conclusion was wrong**, surfaced by the
+user producing a Meta Business Suite notification ("The display name for
+your WhatsApp Business account is ready for use: K-AfroMarket", dated
+~2026-08-05, one day after v2.4's fix) that directly contradicts it.
+
+**Correct source, checked this time: Meta's WhatsApp Business Account
+Phone Number API reference** (the actual field documentation for
+`name_status`, not the general prose doc page) -
+`AVAILABLE_WITHOUT_REVIEW`: *"The certificate for the phone is available
+and display name is ready to use without review."* This is a terminal,
+ready state - functionally equivalent to `APPROVED`, just reached via a
+faster path that skips the separate messaging-volume-gated review process
+entirely. It was never blocked on that gate in the first place. The
+notification the user found independently confirms this reading.
+
+**So Business Verification is done (per v2.11), the certificate is ready
+(per this correction), and Meta confirmed it a week before this doc entry
+was written - the business-side configuration is not the problem.**
+Re-opened: why does a customer's fresh WhatsApp chat still show
+`+49 1590 5495011` instead of "K-AfroMarket"?
+
+**Leading theory, not yet confirmed - per Meta's own "Display names" docs:
+"if a WhatsApp user edits your profile name in the WhatsApp client, the
+name they set will appear instead."** A "fresh chat" (new conversation
+thread) is not the same test as "a number never saved as a contact." If
+the test customer already has this number saved in their phone's system
+Contacts app (not just their WhatsApp chat list) - plausible, given
+AfroMarket's ~5 test customers are a small repeat pool who may have saved
+the number from prior testing or a business card - WhatsApp shows their
+own saved contact info instead of the registered business name,
+regardless of how correctly the business side is configured. Verification
+in progress: checking whether the test customer's phone Contacts app
+already has this number saved, and/or testing with a number that's
+genuinely never seen it before.
+
 ## v2.12 (2026-08-12): Partner Stores carousel gets the same fix as Afro Restaurants - `afromarket_partner_stores_v1` retired, submitted to production for the first time
 
 Fast-follow flagged in v2.10 below: `afromarket_partner_stores_v1` had the
@@ -29,6 +70,12 @@ failing Meta's ratio check) were already fixed in
 `scripts/submitCarouselTemplate.js` and applied cleanly here.
 
 ## v2.11 (2026-08-12): production shows the phone number instead of "K-AfroMarket" - root cause is the same messaging-volume tier that already blocked Official Business Account status in v2.5, not Business Verification
+
+**Corrected by v2.13 above: the messaging-volume-gate conclusion below is
+wrong** - `AVAILABLE_WITHOUT_REVIEW` means the display name is already
+ready to use, not blocked pending a volume-triggered review. The
+Business-Verification correction in this entry still stands; only the
+"what's actually gating it now" conclusion at the end doesn't.
 
 A test customer's screenshot on the real production number (+49 1590 5495011,
 phone_number_id `1214372845096561`) showed `+49 1590 5495011` in the WhatsApp chat
