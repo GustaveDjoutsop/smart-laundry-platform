@@ -417,9 +417,22 @@ class WhatsAppCloudClient {
         throw new Error(`sendCarouselTemplate: card ${index} is missing imageLink/imageMediaId`);
       }
 
+      // Optional: only included when the card provides it, and only valid
+      // against a template whose card BODY component actually has a {{1}}
+      // variable to fill - a body parameter sent against a fully static
+      // BODY component (no variable) is a Meta API error, not a no-op, so
+      // this must stay opt-in per card rather than always-on. Component
+      // order must mirror the approved template's component order
+      // (header, then body, then buttons).
+      const bodyComponent = card.bodyText ? { type: 'body', parameters: [{ type: 'text', text: String(card.bodyText) }] } : null;
+
       cardComponents.push({
         card_index: index,
-        components: [{ type: 'header', parameters: [{ type: 'image', image: { id: mediaId } }] }, buttonComponent]
+        components: [
+          { type: 'header', parameters: [{ type: 'image', image: { id: mediaId } }] },
+          ...(bodyComponent ? [bodyComponent] : []),
+          buttonComponent
+        ]
       });
     }
 

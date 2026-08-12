@@ -46,6 +46,97 @@ volume/trust tier, though Meta hasn't published exact criteria for that specific
 feature, so it stays a reasonable bet rather than a confirmed mechanism the way display
 names now are.
 
+## v2.10 (2026-08-12): Afro Restaurant carousel rebuilt as a reusable, variable-based template - `afromarket_restaurants_v1` retired
+
+Fixes `afromarket-carousel-bugs-todo.md`'s Issue 1 (restaurant cards rendered
+as stacked messages, not a real carousel) and applies its Correction: the
+prior `afromarket_restaurants_v1` template (still referenced further down in
+this doc, now historical) had restaurant name/address/hours/URL typed
+directly into the approved template as literal text. That's why it went
+stale the moment the restaurant list changed in v2.2 below - the template
+kept showing three old Berlin restaurants (Bantabaa/Yajee/Afropot) next to
+"Visit Website" buttons pointing at their sites, silently, with no error,
+and the `carouselTemplate` block was dropped from `afro_restaurant_list`
+entirely rather than reuse it with mismatched content.
+
+**Root cause generalized: any carousel template built with literal content
+instead of `{{n}}` variables goes stale on the next content change and
+requires a fresh Meta submission/approval to fix.** `afromarket_partner_stores_v1`
+has this exact same latent problem (confirmed - its cards' BODY text is also
+static, just hasn't been hit yet since Partner Stores' 3 stores haven't
+needed a swap) - not fixed in this pass, flagged as a fast-follow.
+
+**New template `afromarket_restaurants_v2`** (MARKETING, 4 cards, matching
+today's real restaurant count exactly): every card's BODY is now a `{{1}}`
+variable (name/address/hours), filled at send time via `cards[].bodyText` in
+`afro_restaurant_list`'s `carouselTemplate` config - swapping restaurants no
+longer requires resubmission. `scripts/submitCarouselTemplate.js` now always
+submits card bodies this way (no more literal-text option).
+
+**Button type changed from URL to QUICK_REPLY**, which looks like a step
+back from "click straight to the restaurant's site" but is a hard platform
+constraint, not a design choice: WhatsApp only supports one dynamic
+`{{1}}` *suffix* on a URL button, appended to a single base domain fixed at
+template-approval time. Four restaurants on four unrelated domains
+(afrofusion-restaurant.com, lavillageoise.de, kilimanjaroii.de,
+ebony-stuttgart.de) can't be represented by one templated URL button -
+there's no per-card arbitrary-domain variant. Mirrors how
+`afromarket_partner_stores_v1` already sidesteps this (its buttons are
+QUICK_REPLY, routed back into the bot, never a direct external URL).
+
+Tapping a restaurant's quick-reply (`restaurant_<id>`) now routes through a
+new `afro_restaurant_route` action state to one of four new
+`restaurant_link_<id>` states, which sends the restaurant's real photo,
+full details, and website URL as a plain clickable link (WhatsApp
+auto-links URLs in message bodies), with "⬅️ More Restaurants"/"🏠 Main
+Menu" buttons feeding back into the existing `main_route`. One extra tap
+internally, functionally identical to a direct link tap for the customer -
+the link arrives in the very next message.
+
+The vertical `items[]` fallback (used only if the carousel template send
+fails) is unchanged - still direct `cta_url` cards per restaurant, no
+routing detour, since there's no URL-button domain limitation on a
+freeform interactive message. `flowEngine.js`'s config validator gained an
+`id`-based cross-check between `carouselTemplate.cards[]` and `items[]` to
+catch drift between the two independent of button mechanism (quick_reply
+vs cta_url) - falls back to the original same-mechanism check when no `id`
+fields are present, so `afromarket_partner_stores_v1` (no `id`s) is
+unaffected. Known limitation of the set-based comparison, inherited from
+the original check: an item silently missing its `id` is excluded from the
+set rather than flagged directly - still caught today via the resulting
+size mismatch, but a compensating miscount elsewhere could mask it.
+
+**Update (2026-08-12): actually submitted, on both WABAs, status PENDING.**
+Also confirmed while doing so - **`afromarket_partner_stores_v1` exists only
+on the Test/sandbox WABA (`4464369590494418`); the real K-AfroMarket
+production WABA (`878603275008509`) had zero message templates before this
+submission.** Partner Stores' carousel has never actually rendered for a
+real production customer - only ever silently fallen back to vertical
+cards, logging an `error`-level line on every attempt. Not fixed here
+(tracked as the same fast-follow as the static-body-text issue above), but
+worth knowing this affects *today's* real customers, not just future risk.
+
+`afromarket_restaurants_v2` submitted to both:
+- Sandbox WABA `4464369590494418`: template id `1256941286482149`
+- Production WABA `878603275008509`: template id `2188265671958576`
+
+Two real bugs found and fixed in `scripts/submitCarouselTemplate.js` while
+actually running it against production (see that commit for detail): a
+hardcoded upload `APP_ID` that only worked by coincidence for whichever
+token had last used it (failed outright for the AfroMarket-Bot production
+system user token - fixed by resolving `app_id` from the token itself via
+`/debug_token`, mirroring `scripts/setWhatsAppProfilePhoto.js`'s existing
+pattern instead of duplicating a different hardcoded guess); and a card
+body that's 100% the `{{1}}` variable with no static framing text fails
+Meta's template validation ("Parameters words ratio exceeds limit")
+regardless of the example value's length - fixed with a short static
+call-to-action sentence wrapped around the variable.
+
+Check approval with `node scripts/checkTemplateStatus.js afromarket_restaurants_v2`
+(add `AFROMARKET_WABA_ID=878603275008509` for the production WABA) - no
+config or code change needed once it flips to `APPROVED`, the flow picks it
+up automatically.
+
 ## v2.9 (2026-08-11): production native catalog populated - root cause of the `catalog_management` permission wall, and how dev's catalog actually worked
 
 A from-scratch investigation into why `scripts/submitCatalogBatch.js` (added

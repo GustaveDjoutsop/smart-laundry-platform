@@ -202,9 +202,14 @@ function validateFlowConfig(botConfig) {
 
           const quickReplyPayloads = new Set();
           const cardUrls = new Set();
+          const cardIds = new Set();
+          let everyCardHasId = ct.cards.length > 0;
           for (const card of ct.cards) {
             if (!card || typeof card.imageLink !== 'string' || !card.imageLink.trim()) {
               throw new Error(`flow ${flowId} state ${state.id}: every carouselTemplate card requires a non-empty imageLink`);
+            }
+            if (card.bodyText != null && (typeof card.bodyText !== 'string' || !card.bodyText.trim())) {
+              throw new Error(`flow ${flowId} state ${state.id}: carouselTemplate card bodyText, when present, must be a non-empty string`);
             }
             if (carouselButtonType === 'quick_reply') {
               if (typeof card.quickReplyPayload !== 'string' || !card.quickReplyPayload.trim()) {
@@ -217,28 +222,71 @@ function validateFlowConfig(botConfig) {
               }
               cardUrls.add(card.url);
             }
+            if (card.id != null) {
+              if (typeof card.id !== 'string' || !card.id.trim()) {
+                throw new Error(`flow ${flowId} state ${state.id}: carouselTemplate card id, when present, must be a non-empty string`);
+              }
+              cardIds.add(card.id.trim());
+            } else {
+              everyCardHasId = false;
+            }
           }
 
           // The vertical items[] only ever renders when the carousel send
           // fails, so a drift between the two card sets would silently break
           // routing/links on that rarely-exercised fallback path. Both card
-          // sets must reference the same set of values, whichever mechanism
-          // this state uses (quick-reply routing or external links).
+          // sets must reference the same set of values.
+          //
+          // Two ways to express that correspondence:
+          // - By a shared `id` on every card and every item, when present -
+          //   mechanism-agnostic, so the carousel can route via quick_reply
+          //   (through the bot, to sidestep WhatsApp's one-base-URL-per-
+          //   template limit on url buttons - see afromarket_restaurants_v2)
+          //   while the vertical fallback keeps sending direct cta_url links,
+          //   without forcing both paths onto the same button type.
+          // - Otherwise, by matching buttonId/buttonUrl directly against the
+          //   carousel's own quickReplyPayload/url values (the original
+          //   check) - both sides must use the same mechanism for this to
+          //   mean anything, which is still true for every carouselTemplate
+          //   state that hasn't opted into per-card `id`s (e.g. Partner
+          //   Stores).
+          // Validated and trimmed the same way as cardIds above (a
+          // non-string or whitespace-only id would otherwise silently
+          // disable this check rather than fail loudly).
+          const itemIds = new Set();
+          let everyItemHasId = state.items.length > 0;
+          for (const item of state.items) {
+            if (item.id != null) {
+              if (typeof item.id !== 'string' || !item.id.trim()) {
+                throw new Error(`flow ${flowId} state ${state.id}: items[].id, when present, must be a non-empty string`);
+              }
+              itemIds.add(item.id.trim());
+            } else {
+              everyItemHasId = false;
+            }
+          }
           const setsMatch =
-            carouselButtonType === 'quick_reply'
-              ? (() => {
-                  const itemButtonIds = new Set(state.items.filter((item) => item.buttonId).map((item) => item.buttonId));
-                  return (
-                    quickReplyPayloads.size === itemButtonIds.size &&
-                    [...quickReplyPayloads].every((payload) => itemButtonIds.has(payload))
-                  );
-                })()
-              : (() => {
-                  const itemButtonUrls = new Set(state.items.filter((item) => item.buttonUrl).map((item) => item.buttonUrl));
-                  return cardUrls.size === itemButtonUrls.size && [...cardUrls].every((url) => itemButtonUrls.has(url));
-                })();
+            everyCardHasId && everyItemHasId
+              ? cardIds.size === itemIds.size && [...cardIds].every((id) => itemIds.has(id))
+              : carouselButtonType === 'quick_reply'
+                ? (() => {
+                    const itemButtonIds = new Set(state.items.filter((item) => item.buttonId).map((item) => item.buttonId));
+                    return (
+                      quickReplyPayloads.size === itemButtonIds.size &&
+                      [...quickReplyPayloads].every((payload) => itemButtonIds.has(payload))
+                    );
+                  })()
+                : (() => {
+                    const itemButtonUrls = new Set(state.items.filter((item) => item.buttonUrl).map((item) => item.buttonUrl));
+                    return cardUrls.size === itemButtonUrls.size && [...cardUrls].every((url) => itemButtonUrls.has(url));
+                  })();
           if (!setsMatch) {
-            const fieldName = carouselButtonType === 'quick_reply' ? 'quickReplyPayload values must exactly match items[].buttonId' : 'url values must exactly match items[].buttonUrl';
+            const fieldName =
+              everyCardHasId && everyItemHasId
+                ? 'id values must exactly match items[].id'
+                : carouselButtonType === 'quick_reply'
+                  ? 'quickReplyPayload values must exactly match items[].buttonId'
+                  : 'url values must exactly match items[].buttonUrl';
             throw new Error(
               `flow ${flowId} state ${state.id}: carouselTemplate ${fieldName} values (fallback routing would drift otherwise)`
             );
@@ -541,6 +589,9 @@ class FlowEngine {
           buttons = filterEnvGatedButtons(buttons);
 
           const outboundIntent = { type: 'buttons', to: from, body, buttons };
+          if (typeof stateDefinition.image === 'string' && stateDefinition.image.trim()) {
+            outboundIntent.image = stateDefinition.image;
+          }
           outboundIntents.push(outboundIntent);
           if (typeof send === 'function') await send(outboundIntent);
 

@@ -559,6 +559,51 @@ test('WhatsAppCloudClient sendCarouselTemplate uploads each card image and posts
   assert.equal(carouselComponent.cards[1].components[1].parameters[0].payload, 'recipe_egusi_soup');
 });
 
+test('WhatsAppCloudClient sendCarouselTemplate includes a per-card body parameter only when the card provides bodyText', async () => {
+  let mediaCounter = 0;
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    if (url === 'https://graph.facebook.com/v20.0/123/messages') {
+      return { ok: true, status: 200, json: async () => ({ messages: [{ id: 'wamid.restaurants-v2' }] }) };
+    }
+    if (url.endsWith('/media')) {
+      mediaCounter += 1;
+      return { ok: true, status: 200, json: async () => ({ id: `media_${mediaCounter}` }) };
+    }
+    return { ok: true, status: 200, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => new ArrayBuffer(4) };
+  };
+
+  const client = new WhatsAppCloudClient({ accessToken: 'token', phoneNumberId: '123', fetchImpl });
+
+  await client.sendCarouselTemplate({
+    to: '237670000000',
+    templateName: 'afromarket_restaurants_v2',
+    languageCode: 'en_US',
+    cards: [
+      { imageLink: 'https://example.com/a.jpg', quickReplyPayload: 'restaurant_a', bodyText: 'Restaurant A - blurb' },
+      { imageLink: 'https://example.com/b.jpg', quickReplyPayload: 'restaurant_b' }
+    ]
+  });
+
+  const messagesCall = calls.find((c) => c.url === 'https://graph.facebook.com/v20.0/123/messages');
+  const payload = JSON.parse(messagesCall.init.body);
+  const [carouselComponent] = payload.template.components;
+
+  // Card with bodyText: header, body, buttons - in that order.
+  assert.deepEqual(
+    carouselComponent.cards[0].components.map((c) => c.type),
+    ['header', 'body', 'button']
+  );
+  assert.deepEqual(carouselComponent.cards[0].components[1].parameters, [{ type: 'text', text: 'Restaurant A - blurb' }]);
+
+  // Card without bodyText: header, buttons only - no empty/placeholder body component.
+  assert.deepEqual(
+    carouselComponent.cards[1].components.map((c) => c.type),
+    ['header', 'button']
+  );
+});
+
 test('WhatsAppCloudClient sendCarouselTemplate rejects an empty cards array', async () => {
   const client = new WhatsAppCloudClient({
     accessToken: 'token',
