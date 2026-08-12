@@ -11,6 +11,7 @@ const http = require('http');
 const { createApp } = require('../src/app');
 const { botRegistry } = require('../src/core/botRegistry');
 const { queueManager } = require('../src/core/messageQueue');
+const { messageStatusWaiter } = require('../src/core/whatsapp/messageStatusWaiter');
 
 const TEST_PHONE_NUMBER_ID = 'phone-number-id-bsuid-test';
 const TEST_BOT_NAME = 'bsuid-test-bot';
@@ -130,6 +131,49 @@ test('POST /api/whatsapp/webhook carries both identifiers when Meta pairs them v
   assert.equal(enqueued[0].identifierType, 'phone');
   assert.equal(enqueued[0].phone, '16505551234');
   assert.equal(enqueued[0].bsuid, 'user.paired-customer');
+});
+
+test('POST /api/whatsapp/webhook notifies messageStatusWaiter on a delivery-status payload, without enqueueing it as a conversation message', async (t) => {
+  registerTestBot();
+
+  const enqueued = [];
+  queueManager.setProcessor(async (job) => enqueued.push(job));
+  t.after(() => queueManager.setProcessor(async () => {}));
+  t.after(() => messageStatusWaiter.reset());
+
+  const statusPromise = messageStatusWaiter.waitFor('wamid.status-test123', 5000);
+
+  await withServer(async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/api/whatsapp/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        object: 'whatsapp_business_account',
+        entry: [
+          {
+            id: 'waba-id',
+            changes: [
+              {
+                value: {
+                  messaging_product: 'whatsapp',
+                  metadata: { display_phone_number: '15550783881', phone_number_id: TEST_PHONE_NUMBER_ID },
+                  statuses: [{ id: 'wamid.status-test123', status: 'sent', timestamp: '1700000000' }]
+                },
+                field: 'messages'
+              }
+            ]
+          }
+        ]
+      })
+    });
+
+    assert.equal(res.status, 200);
+  });
+
+  const { status, timedOut } = await statusPromise;
+  assert.equal(timedOut, false);
+  assert.equal(status, 'sent');
+  assert.equal(enqueued.length, 0);
 });
 
 test('POST /api/whatsapp/webhook still ignores a genuinely empty non-message event (no from, no BSUID)', async (t) => {

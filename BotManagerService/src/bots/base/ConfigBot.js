@@ -56,42 +56,44 @@ class ConfigBot extends BaseBot {
       return;
     }
 
+    // Every branch below returns the WhatsApp API's parsed response (not
+    // just awaits it) - flowEngine.js's cards state uses the returned
+    // message id to wait for that specific message's delivery-status
+    // webhook before sending a trailing footer, instead of a fixed delay.
+    // Harmless for every other outbound intent, which ignore the return
+    // value entirely.
     if (outboundIntent.type === 'text') {
-      await this.whatsapp.sendText({ to: outboundIntent.to, body: outboundIntent.body });
-      return;
+      return this.whatsapp.sendText({ to: outboundIntent.to, body: outboundIntent.body });
     }
 
     if (outboundIntent.type === 'buttons') {
-      await this.whatsapp.sendButtons({
+      return this.whatsapp.sendButtons({
         to: outboundIntent.to,
         body: outboundIntent.body,
         buttons: outboundIntent.buttons,
         image: outboundIntent.image
       });
-      return;
     }
 
     if (outboundIntent.type === 'list') {
-      await this.whatsapp.sendList({
+      return this.whatsapp.sendList({
         to: outboundIntent.to,
         body: outboundIntent.body,
         buttonText: outboundIntent.buttonText,
         sections: outboundIntent.sections
       });
-      return;
     }
 
     if (outboundIntent.type === 'image') {
-      await this.whatsapp.sendImage({
+      return this.whatsapp.sendImage({
         to: outboundIntent.to,
         link: outboundIntent.link,
         caption: outboundIntent.caption
       });
-      return;
     }
 
     if (outboundIntent.type === 'cta_url') {
-      await this.whatsapp.sendCtaUrl({
+      return this.whatsapp.sendCtaUrl({
         to: outboundIntent.to,
         body: outboundIntent.body,
         image: outboundIntent.image,
@@ -99,11 +101,10 @@ class ConfigBot extends BaseBot {
         url: outboundIntent.url,
         footer: outboundIntent.footer
       });
-      return;
     }
 
     if (outboundIntent.type === 'product_list') {
-      await this.whatsapp.sendProductList({
+      return this.whatsapp.sendProductList({
         to: outboundIntent.to,
         catalogId: outboundIntent.catalogId,
         header: outboundIntent.header,
@@ -111,18 +112,16 @@ class ConfigBot extends BaseBot {
         footer: outboundIntent.footer,
         sections: outboundIntent.sections
       });
-      return;
     }
 
     if (outboundIntent.type === 'template_carousel') {
-      await this.whatsapp.sendCarouselTemplate({
+      return this.whatsapp.sendCarouselTemplate({
         to: outboundIntent.to,
         templateName: outboundIntent.templateName,
         languageCode: outboundIntent.languageCode,
         bodyParams: outboundIntent.bodyParams,
         cards: outboundIntent.cards
       });
-      return;
     }
 
     logger.warn('Unsupported outbound intent', outboundIntent);

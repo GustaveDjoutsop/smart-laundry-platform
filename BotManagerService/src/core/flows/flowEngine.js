@@ -1,40 +1,52 @@
 const { renderTemplate } = require('./templateRenderer');
 const { logger } = require('../../utils/logger');
+const { waitForCarouselDelivery } = require('../whatsapp/messageStatusWaiter');
 
-// A successful send() for a template_carousel only means Meta accepted the
-// API call - the template (image fetch + carousel assembly) is then
-// rendered and delivered to the device asynchronously on Meta's side, which
-// is measurably slower than a plain interactive buttons message. Without
-// this pause, the footer buttons message (sent right after) reliably races
-// ahead and displays before the carousel, even though we sent it second.
+// Pulls the WhatsApp message id back out of a send() result so the caller
+// can correlate it to a later delivery-status webhook (see
+// messageStatusWaiter.js). send() results vary by outbound-intent type and
+// by test double (a test stepper's stub send() commonly returns something
+// else entirely, e.g. an array length), so this is deliberately tolerant -
+// anything that doesn't look like a WhatsApp API response just yields null,
+// which callers already treat as "fall back to the fixed-delay heuristic".
+function extractMessageId(sendResult) {
+  return sendResult?.messages?.[0]?.id || null;
+}
+
+// A successful send() for a template_carousel (or any image-bearing card)
+// only means Meta accepted the API call - the message is then rendered and
+// delivered to the device asynchronously on Meta's side, which is
+// measurably slower than a plain interactive buttons message. Without
+// waiting for that delivery, the footer buttons message (sent right after)
+// reliably races ahead and displays before the carousel, even though we
+// sent it second.
 //
-// The default here was 2500ms until a live WhatsApp test on the real
-// afromarket_partner_stores_v1 carousel template (3 cards) showed the
-// footer ("More options: Main Menu") still rendering *before* the carousel
-// despite that delay already being in place and firing correctly
-// server-side (confirmed via Railway deploy logs - no
-// "carousel template send failed" fallback log, so this was genuinely the
-// carouselSent=true path, not the vertical items[] fallback below). 2.5s
-// simply wasn't long enough for Meta's own async template assembly in
-// practice; bumped to 6000ms. This is still a heuristic, not a guarantee -
-// Meta's own delivery timing isn't in our control, so a slow enough network
-// could still race past even this. A fully deterministic fix would need to
-// key off WhatsApp's own delivery-status webhooks for the carousel message
-// before sending the footer, which is a meaningfully bigger change than
-// tuning this constant - not done here.
+// This used to be a blind sleep(getCarouselFooterDelayMs()) - first 2500ms,
+// then bumped to 6000ms after a live test on afromarket_partner_stores_v1
+// showed the footer still rendering *before* the carousel despite the
+// 2500ms delay already firing correctly server-side. Neither delay was a
+// guarantee, just a longer guess. waitForCarouselDelivery() (see
+// messageStatusWaiter.js) replaces the guess with WhatsApp's own
+// delivery-status webhook for that specific message: the footer send now
+// blocks until Meta actually reports the carousel/card message as
+// sent/delivered, or until getCarouselFooterDelayMs() elapses with no
+// status webhook at all - this value is now purely that upper-bound
+// fallback (client not configured, status webhook lost/delayed, or a test
+// double that doesn't return a real WhatsApp message id), not the
+// steady-state wait time.
 //
 // Reused (not a second delay/env var) for the vertical cards fallback
 // further below too: each item card also carries an image
 // (`image: item.image`), so the same race applies there for the same
-// reason, just with more image-bearing sends ahead of the footer instead
-// of one.
+// reason, just waiting on the last item's message id instead of the
+// carousel's.
 //
 // Inbound messages are processed one at a time by QueueManager's single
-// drain loop (see whatsappHandler.js/queueManager.js), so this delay stalls
-// every other pending message for its duration - read fresh (not cached at
-// require-time) so it can be tuned or set to 0 per environment without a
-// code change, matching the LAUDRY_OPEN_HOUR/LAUDRY_CLOSE_HOUR convention
-// in laundryFlowPlugin.js.
+// drain loop (see whatsappHandler.js/queueManager.js), so a fallback-path
+// wait stalls every other pending message for its duration - read fresh
+// (not cached at require-time) so it can be tuned or set to 0 per
+// environment without a code change, matching the
+// LAUDRY_OPEN_HOUR/LAUDRY_CLOSE_HOUR convention in laundryFlowPlugin.js.
 function getCarouselFooterDelayMs() {
   const raw = process.env.CAROUSEL_FOOTER_DELAY_MS;
   if (!raw) return 6000;
@@ -77,10 +89,6 @@ function filterEnvGatedSections(sections) {
       return { ...section, rows: section.rows.filter((row) => !(row && row.hideInProd)) };
     })
     .filter((section) => !section || !Array.isArray(section.rows) || section.rows.length > 0);
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function normalizeInbound(message) {
@@ -643,15 +651,16 @@ class FlowEngine {
           // footer (with its way back to the menu) still reach the user.
           const trySend = async (intent) => {
             outboundIntents.push(intent);
-            if (typeof send !== 'function') return;
+            if (typeof send !== 'function') return null;
             try {
-              await send(intent);
+              return await send(intent);
             } catch (err) {
               logger.warn('cards state: failed to send one message, continuing with the rest', {
                 stateId: stateDefinition.id,
                 intentType: intent.type,
                 error: err && err.message ? err.message : String(err)
               });
+              return null;
             }
           };
 
@@ -662,6 +671,7 @@ class FlowEngine {
           // the vertical items fan-out as a genuine fallback, so a template
           // outage never leaves the customer with nothing.
           let carouselSent = false;
+          let carouselMessageId = null;
           if (stateDefinition.carouselTemplate) {
             const ct = stateDefinition.carouselTemplate;
             const carouselIntent = {
@@ -674,8 +684,9 @@ class FlowEngine {
             };
             try {
               outboundIntents.push(carouselIntent);
-              if (typeof send === 'function') await send(carouselIntent);
+              const sendResult = typeof send === 'function' ? await send(carouselIntent) : null;
               carouselSent = true;
+              carouselMessageId = extractMessageId(sendResult);
             } catch (err) {
               outboundIntents.pop();
               // error, not warn: a template that keeps failing (bad name,
@@ -693,7 +704,12 @@ class FlowEngine {
 
           if (carouselSent) {
             if (Array.isArray(stateDefinition.footerButtons) && stateDefinition.footerButtons.length) {
-              await sleep(getCarouselFooterDelayMs());
+              // Blocks on WhatsApp's own delivery-status webhook for the
+              // carousel message (falling back to getCarouselFooterDelayMs()
+              // if none arrives in time) instead of a blind sleep - see
+              // messageStatusWaiter.js. This is what actually fixes the
+              // footer-before-carousel race a fixed delay kept losing.
+              await waitForCarouselDelivery(carouselMessageId, getCarouselFooterDelayMs());
               await trySend({
                 type: 'buttons',
                 to: from,
@@ -713,11 +729,12 @@ class FlowEngine {
           }
 
           const items = Array.isArray(stateDefinition.items) ? stateDefinition.items : [];
+          let lastItemMessageId = null;
           for (const item of items) {
             const body = renderTemplate(item.caption || '', templateContext);
             if (item.buttonUrl) {
               // eslint-disable-next-line no-await-in-loop
-              await trySend({
+              const sendResult = await trySend({
                 type: 'cta_url',
                 to: from,
                 body,
@@ -725,27 +742,41 @@ class FlowEngine {
                 buttonText: item.buttonTitle || 'Open link',
                 url: renderTemplate(item.buttonUrl, templateContext)
               });
+              lastItemMessageId = extractMessageId(sendResult) || lastItemMessageId;
               continue;
             }
             // eslint-disable-next-line no-await-in-loop
-            await trySend({
+            const sendResult = await trySend({
               type: 'buttons',
               to: from,
               body,
               buttons: [{ id: item.buttonId, title: item.buttonTitle || 'View' }],
               image: item.image
             });
+            lastItemMessageId = extractMessageId(sendResult) || lastItemMessageId;
           }
 
           if (Array.isArray(stateDefinition.footerButtons) && stateDefinition.footerButtons.length) {
-            // Same image-send race the carousel path guards against above -
-            // see getCarouselFooterDelayMs's comment. Unconditional here
-            // (not "only if an item had an image"): validateFlowConfig
-            // requires every 'cards' state to have a non-empty items[] where
-            // every item carries a non-empty image, so by the time a
-            // stateDefinition reaches this code, at least one image-bearing
-            // send has always already gone out ahead of this footer.
-            await sleep(getCarouselFooterDelayMs());
+            // Same image-send race the carousel path guards against above,
+            // and the same delivery-status-webhook fix - wait on the last
+            // item's message id (the one immediately ahead of the footer)
+            // rather than a fixed delay. Deliberately only the last one:
+            // earlier items' own status webhooks may arrive and be dropped
+            // as no-ops (see messageStatusWaiter.notify) while this loop is
+            // still sending later items, since nothing is waiting on them
+            // yet - that's fine, only the send immediately before the
+            // footer needs to be caught. The registration-timing gap this
+            // relies on (send() resolving, then this line registering the
+            // waiter) is a same-tick microtask hop; a live network status
+            // webhook (tens of ms at best) can't realistically win that
+            // race, so the wait almost always finds a waiter already
+            // registered when it arrives. Unconditional here (not "only if
+            // an item had an image"): validateFlowConfig requires every
+            // 'cards' state to have a non-empty items[] where every item
+            // carries a non-empty image, so by the time a stateDefinition
+            // reaches this code, at least one image-bearing send has always
+            // already gone out ahead of this footer.
+            await waitForCarouselDelivery(lastItemMessageId, getCarouselFooterDelayMs());
             await trySend({
               type: 'buttons',
               to: from,
