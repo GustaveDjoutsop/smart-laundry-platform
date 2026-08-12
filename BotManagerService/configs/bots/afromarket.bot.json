@@ -670,13 +670,28 @@
           "type": "cards",
           "intro": "🏪 *Partner Stores*\n\nOther AfroMarket partner grocery stores around Berlin — tap a store to see more, or come find us in person!",
           "carouselTemplate": {
-            "templateName": "afromarket_partner_stores_v1",
+            "templateName": "afromarket_partner_stores_v2",
             "languageCode": "en_US",
             "bodyParams": ["there"],
             "cards": [
-              { "imageLink": "https://legal.botmanagementservice.eu/partner-stores/afromarket-partner-mama-africa-foodmarket.jpg", "buttonType": "quick_reply", "quickReplyPayload": "partner_mama_africa" },
-              { "imageLink": "https://legal.botmanagementservice.eu/partner-stores/afromarket-partner-kilimanjaro-grocery.jpg", "buttonType": "quick_reply", "quickReplyPayload": "partner_kilimanjaro" },
-              { "imageLink": "https://legal.botmanagementservice.eu/partner-stores/afromarket-partner-sankofa-market.jpg", "buttonType": "quick_reply", "quickReplyPayload": "partner_sankofa" }
+              {
+                "imageLink": "https://legal.botmanagementservice.eu/partner-stores/afromarket-partner-mama-africa-foodmarket.jpg",
+                "bodyText": "Mama Africa Foodmarket - African & Caribbean groceries\nSonnenallee 45, 12045 Berlin (Neukölln)\nMon-Sat 08:00-21:00, Sun 10:00-18:00",
+                "buttonType": "quick_reply",
+                "quickReplyPayload": "partner_mama_africa"
+              },
+              {
+                "imageLink": "https://legal.botmanagementservice.eu/partner-stores/afromarket-partner-kilimanjaro-grocery.jpg",
+                "bodyText": "Kilimanjaro Grocery - East African specialties\nKarl-Marx-Straße 102, 12043 Berlin (Neukölln)\nDaily 09:00-20:00",
+                "buttonType": "quick_reply",
+                "quickReplyPayload": "partner_kilimanjaro"
+              },
+              {
+                "imageLink": "https://legal.botmanagementservice.eu/partner-stores/afromarket-partner-sankofa-market.jpg",
+                "bodyText": "Sankofa Market - West African & Ghanaian goods\nTurmstraße 15, 10559 Berlin (Moabit)\nMon-Sat 09:00-19:00",
+                "buttonType": "quick_reply",
+                "quickReplyPayload": "partner_sankofa"
+              }
             ]
           },
           "items": [

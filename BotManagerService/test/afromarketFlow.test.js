@@ -746,13 +746,15 @@ test('AfroMarket: Store screen offers Partner Stores, which fires its real appro
 
   const carousel = result.outboundIntents[0];
   assert.equal(carousel.type, 'template_carousel');
-  assert.equal(carousel.templateName, 'afromarket_partner_stores_v1');
+  assert.equal(carousel.templateName, 'afromarket_partner_stores_v2');
   assert.equal(carousel.cards.length, 3);
   for (const card of carousel.cards) {
     assert.equal(card.buttonType, 'quick_reply');
     assert.match(card.imageLink, /^https:\/\//);
     assert.ok(card.quickReplyPayload);
+    assert.ok(card.bodyText, `${card.quickReplyPayload} card is missing its bodyText`);
   }
+  assert.match(carousel.cards[0].bodyText, /Mama Africa Foodmarket/);
 
   // "Main Menu" footer must always come after the carousel, never before it.
   const footer = result.outboundIntents[1];
