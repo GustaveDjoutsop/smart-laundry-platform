@@ -618,6 +618,72 @@ test('AfroMarket: Afro Restaurant lists the real restaurants as cta_url cards, f
   assert.match(afterTap.outboundIntents[0].body, /Welcome to \*AfroMarket\*/);
 });
 
+test('AfroMarket: Afro Restaurant footer waits for the last card\'s delivery-status webhook, not a fixed delay', async (t) => {
+  // Same regression guard as the Partner Stores carousel test, but for the
+  // vertical items[] fallback path (afro_restaurant_list has no
+  // carouselTemplate - see the "lists the real restaurants" test above).
+  // flowEngine.js only tracks lastItemMessageId (the final cta_url card),
+  // so that's the id this test's status webhook must correlate to.
+  const { messageStatusWaiter } = require('../src/core/whatsapp/messageStatusWaiter');
+  const previousDelay = process.env.CAROUSEL_FOOTER_DELAY_MS;
+  process.env.CAROUSEL_FOOTER_DELAY_MS = '30000';
+  t.after(() => {
+    process.env.CAROUSEL_FOOTER_DELAY_MS = previousDelay;
+    messageStatusWaiter.reset();
+  });
+
+  const flowEngine = new FlowEngine({ botConfig, plugin: new AfroMarketFlowPlugin({ botConfig }) });
+  let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
+  const step = async (text, send) => {
+    const outboundIntents = [];
+    ({ state: conversationState } = await flowEngine.step({
+      from: '+33600000097',
+      phone: '+33600000097',
+      message: { text: { body: text } },
+      state: conversationState,
+      send: send || (async (outboundIntent) => outboundIntents.push(outboundIntent))
+    }));
+    return { outboundIntents, conversationState };
+  };
+
+  await step('hi');
+
+  const events = [];
+  let cardIndex = -1;
+  const start = Date.now();
+  await step('afro_restaurant', async (outboundIntent) => {
+    if (outboundIntent.type !== 'cta_url') {
+      events.push(`${outboundIntent.type}-send`);
+      return {};
+    }
+
+    cardIndex += 1;
+    const isLastCard = cardIndex === 3; // 4 restaurants, 0-indexed
+    events.push(`card${cardIndex}-send-resolved`);
+    if (!isLastCard) return {};
+
+    // Only the last card's status webhook is ever waited on - simulate it
+    // arriving shortly after its own send() resolves.
+    setImmediate(() => {
+      events.push('status-webhook');
+      messageStatusWaiter.notify('wamid.test-last-card', 'sent');
+    });
+    return { messages: [{ id: 'wamid.test-last-card' }] };
+  });
+  const elapsedMs = Date.now() - start;
+
+  assert.ok(elapsedMs < 1000, `expected the footer to fire on the status webhook, not the 30s fallback timer (took ${elapsedMs}ms)`);
+  assert.deepEqual(events, [
+    'text-send',
+    'card0-send-resolved',
+    'card1-send-resolved',
+    'card2-send-resolved',
+    'card3-send-resolved',
+    'status-webhook',
+    'buttons-send'
+  ]);
+});
+
 test('AfroMarket: Store screen offers Partner Stores, which fires its real approved carousel template with quick-reply buttons', async () => {
   const step = createStepper();
 
@@ -650,6 +716,74 @@ test('AfroMarket: Store screen offers Partner Stores, which fires its real appro
   // Tapping a store's quick-reply loops back to the AfroMarket Store screen.
   const afterTap = await step('partner_mama_africa');
   assert.match(afterTap.outboundIntents[0].body, /AfroMarket Store/);
+});
+
+test('AfroMarket: Partner Stores footer waits for the carousel delivery-status webhook, not a fixed delay', async (t) => {
+  // Regression guard for the footer-before-carousel ordering bug: a fixed
+  // sleep(getCarouselFooterDelayMs()) kept racing the footer ahead of the
+  // carousel live in production despite bumping the delay from 2500ms to
+  // 6000ms. Proves the fix actually replaced the guess with a wait on the
+  // carousel message's own delivery-status webhook (messageStatusWaiter.js)
+  // by setting the fallback timeout absurdly high (30s): if the footer
+  // still fired off a timer instead of the webhook, this test would hang
+  // for 30s instead of completing almost instantly.
+  const { messageStatusWaiter } = require('../src/core/whatsapp/messageStatusWaiter');
+  const previousDelay = process.env.CAROUSEL_FOOTER_DELAY_MS;
+  process.env.CAROUSEL_FOOTER_DELAY_MS = '30000';
+  t.after(() => {
+    process.env.CAROUSEL_FOOTER_DELAY_MS = previousDelay;
+    messageStatusWaiter.reset();
+  });
+
+  const flowEngine = new FlowEngine({ botConfig, plugin: new AfroMarketFlowPlugin({ botConfig }) });
+  let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
+  const step = async (text, send) => {
+    const outboundIntents = [];
+    ({ state: conversationState } = await flowEngine.step({
+      from: '+33600000098',
+      phone: '+33600000098',
+      message: { text: { body: text } },
+      state: conversationState,
+      send: send || (async (outboundIntent) => outboundIntents.push(outboundIntent))
+    }));
+    return { outboundIntents, conversationState };
+  };
+
+  await step('hi');
+  await step('afromarket_store');
+
+  const events = [];
+  const sentIntents = [];
+  const start = Date.now();
+  await step('partner_stores', async (outboundIntent) => {
+    sentIntents.push(outboundIntent);
+
+    if (outboundIntent.type === 'template_carousel') {
+      events.push('carousel-send-resolved');
+      // Simulate the real webhook: WhatsApp reports the message as "sent"
+      // shortly after the send API call itself returns.
+      setImmediate(() => {
+        events.push('status-webhook');
+        messageStatusWaiter.notify('wamid.test-carousel', 'sent');
+      });
+      return { messages: [{ id: 'wamid.test-carousel' }] };
+    }
+
+    events.push(`${outboundIntent.type}-send`);
+    return {};
+  });
+  const elapsedMs = Date.now() - start;
+
+  // A regression back to a fixed sleep(getCarouselFooterDelayMs()) would
+  // still pass the ordering assertion below eventually (30s later) - assert
+  // on elapsed time too so that regression fails fast/loud instead of just
+  // quietly making the suite slow.
+  assert.ok(elapsedMs < 1000, `expected the footer to fire on the status webhook, not the 30s fallback timer (took ${elapsedMs}ms)`);
+  assert.deepEqual(events, ['carousel-send-resolved', 'status-webhook', 'buttons-send']);
+  assert.deepEqual(
+    sentIntents.map((intent) => intent.type),
+    ['template_carousel', 'buttons']
+  );
 });
 
 test('AfroMarket: Partner Stores falls back to vertical cards (still followed by the footer) if the template send fails', async () => {

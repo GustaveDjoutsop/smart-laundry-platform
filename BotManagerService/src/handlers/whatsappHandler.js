@@ -3,6 +3,7 @@ const { queueManager } = require('../core/messageQueue');
 const { getAppConfig } = require('../core/appConfig');
 const { logger } = require('../utils/logger');
 const { verifyWhatsAppSignature } = require('./whatsappSignature');
+const { messageStatusWaiter } = require('../core/whatsapp/messageStatusWaiter');
 
 function getQueryParam(req, key) {
   return req && req.query ? req.query[key] : undefined;
@@ -52,6 +53,21 @@ const whatsappHandler = {
       const message = value?.messages?.[0];
       const contact = value?.contacts?.[0];
       const messageId = message?.id || null;
+
+      // Delivery-status updates (sent/delivered/read/failed) for messages we
+      // sent arrive on this same "messages" field subscription, as
+      // value.statuses instead of value.messages - see
+      // messageStatusWaiter.js. Notify anything waiting on that message id
+      // (the carousel-then-footer ordering guard in flowEngine.js) before
+      // falling through to the "ignore non-message events" branch below,
+      // since a status-only payload has no `message` and would otherwise be
+      // dropped without ever being inspected.
+      const statuses = Array.isArray(value?.statuses) ? value.statuses : [];
+      for (const status of statuses) {
+        if (status?.id) {
+          messageStatusWaiter.notify(status.id, status.status || null);
+        }
+      }
 
       // Once a customer adopts a WhatsApp username, Meta may omit the phone
       // number entirely (message.from and contacts[0].wa_id both become "")
