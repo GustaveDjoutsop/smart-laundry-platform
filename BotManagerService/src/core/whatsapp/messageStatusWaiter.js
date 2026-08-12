@@ -30,14 +30,20 @@ class MessageStatusWaiter {
 
     return new Promise((resolve) => {
       // A message id already has a waiter registered - shouldn't happen
-      // (WhatsApp message ids are unique per send), but defensively resolve
-      // the earlier caller (with a null status, same as a timeout) instead
-      // of just clearing its timer - clearing alone would leave that first
+      // (WhatsApp message ids are unique per send), but defensively settle
+      // the earlier caller as timedOut:true (its wait is over, and no real
+      // webhook resolved it - a collision isn't a delivery confirmation)
+      // instead of just clearing its timer, which would leave that first
       // promise permanently pending with nothing left to ever settle it,
-      // which breaks this class's own "never rejects, always eventually
-      // resolves" contract.
+      // breaking this class's own "never rejects, always eventually
+      // resolves" contract. Settling it via the exact same path a timeout
+      // uses (not a separate ad hoc resolve) keeps timedOut accurate for
+      // callers like waitForCarouselDelivery that branch on it for logging.
       const existing = this.waiters.get(messageId);
-      if (existing) existing.resolve(null);
+      if (existing) {
+        clearTimeout(existing.timer);
+        existing.resolve({ status: null, timedOut: true });
+      }
 
       const timer = setTimeout(() => {
         this.waiters.delete(messageId);
@@ -52,13 +58,7 @@ class MessageStatusWaiter {
       // other refs so this wouldn't surface there, but it's still the wrong
       // contract for a timer an active await depends on).
 
-      this.waiters.set(messageId, {
-        resolve: (status) => {
-          clearTimeout(timer);
-          resolve({ status, timedOut: false });
-        },
-        timer
-      });
+      this.waiters.set(messageId, { resolve, timer });
     });
   }
 
@@ -71,7 +71,8 @@ class MessageStatusWaiter {
     if (!waiter) return;
 
     this.waiters.delete(messageId);
-    waiter.resolve(status);
+    clearTimeout(waiter.timer);
+    waiter.resolve({ status, timedOut: false });
   }
 
   // Test helper - clears any waiters left registered (e.g. a test that sent

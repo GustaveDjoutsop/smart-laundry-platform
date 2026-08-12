@@ -29,15 +29,16 @@ test('MessageStatusWaiter.waitFor times out when notify() never arrives', async 
 
 test('MessageStatusWaiter.waitFor resolves the earlier caller instead of hanging it forever when a second call reuses the same messageId', async () => {
   // Defends the "shouldn't happen, but defensively handled" overwrite path:
-  // the first waitFor() must still settle (with a null status, same as a
-  // timeout) rather than being abandoned when a second call for the same
-  // id registers before the first one resolves.
+  // the first waitFor() must still settle - as timedOut:true, the same way
+  // an actual timeout does, since a collision isn't a real delivery
+  // confirmation - rather than being abandoned when a second call for the
+  // same id registers before the first one resolves.
   const waiter = new MessageStatusWaiter();
   const firstPromise = waiter.waitFor('wamid.reused', 30000);
   const secondPromise = waiter.waitFor('wamid.reused', 30000);
 
   const firstResult = await firstPromise;
-  assert.deepEqual(firstResult, { status: null, timedOut: false });
+  assert.deepEqual(firstResult, { status: null, timedOut: true });
 
   waiter.notify('wamid.reused', 'delivered');
   const secondResult = await secondPromise;
