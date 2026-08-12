@@ -1,5 +1,33 @@
 # AfroMarket WhatsApp Bot
 
+## v2.12 (2026-08-12): Partner Stores carousel gets the same fix as Afro Restaurants - `afromarket_partner_stores_v1` retired, submitted to production for the first time
+
+Fast-follow flagged in v2.10 below: `afromarket_partner_stores_v1` had the
+identical static-body-text problem as the old restaurant template (card
+BODY components were literal text, not `{{1}}` variables), and - more
+urgently - **existed only on the Test/sandbox WABA; the real K-AfroMarket
+production WABA had zero templates at all**, confirmed via the Graph API
+while submitting the restaurant fix. Partner Stores' carousel had never
+actually rendered for a real production customer - every real tap silently
+fell back to vertical cards.
+
+**New template `afromarket_partner_stores_v2`**: same fix as
+`afromarket_restaurants_v2` - every card's body is now a `{{1}}` variable
+(store name/address/hours), filled at send time via `cards[].bodyText` in
+`partner_stores_list`'s `carouselTemplate` config. No button-mechanism
+change needed here (unlike restaurants) - Partner Stores already used
+QUICK_REPLY, routing back into the bot rather than external URLs, so it
+never had the domain-limitation problem restaurants did.
+
+Submitted and `PENDING` on both WABAs:
+- Sandbox WABA `4464369590494418`: template id `1075297564846605`
+- Production WABA `878603275008509`: template id `1931253917551627`
+
+No script fixes needed this time - both bugs found while submitting the
+restaurant template (wrong default upload `APP_ID`, all-variable body
+failing Meta's ratio check) were already fixed in
+`scripts/submitCarouselTemplate.js` and applied cleanly here.
+
 ## v2.11 (2026-08-12): production shows the phone number instead of "K-AfroMarket" - root cause is the same messaging-volume tier that already blocked Official Business Account status in v2.5, not Business Verification
 
 A test customer's screenshot on the real production number (+49 1590 5495011,
