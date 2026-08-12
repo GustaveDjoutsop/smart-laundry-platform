@@ -504,26 +504,64 @@
           "id": "afro_restaurant_list",
           "type": "cards",
           "intro": "🍽️ *Afro Restaurants*\n\nReal African restaurants we recommend around Germany — tap Visit Website for their menu, hours and reservations:",
+          "carouselTemplate": {
+            "templateName": "afromarket_restaurants_v2",
+            "languageCode": "en_US",
+            "cards": [
+              {
+                "id": "akan_afrofusion",
+                "imageLink": "https://legal.botmanagementservice.eu/restaurants/afromarket-restaurant-akan-afrofusion.jpg",
+                "bodyText": "akan afrofusion - West African Fusion\nLucy-Borchardt-Straße 8A, 20457 Hamburg (HafenCity)\nWed-Thu 18:00-22:00, Fri-Sat 17:00-23:00, Sun 17:00-22:00 (closed Mon-Tue)",
+                "buttonType": "quick_reply",
+                "quickReplyPayload": "restaurant_akan_afrofusion"
+              },
+              {
+                "id": "la_villageoise",
+                "imageLink": "https://legal.botmanagementservice.eu/restaurants/afromarket-restaurant-la-villageoise.jpg",
+                "bodyText": "La Villageoise - Cameroonian\nHahnstraße 75, 60528 Frankfurt am Main\nTue-Thu 18:00-22:00, Fri 17:00-22:00, Sat 14:00-23:00, Sun 14:00-22:00 (closed Mon)",
+                "buttonType": "quick_reply",
+                "quickReplyPayload": "restaurant_la_villageoise"
+              },
+              {
+                "id": "kilimanjaro_ii",
+                "imageLink": "https://legal.botmanagementservice.eu/restaurants/afromarket-restaurant-kilimanjaro-ii.jpg",
+                "bodyText": "Kilimanjaro II - Eritrean & East African\nVorholzstraße 13, 76137 Karlsruhe\nSee website for hours & contact",
+                "buttonType": "quick_reply",
+                "quickReplyPayload": "restaurant_kilimanjaro_ii"
+              },
+              {
+                "id": "ebony",
+                "imageLink": "https://legal.botmanagementservice.eu/restaurants/afromarket-restaurant-ebony.jpg",
+                "bodyText": "Ebony - African, since 1987\nHerzogstraße 11, 70176 Stuttgart\nTue-Thu 17:00-23:00, Fri-Sat 15:00-23:00 (closed Sun-Mon)",
+                "buttonType": "quick_reply",
+                "quickReplyPayload": "restaurant_ebony"
+              }
+            ]
+          },
           "items": [
             {
+              "id": "akan_afrofusion",
               "image": "https://legal.botmanagementservice.eu/restaurants/afromarket-restaurant-akan-afrofusion.jpg",
               "caption": "*akan afrofusion* — West African Fusion\n📍 Lucy-Borchardt-Straße 8A, 20457 Hamburg (HafenCity)\n📞 040 28058369\n🕐 Wed–Thu 18:00–22:00, Fri–Sat 17:00–23:00, Sun 17:00–22:00 (closed Mon–Tue)",
               "buttonUrl": "https://afrofusion-restaurant.com/",
               "buttonTitle": "🌐 Visit Website"
             },
             {
+              "id": "la_villageoise",
               "image": "https://legal.botmanagementservice.eu/restaurants/afromarket-restaurant-la-villageoise.jpg",
               "caption": "*La Villageoise* — Cameroonian\n📍 Hahnstraße 75, 60528 Frankfurt am Main\n📞 +49 176 20902080\n🕐 Tue–Thu 18:00–22:00, Fri 17:00–22:00, Sat 14:00–23:00, Sun 14:00–22:00 (closed Mon)",
               "buttonUrl": "https://lavillageoise.de/",
               "buttonTitle": "🌐 Visit Website"
             },
             {
+              "id": "kilimanjaro_ii",
               "image": "https://legal.botmanagementservice.eu/restaurants/afromarket-restaurant-kilimanjaro-ii.jpg",
               "caption": "*Kilimanjaro II* — Eritrean & East African\n📍 Vorholzstraße 13, 76137 Karlsruhe\n🌐 See website for hours & contact",
               "buttonUrl": "https://www.kilimanjaroii.de/",
               "buttonTitle": "🌐 Visit Website"
             },
             {
+              "id": "ebony",
               "image": "https://legal.botmanagementservice.eu/restaurants/afromarket-restaurant-ebony.jpg",
               "caption": "*Ebony* — African, since 1987\n📍 Herzogstraße 11, 70176 Stuttgart\n📞 0711 62 58 34\n🕐 Tue–Thu 17:00–23:00, Fri–Sat 15:00–23:00 (closed Sun–Mon)",
               "buttonUrl": "https://www.ebony-stuttgart.de/",
@@ -534,7 +572,71 @@
             { "id": "menu", "title": "🏠 Main Menu" }
           ],
           "saveAs": "restaurantFollowChoice",
-          "next": "welcome"
+          "next": "afro_restaurant_route"
+        },
+        {
+          "id": "afro_restaurant_route",
+          "type": "action",
+          "action": "route",
+          "params": {
+            "from": "restaurantFollowChoice",
+            "map": {
+              "restaurant_akan_afrofusion": "restaurant_link_akan_afrofusion",
+              "restaurant_la_villageoise": "restaurant_link_la_villageoise",
+              "restaurant_kilimanjaro_ii": "restaurant_link_kilimanjaro_ii",
+              "restaurant_ebony": "restaurant_link_ebony",
+              "menu": "welcome"
+            },
+            "default": "welcome"
+          }
+        },
+        {
+          "id": "restaurant_link_akan_afrofusion",
+          "type": "buttons",
+          "template": "🍽️ *akan afrofusion* — West African Fusion\n📍 Lucy-Borchardt-Straße 8A, 20457 Hamburg (HafenCity)\n📞 040 28058369\n🕐 Wed–Thu 18:00–22:00, Fri–Sat 17:00–23:00, Sun 17:00–22:00 (closed Mon–Tue)\n\n🌐 https://afrofusion-restaurant.com/",
+          "image": "https://legal.botmanagementservice.eu/restaurants/afromarket-restaurant-akan-afrofusion.jpg",
+          "buttons": [
+            { "id": "afro_restaurant", "title": "⬅️ More Restaurants" },
+            { "id": "menu", "title": "🏠 Main Menu" }
+          ],
+          "saveAs": "mainChoice",
+          "next": "main_route"
+        },
+        {
+          "id": "restaurant_link_la_villageoise",
+          "type": "buttons",
+          "template": "🍽️ *La Villageoise* — Cameroonian\n📍 Hahnstraße 75, 60528 Frankfurt am Main\n📞 +49 176 20902080\n🕐 Tue–Thu 18:00–22:00, Fri 17:00–22:00, Sat 14:00–23:00, Sun 14:00–22:00 (closed Mon)\n\n🌐 https://lavillageoise.de/",
+          "image": "https://legal.botmanagementservice.eu/restaurants/afromarket-restaurant-la-villageoise.jpg",
+          "buttons": [
+            { "id": "afro_restaurant", "title": "⬅️ More Restaurants" },
+            { "id": "menu", "title": "🏠 Main Menu" }
+          ],
+          "saveAs": "mainChoice",
+          "next": "main_route"
+        },
+        {
+          "id": "restaurant_link_kilimanjaro_ii",
+          "type": "buttons",
+          "template": "🍽️ *Kilimanjaro II* — Eritrean & East African\n📍 Vorholzstraße 13, 76137 Karlsruhe\n🌐 See website for hours & contact\n\n🌐 https://www.kilimanjaroii.de/",
+          "image": "https://legal.botmanagementservice.eu/restaurants/afromarket-restaurant-kilimanjaro-ii.jpg",
+          "buttons": [
+            { "id": "afro_restaurant", "title": "⬅️ More Restaurants" },
+            { "id": "menu", "title": "🏠 Main Menu" }
+          ],
+          "saveAs": "mainChoice",
+          "next": "main_route"
+        },
+        {
+          "id": "restaurant_link_ebony",
+          "type": "buttons",
+          "template": "🍽️ *Ebony* — African, since 1987\n📍 Herzogstraße 11, 70176 Stuttgart\n📞 0711 62 58 34\n🕐 Tue–Thu 17:00–23:00, Fri–Sat 15:00–23:00 (closed Sun–Mon)\n\n🌐 https://www.ebony-stuttgart.de/",
+          "image": "https://legal.botmanagementservice.eu/restaurants/afromarket-restaurant-ebony.jpg",
+          "buttons": [
+            { "id": "afro_restaurant", "title": "⬅️ More Restaurants" },
+            { "id": "menu", "title": "🏠 Main Menu" }
+          ],
+          "saveAs": "mainChoice",
+          "next": "main_route"
         },
 
         {

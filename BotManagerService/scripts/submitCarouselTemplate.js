@@ -23,6 +23,22 @@
  *   ]
  * }
  *
+ * Every card's `body` is ALWAYS submitted as a {{1}} variable (with `body`
+ * itself as the example), never baked into the template as literal text -
+ * see afromarket-carousel-bugs-todo.md's Correction (Aug 2026): a prior
+ * restaurant carousel template had name/address/hours typed directly into
+ * the approved template, which meant the whole template went silently stale
+ * the moment the underlying restaurant list changed (it kept showing three
+ * old restaurants next to buttons for their old sites, with no error - the
+ * template was still "valid," just wrong). Making the body a variable means
+ * swapping which entries appear later needs only a different send-time
+ * value (see cards[].bodyText in the bot config), never a resubmission.
+ * URL buttons remain static per card (WhatsApp only supports one dynamic
+ * suffix appended to a single base domain per template, which can't
+ * represent cards pointing at unrelated external domains) - prefer
+ * QUICK_REPLY cards routed back through the bot when the destinations are
+ * genuinely different domains that may change independently.
+ *
  * Requires WHATSAPP_ACCESS_TOKEN_AFROMARKET (env or .env) with
  * whatsapp_business_management scope on the target WABA, and the WABA id
  * below (afromarket + laundry currently share one sandbox WABA).
@@ -85,10 +101,16 @@ async function main() {
         ? { type: 'URL', text: card.buttonText || 'Visit Website', url: card.buttonUrl }
         : { type: 'QUICK_REPLY', text: card.buttonText || 'Get this recipe' };
 
+    if (!card.body || !String(card.body).trim()) {
+      throw new Error(`card "${card.image}" is missing body`);
+    }
+
     cardsWithHandles.push({
       components: [
         { type: 'HEADER', format: 'IMAGE', example: { header_handle: [handle] } },
-        { type: 'BODY', text: card.body },
+        // Always a {{1}} variable, never card.body typed in literally - see
+        // the file-level comment above.
+        { type: 'BODY', text: '{{1}}', example: { body_text: [[card.body]] } },
         { type: 'BUTTONS', buttons: [button] }
       ]
     });

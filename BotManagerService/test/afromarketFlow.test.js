@@ -578,13 +578,75 @@ test('AfroMarket: production hides Afro Restaurant from the main menu, dev keeps
   }
 });
 
-test('AfroMarket: Afro Restaurant lists the real restaurants as cta_url cards, followed by the footer', async () => {
-  // afro_restaurant_list has no carouselTemplate (the old one's URL buttons
-  // are baked into an already-approved Meta template pointing at the old
-  // placeholder restaurants' sites - swapping in real restaurants here
-  // needs a fresh template submission/approval, tracked separately). Until
-  // then this vertical cta_url rendering is the real, working experience.
+test('AfroMarket: Afro Restaurant fires its real approved carousel template with quick-reply buttons and per-card body text', async () => {
+  // afro_restaurant_list now carries a real carouselTemplate
+  // (afromarket_restaurants_v2) - see afromarket-carousel-bugs-todo.md's
+  // Correction: WhatsApp only supports one dynamic suffix on a URL button
+  // against a single fixed base domain, which can't represent 4 restaurants
+  // on 4 entirely different domains, so - unlike a URL-button carousel -
+  // this uses QUICK_REPLY (routing through the bot, same mechanism as
+  // Partner Stores) with a dynamic per-card body variable, and the bot
+  // sends the restaurant's real website link as a follow-up after the tap.
   const step = createStepper();
+
+  await step('hi');
+  const result = await step('afro_restaurant');
+  assert.equal(result.outboundIntents.length, 2);
+
+  const carousel = result.outboundIntents[0];
+  assert.equal(carousel.type, 'template_carousel');
+  assert.equal(carousel.templateName, 'afromarket_restaurants_v2');
+  assert.equal(carousel.cards.length, 4);
+  for (const card of carousel.cards) {
+    assert.equal(card.buttonType, 'quick_reply');
+    assert.match(card.imageLink, /^https:\/\//);
+    assert.ok(card.quickReplyPayload);
+    assert.ok(card.bodyText, `${card.quickReplyPayload} card is missing its bodyText`);
+  }
+  assert.equal(carousel.cards[0].quickReplyPayload, 'restaurant_akan_afrofusion');
+  assert.match(carousel.cards[0].bodyText, /akan afrofusion/);
+  assert.equal(carousel.cards[3].quickReplyPayload, 'restaurant_ebony');
+  assert.match(carousel.cards[3].bodyText, /Ebony/);
+
+  const footer = result.outboundIntents[1];
+  assert.equal(footer.type, 'buttons');
+  assert.deepEqual(footer.buttons.map((b) => b.id), ['menu']);
+
+  // Tapping a restaurant's quick-reply routes to that restaurant's real
+  // website link, not straight back to the main menu.
+  const afterTap = await step('restaurant_la_villageoise');
+  assert.equal(afterTap.outboundIntents[0].type, 'buttons');
+  assert.match(afterTap.outboundIntents[0].body, /La Villageoise/);
+  assert.match(afterTap.outboundIntents[0].body, /https:\/\/lavillageoise\.de\//);
+  assert.equal(afterTap.outboundIntents[0].image, 'https://legal.botmanagementservice.eu/restaurants/afromarket-restaurant-la-villageoise.jpg');
+  assert.deepEqual(afterTap.outboundIntents[0].buttons.map((b) => b.id), ['afro_restaurant', 'menu']);
+
+  // "More Restaurants" loops back to the carousel; the main menu button
+  // (already covered by every other flow's identical pattern) is not
+  // re-tested here.
+  const backToList = await step('afro_restaurant');
+  assert.equal(backToList.outboundIntents[0].type, 'template_carousel');
+});
+
+test('AfroMarket: Afro Restaurant falls back to vertical cta_url cards (still followed by the footer) if the template send fails', async () => {
+  const flowEngine = new FlowEngine({ botConfig, plugin: new AfroMarketFlowPlugin({ botConfig }) });
+  let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
+  const step = async (text) => {
+    const outboundIntents = [];
+    ({ state: conversationState } = await flowEngine.step({
+      from: '+33600000000',
+      phone: '+33600000000',
+      message: { text: { body: text } },
+      state: conversationState,
+      send: async (outboundIntent) => {
+        if (outboundIntent.type === 'template_carousel') {
+          throw new Error('simulated WhatsApp template send failure');
+        }
+        outboundIntents.push(outboundIntent);
+      }
+    }));
+    return { outboundIntents, conversationState };
+  };
 
   await step('hi');
   const result = await step('afro_restaurant');
@@ -613,17 +675,16 @@ test('AfroMarket: Afro Restaurant lists the real restaurants as cta_url cards, f
   assert.equal(footer.type, 'buttons');
   assert.deepEqual(footer.buttons.map((b) => b.id), ['menu']);
 
+  // The vertical fallback's "next" is unconditionally "welcome" (unlike the
+  // carousel path, it never routes through afro_restaurant_route - there's
+  // nothing to route since each card already carries its own direct link).
   const afterTap = await step('menu');
   assert.equal(afterTap.outboundIntents[0].type, 'list');
   assert.match(afterTap.outboundIntents[0].body, /Welcome to \*AfroMarket\*/);
 });
 
-test('AfroMarket: Afro Restaurant footer waits for the last card\'s delivery-status webhook, not a fixed delay', async (t) => {
-  // Same regression guard as the Partner Stores carousel test, but for the
-  // vertical items[] fallback path (afro_restaurant_list has no
-  // carouselTemplate - see the "lists the real restaurants" test above).
-  // flowEngine.js only tracks lastItemMessageId (the final cta_url card),
-  // so that's the id this test's status webhook must correlate to.
+test('AfroMarket: Afro Restaurant footer waits for the carousel delivery-status webhook, not a fixed delay', async (t) => {
+  // Same regression guard as the equivalent Partner Stores test.
   const { messageStatusWaiter } = require('../src/core/whatsapp/messageStatusWaiter');
   const previousDelay = process.env.CAROUSEL_FOOTER_DELAY_MS;
   process.env.CAROUSEL_FOOTER_DELAY_MS = '30000';
@@ -649,39 +710,24 @@ test('AfroMarket: Afro Restaurant footer waits for the last card\'s delivery-sta
   await step('hi');
 
   const events = [];
-  let cardIndex = -1;
   const start = Date.now();
   await step('afro_restaurant', async (outboundIntent) => {
-    if (outboundIntent.type !== 'cta_url') {
-      events.push(`${outboundIntent.type}-send`);
-      return {};
+    if (outboundIntent.type === 'template_carousel') {
+      events.push('carousel-send-resolved');
+      setImmediate(() => {
+        events.push('status-webhook');
+        messageStatusWaiter.notify('wamid.test-restaurant-carousel', 'sent');
+      });
+      return { messages: [{ id: 'wamid.test-restaurant-carousel' }] };
     }
 
-    cardIndex += 1;
-    const isLastCard = cardIndex === 3; // 4 restaurants, 0-indexed
-    events.push(`card${cardIndex}-send-resolved`);
-    if (!isLastCard) return {};
-
-    // Only the last card's status webhook is ever waited on - simulate it
-    // arriving shortly after its own send() resolves.
-    setImmediate(() => {
-      events.push('status-webhook');
-      messageStatusWaiter.notify('wamid.test-last-card', 'sent');
-    });
-    return { messages: [{ id: 'wamid.test-last-card' }] };
+    events.push(`${outboundIntent.type}-send`);
+    return {};
   });
   const elapsedMs = Date.now() - start;
 
   assert.ok(elapsedMs < 1000, `expected the footer to fire on the status webhook, not the 30s fallback timer (took ${elapsedMs}ms)`);
-  assert.deepEqual(events, [
-    'text-send',
-    'card0-send-resolved',
-    'card1-send-resolved',
-    'card2-send-resolved',
-    'card3-send-resolved',
-    'status-webhook',
-    'buttons-send'
-  ]);
+  assert.deepEqual(events, ['carousel-send-resolved', 'status-webhook', 'buttons-send']);
 });
 
 test('AfroMarket: Store screen offers Partner Stores, which fires its real approved carousel template with quick-reply buttons', async () => {
