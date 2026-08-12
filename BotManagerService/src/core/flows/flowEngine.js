@@ -222,8 +222,11 @@ function validateFlowConfig(botConfig) {
               }
               cardUrls.add(card.url);
             }
-            if (card.id) {
-              cardIds.add(card.id);
+            if (card.id != null) {
+              if (typeof card.id !== 'string' || !card.id.trim()) {
+                throw new Error(`flow ${flowId} state ${state.id}: carouselTemplate card id, when present, must be a non-empty string`);
+              }
+              cardIds.add(card.id.trim());
             } else {
               everyCardHasId = false;
             }
@@ -247,16 +250,23 @@ function validateFlowConfig(botConfig) {
           //   mean anything, which is still true for every carouselTemplate
           //   state that hasn't opted into per-card `id`s (e.g. Partner
           //   Stores).
-          // Known limitation, inherited from the original buttonId/url check
-          // below: an item silently missing its `id` is just excluded here
-          // rather than flagged directly - still caught today via the
-          // resulting size mismatch against cardIds, but a compensating
-          // miscount elsewhere (e.g. a duplicate `id` on another item) could
-          // mask it. Set-equality checks can't distinguish "wrong size for
-          // the right reason" from "wrong size that happens to line up."
-          const itemIds = new Set(state.items.filter((item) => item.id).map((item) => item.id));
+          // Validated and trimmed the same way as cardIds above (a
+          // non-string or whitespace-only id would otherwise silently
+          // disable this check rather than fail loudly).
+          const itemIds = new Set();
+          let everyItemHasId = state.items.length > 0;
+          for (const item of state.items) {
+            if (item.id != null) {
+              if (typeof item.id !== 'string' || !item.id.trim()) {
+                throw new Error(`flow ${flowId} state ${state.id}: items[].id, when present, must be a non-empty string`);
+              }
+              itemIds.add(item.id.trim());
+            } else {
+              everyItemHasId = false;
+            }
+          }
           const setsMatch =
-            everyCardHasId && itemIds.size > 0
+            everyCardHasId && everyItemHasId
               ? cardIds.size === itemIds.size && [...cardIds].every((id) => itemIds.has(id))
               : carouselButtonType === 'quick_reply'
                 ? (() => {
@@ -272,7 +282,7 @@ function validateFlowConfig(botConfig) {
                   })();
           if (!setsMatch) {
             const fieldName =
-              everyCardHasId && itemIds.size > 0
+              everyCardHasId && everyItemHasId
                 ? 'id values must exactly match items[].id'
                 : carouselButtonType === 'quick_reply'
                   ? 'quickReplyPayload values must exactly match items[].buttonId'

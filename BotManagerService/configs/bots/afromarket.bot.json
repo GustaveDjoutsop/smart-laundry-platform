@@ -503,7 +503,7 @@
         {
           "id": "afro_restaurant_list",
           "type": "cards",
-          "intro": "🍽️ *Afro Restaurants*\n\nReal African restaurants we recommend around Germany — tap Visit Website for their menu, hours and reservations:",
+          "intro": "🍽️ *Afro Restaurants*\n\nReal African restaurants we recommend around Germany — tap the button below each one for their menu, hours and reservations:",
           "carouselTemplate": {
             "templateName": "afromarket_restaurants_v2",
             "languageCode": "en_US",
