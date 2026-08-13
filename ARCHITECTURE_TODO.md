@@ -15,7 +15,8 @@
 
 ## Reliability & Recovery (added by the 13-layer audit)
 - [x] Automated nightly logical backups of `smartbot`, `machinedb`, `paymentdb` to Cloudflare R2, with pre-upload integrity verification and GFS retention — `scripts/backup-databases.sh`, `.github/workflows/backup-databases.yml`, [`docs/BACKUP.md`](./docs/BACKUP.md) (R2). Requires the one-time bucket/secret setup in `docs/BACKUP.md` §4 before it does anything.
-- [ ] Prove restores work: `scripts/restore-drill.sh` + `docs/DISASTER-RECOVERY.md` with a measured RTO (R3). **Until this passes once, the backups above are an untested hypothesis.**
+- [x] Prove restores work: `scripts/restore-drill.sh` + `.github/workflows/restore-drill.yml` (quarterly) + [`docs/DISASTER-RECOVERY.md`](./docs/DISASTER-RECOVERY.md) (R3). The drill downloads a real archive, checksums it, restores into a throwaway `drill_*` database and verifies schema counts, Flyway head, row counts and data freshness. Four independent guards prevent it ever writing to a production database.
+- [ ] **Run the drill once against real production backups and fill in the RTO table in `docs/DISASTER-RECOVERY.md` §2.** It is deliberately empty: sandbox timings were discarded as meaningless (the same 700k-row restore varied 2 s–23 s on shared CPU). Until this is done the RPO of 24 h is a real commitment but the RTO is unknown, and recovery is unrehearsed. Blocked on the R2 bucket setup in `docs/BACKUP.md` §4.
 - [ ] Alert on backup staleness using the `status/last-success.json` heartbeat — a scheduled workflow that never runs raises no failure notification, which is the failure mode most likely to go unnoticed (R3).
 - [ ] Re-evaluate Supabase Pro PITR once transaction volume makes a 24 h RPO materially expensive — but only after R3 (see `docs/BACKUP.md` §1).
 
