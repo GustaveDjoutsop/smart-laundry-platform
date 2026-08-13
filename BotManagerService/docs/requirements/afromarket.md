@@ -1,5 +1,26 @@
 # AfroMarket WhatsApp Bot
 
+## v2.14 (2026-08-13): Both carousel templates approved by Meta on both WABAs
+
+`afromarket_restaurants_v2` (v2.10) and `afromarket_partner_stores_v2`
+(v2.12) are now `APPROVED` - confirmed via
+`node scripts/checkTemplateStatus.js <name>` against both WABAs:
+
+- Sandbox WABA `4464369590494418`: `afromarket_restaurants_v2` id
+  `1256941286482149` APPROVED, `afromarket_partner_stores_v2` id
+  `1075297564846605` APPROVED.
+- Production WABA `878603275008509`: `afromarket_restaurants_v2` id
+  `2188265671958576` APPROVED, `afromarket_partner_stores_v2` id
+  `1931253917551627` APPROVED.
+
+Template approval confirms Meta accepted the template content; it does not
+by itself confirm the bot's runtime wiring (`carouselTemplate` config,
+quick-reply routing to `restaurant_link_<id>` / partner-store detail
+states) actually renders and routes correctly end-to-end. Still worth a
+live test message on both sandbox and production numbers before treating
+Issue 1/Issue 2 from `afromarket-carousel-bugs-todo.md` as fully closed in
+practice, not just approved on paper.
+
 ## v2.13 (2026-08-12): Correction to v2.11 - the messaging-volume-gate explanation was wrong; `AVAILABLE_WITHOUT_REVIEW` means ready now, not blocked
 
 v2.11 below concluded the display-name-not-showing issue was gated behind
