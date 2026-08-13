@@ -6,7 +6,13 @@
 **/application-local.yaml
 **/application-local.yml
 **/application-local.properties
-twilio_2FA_recovery_code.txt
+# Twilio is no longer used anywhere in this platform, so the previous
+# `twilio_2FA_recovery_code.txt` entry has been removed. If that file still
+# exists in your working copy, DELETE IT — it is no longer ignored, and a
+# recovery code is a credential.
+# Broad safety net for any local secret-bearing file of this shape:
+*recovery_code*.txt
+*_2FA_*.txt
 
 # ── Java / Maven build output ─────────────────────────────────────────────────
 **/target/

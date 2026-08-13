@@ -1,35 +1,38 @@
 version: '3.8'
 
-services:
-  backend:
-    container_name: laundry-backend
-    build: .
-    ports:
-      - '3000:3000' # Map port 3000 on host to 3000 in container
-      - '9229:9229' # Optional: For Node.js debugging
-    volumes:
-      - .:/usr/src/app # Mount your local code into the container
-      - /usr/src/app/node_modules # Do not mount local node_modules
-    environment:
-      NODE_ENV: development
-      DATABASE_URL: postgresql://laundry:laundry123@postgres:5432/laundry_dev
-      REDIS_URL: redis://redis:6379
-      MQTT_BROKER_URL: mqtt://mqtt:1883
-      # Twilio WhatsApp (legacy laundry-backend prototype).
-      # A live account SID and auth token were hardcoded here. They have been
-      # replaced with env indirection; ROTATION AT TWILIO IS STILL PENDING —
-      # tracked in docs/SECRET-ROTATION.md §4.1. Nothing in the platform
-      # currently consumes TWILIO_*; the bots use the Meta WhatsApp Cloud API.
-      # Supply values via Doppler only if this legacy service is ever revived.
-      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
-      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
-      TWILIO_WHATSAPP_NUMBER: ${TWILIO_WHATSAPP_NUMBER:-}
-      TWILIO_WEBHOOK_URL: ${TWILIO_WEBHOOK_URL:-}
-    depends_on:
-      - postgres
-      - redis
-      - mqtt
+# ── REMOVED: the `backend` service (container_name: laundry-backend) ─────────
+#
+# A Node.js/Prisma prototype that predates the Spring services. Removed because
+# it was provably unbuildable, not merely unused:
+#
+#   * `build: .` used the root Dockerfile, which ran `COPY package*.json ./`
+#     and `COPY prisma ./prisma/`. Neither a root package.json nor a prisma/
+#     directory exists in this repository, so `docker compose up` failed at
+#     build. The root Dockerfile is removed in the same commit.
+#   * It carried a live Twilio account SID and auth token in plaintext. WhatsApp
+#     messaging moved to the Meta WhatsApp Cloud API (see spring-bot-manager-only
+#     and BotManagerService); nothing in the platform reads TWILIO_* and `twilio`
+#     is not a dependency in any package.json.
+#
+# It also occupied host port 3000, which collides with the dashboard's
+# documented dev port (see the port unification work in ARCHITECTURE_TODO.md).
+#
+# Recoverable from history if ever needed: `git show f45df47:docker-compose.yml`
 
+services:
+  # NOTE: with `backend` gone, postgres and mqtt have no dependents in this file.
+  # Both are kept as standalone local-dev conveniences, but be aware:
+  #   * The three Spring services each have their own compose file with their own
+  #     Postgres (ports 5434/5435/15432); this `laundry_dev` database on 5432 is
+  #     not used by any of them.
+  #   * The mqtt service mounts ./mosquitto/config, ./mosquitto/data and
+  #     ./mosquitto/log, none of which exist in the repository. Docker creates
+  #     the missing directories automatically, so the broker does start — but
+  #     with Mosquitto's built-in defaults rather than any intended config.
+  #     Removing the legacy MQTT stack is already tracked in
+  #     ARCHITECTURE_TODO.md Phase 0 and is left to that change rather than
+  #     widened into this one.
+  # `redis` IS still required — the api-gateway service depends on it.
   postgres:
     image: postgres:15-alpine
     container_name: laundry-postgres
@@ -81,8 +84,10 @@ services:
       retries: 5
 
   # API Gateway (P1, architecture-review/05-API-GATEWAY-DESIGN.md). Opt-in via
-  # `docker compose --profile gateway up` — not started by default since it's
-  # not part of the legacy laundry-backend stack above. The 3 Spring services
+  # `docker compose --profile gateway up` — kept behind a profile so the default
+  # `docker compose up` stays a lightweight infrastructure-only stack.
+  # (This previously read "not part of the legacy laundry-backend stack above";
+  # that service has been removed, so the reference is gone.) The 3 Spring services
   # (bot-manager :8090, PaymentManagementService :8081, MachineStateService
   # :8082) are expected to run on the host (mvn spring-boot:run), reachable
   # from inside the container via host.docker.internal.
