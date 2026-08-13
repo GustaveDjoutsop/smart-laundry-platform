@@ -12,6 +12,12 @@
 - [ ] Fix `smart-laundry-dashboard/.env.example` vs `src/lib/api.ts` API base URL mismatch (align both on the future reporting-api URL)
 - [ ] Standardize `cors.allowed-origins` across all 3 Spring services to env-driven, no `:3000` hardcoded default
 
+## Reliability & Recovery (added by the 13-layer audit)
+- [x] Automated nightly logical backups of `smartbot`, `machinedb`, `paymentdb` to Cloudflare R2, with pre-upload integrity verification and GFS retention — `scripts/backup-databases.sh`, `.github/workflows/backup-databases.yml`, [`docs/BACKUP.md`](./docs/BACKUP.md) (R2). Requires the one-time bucket/secret setup in `docs/BACKUP.md` §4 before it does anything.
+- [ ] Prove restores work: `scripts/restore-drill.sh` + `docs/DISASTER-RECOVERY.md` with a measured RTO (R3). **Until this passes once, the backups above are an untested hypothesis.**
+- [ ] Alert on backup staleness using the `status/last-success.json` heartbeat — a scheduled workflow that never runs raises no failure notification, which is the failure mode most likely to go unnoticed (R3).
+- [ ] Re-evaluate Supabase Pro PITR once transaction volume makes a 24 h RPO materially expensive — but only after R3 (see `docs/BACKUP.md` §1).
+
 ## Phase 1 — Shared Contracts
 - [ ] Create `laundry-contracts` shared module (Maven, versioned/published to internal repo)
 - [ ] Define DTOs: `MachineStartRequest`, `ReservationRequest`/`ReservationResponse`, `PaymentInitiateRequest`, `TransactionStatus`
