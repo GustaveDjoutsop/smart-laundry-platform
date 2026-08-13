@@ -1,0 +1,143 @@
+# gitleaks configuration — smart-laundry-platform
+#
+# Enforced as a blocking gate by .github/workflows/secret-scan.yml.
+# See docs/SECRET-ROTATION.md for the incident that motivated this control.
+#
+# TWO DESIGN NOTES, because both are easy to get wrong:
+#
+# 1. Every custom rule below uses `secretGroup` to point at the VALUE, not the
+#    variable name. Without it, a rule like `campay[_-]?app[_-]?secret[:=](...)`
+#    reports the literal string "APP_SECRET" as the leaked secret, which makes
+#    every .env.example a finding and the gate useless. This was caught by
+#    running the config against the working tree before merging it.
+#
+# 2. Env indirection (`${CAMPAY_APP_SECRET:}`) is excluded for free, because
+#    `$`, `{` and `}` are absent from every value character class. Correctly
+#    parameterised config can never trip these rules.
+#
+# Allowlisting is deliberately narrow — each entry names a specific file or
+# value and states why, so the allowlist cannot quietly grow to cover a real
+# leak.
+
+[extend]
+useDefault = true
+
+# ── Project-specific rules ───────────────────────────────────────────────────
+# The providers this platform integrates with are regional and mostly absent
+# from the upstream gitleaks ruleset, so they are defined explicitly.
+
+[[rules]]
+id = "campay-credential"
+description = "CamPay app key, app secret, webhook secret or token assigned a literal value"
+regex = '''(?i)campay[_\-\.]?(?:app[_\-]?key|app[_\-]?secret|webhook[_\-]?secret|token)["']?\s*[:=]\s*["']?([A-Za-z0-9_\-]{16,})'''
+secretGroup = 1
+entropy = 3.0
+tags = ["campay", "payment"]
+
+[[rules]]
+id = "meta-whatsapp-access-token"
+description = "Meta/WhatsApp Cloud API access token (EAA-prefixed)"
+regex = '''\b(EAA[A-Za-z0-9]{40,})\b'''
+secretGroup = 1
+tags = ["meta", "whatsapp"]
+
+[[rules]]
+id = "encryption-master-key"
+description = "AES-256 master key (64 hex chars) assigned a literal value"
+# Guards the key consumed by bot-core EncryptedStringConverter, which requires
+# exactly 64 hex chars. A leak here defeats PII encryption at rest.
+regex = '''(?i)(?:encryption[_\-\.]?)?master[_\-]?key["']?\s*[:=]\s*["']?([a-f0-9]{64})\b'''
+secretGroup = 1
+entropy = 3.5
+tags = ["crypto", "pii"]
+
+[[rules]]
+id = "eqlink-credential"
+description = "EQLink cloud API credential assigned a literal value"
+regex = '''(?i)eqlink[_\-\.]?(?:app[_\-]?key|app[_\-]?secret|secret|token)["']?\s*[:=]\s*["']?([A-Za-z0-9_\-]{16,})'''
+secretGroup = 1
+entropy = 3.0
+tags = ["eqlink", "iot"]
+
+[[rules]]
+id = "mobile-money-credential"
+description = "MTN MoMo / Orange Money credential assigned a literal value"
+regex = '''(?i)(?:mtn[_\-]?momo|orange[_\-]?money|momo)[_\-\.]?(?:api[_\-]?key|client[_\-]?secret|subscription[_\-]?key|secret)["']?\s*[:=]\s*["']?([A-Za-z0-9_\-]{16,})'''
+secretGroup = 1
+entropy = 3.0
+tags = ["momo", "payment"]
+
+[[rules]]
+id = "twilio-auth-token"
+description = "Twilio auth token assigned a literal value"
+# The R1 incident. Upstream gitleaks covers Twilio API keys (SK-prefixed) but
+# not the account auth token, which is a bare 32-hex string.
+regex = '''(?i)twilio[_\-\.]?auth[_\-]?token["']?\s*[:=]\s*["']?([a-f0-9]{32})\b'''
+secretGroup = 1
+entropy = 3.0
+tags = ["twilio"]
+
+# ── Allowlist ────────────────────────────────────────────────────────────────
+
+[allowlist]
+description = "Narrow, individually justified exemptions"
+
+paths = [
+  # Lockfiles and POMs carry integrity hashes that look like high-entropy keys.
+  '''package-lock\.json$''',
+  '''(^|/)pom\.xml$''',
+  # The rotation runbook must name the credentials that were exposed. It
+  # contains fingerprints and revocation status only — no live values.
+  '''^docs/SECRET-ROTATION\.md$''',
+  # This script is made of detection patterns, not secrets.
+  '''^scripts/audit-git-history-secrets\.sh$''',
+  # This config is itself a collection of secret-shaped regexes.
+  '''^\.gitleaks\.toml$''',
+]
+
+# Matched against the detected secret value (gitleaks default regexTarget).
+regexes = [
+  # ── Documented placeholders used across .env.example files ──
+  '''your_[a-z_]+_here''',
+  '''your_[a-z_]+''',
+  '''change-me(-in-production)?''',
+  '''generate_with_openssl_rand_hex_32''',
+  '''^(APP_KEY|APP_SECRET|TOKEN|WEBHOOK_SECRET|SECRET|master-key|webhook-secret)$''',
+
+  # ── Obvious test vectors and fixtures ──
+  # Sequential/repeating hex is a textbook AES test vector, never a real key.
+  '''^0123456789abcdef(0123456789abcdef)+$''',
+  '''^0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20$''',
+  '''^sk_test_1234567890abcdefghij$''',
+  '''integration-test-secret-must-be-at-least-32-chars''',
+  '''test-secret-key-for-unit-tests-only-do-not-use''',
+  '''test-verify-token''',
+  # Any value explicitly prefixed "test-" is a fixture by convention. Narrow
+  # enough to stay meaningful: a real credential would have to be deliberately
+  # renamed to "test-..." to slip past this.
+  '''^test-[a-z0-9\-]+$''',
+  '''(doctor|laundry|pharmacy)_verify_secret_2024''',
+  # Sanitised under R1. The previous fixtures held a real Meta token and a real
+  # personal phone number — see docs/SECRET-ROTATION.md §2 items 4 and 5.
+  '''EAAFAKEfake000TEST[A-Za-z0-9]*''',
+  # Illustrative JWT in dashboard auth docs (standard alg/typ header, no payload).
+  '''^eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9''',
+
+  # ── Not secrets at all ──
+  # Business constants that happen to match generic key-value heuristics.
+  '''^PRICE_[A-Z_]+=[0-9]+$''',
+  # An adjacent variable NAME captured because .env.example lists CAMPAY_* and
+  # MTN_MOMO_* keys on consecutive lines. A name, not a value.
+  '''^MTN_MOMO_CLIENT_ID$''',
+  # Notion page ID inside a documentation URL.
+  '''2c67cc5ed1ea81a99d00f552b1f89625''',
+  # Synthetic BSUID in afromarketFlow.test.js.
+  '''9373795779eb6441c8adb2eaee5b848e7dd174ddd302d7db62142f4722d574b6''',
+
+  # ── Throwaway local-dev container credentials ──
+  # Created and destroyed by docker compose; grant access to nothing beyond a
+  # developer laptop. Deliberately left readable so `docker compose up` works
+  # with no setup.
+  '''^laundry123$''',
+  '''^(devpassword|smartbot|machine_pass|payment_pass|testpass)$''',
+]

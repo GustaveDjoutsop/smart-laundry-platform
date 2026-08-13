@@ -15,11 +15,16 @@ services:
       DATABASE_URL: postgresql://laundry:laundry123@postgres:5432/laundry_dev
       REDIS_URL: redis://redis:6379
       MQTT_BROKER_URL: mqtt://mqtt:1883
-      # Twilio WhatsApp
-      TWILIO_ACCOUNT_SID: AC7d389437f20e70537394ee5f40752244
-      TWILIO_AUTH_TOKEN: 7ff98f6bac9cfd397463ee7e0f65d8dc
-      TWILIO_WHATSAPP_NUMBER: =whatsapp:+14155238886
-      TWILIO_WEBHOOK_URL: https://8b5ceda638cd.ngrok-free.app/api/webhooks/whatsapp
+      # Twilio WhatsApp (legacy laundry-backend prototype).
+      # A live account SID and auth token were hardcoded here. They have been
+      # replaced with env indirection; ROTATION AT TWILIO IS STILL PENDING —
+      # tracked in docs/SECRET-ROTATION.md §4.1. Nothing in the platform
+      # currently consumes TWILIO_*; the bots use the Meta WhatsApp Cloud API.
+      # Supply values via Doppler only if this legacy service is ever revived.
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_WHATSAPP_NUMBER: ${TWILIO_WHATSAPP_NUMBER:-}
+      TWILIO_WEBHOOK_URL: ${TWILIO_WEBHOOK_URL:-}
     depends_on:
       - postgres
       - redis
