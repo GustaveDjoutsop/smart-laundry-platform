@@ -511,28 +511,28 @@
               {
                 "id": "akan_afrofusion",
                 "imageLink": "https://legal.botmanagementservice.eu/restaurants/afromarket-restaurant-akan-afrofusion.jpg",
-                "bodyText": "akan afrofusion - West African Fusion\nLucy-Borchardt-Straße 8A, 20457 Hamburg (HafenCity)\nWed-Thu 18:00-22:00, Fri-Sat 17:00-23:00, Sun 17:00-22:00 (closed Mon-Tue)",
+                "bodyText": "akan afrofusion — West African Fusion, Hamburg (HafenCity)",
                 "buttonType": "quick_reply",
                 "quickReplyPayload": "restaurant_akan_afrofusion"
               },
               {
                 "id": "la_villageoise",
                 "imageLink": "https://legal.botmanagementservice.eu/restaurants/afromarket-restaurant-la-villageoise.jpg",
-                "bodyText": "La Villageoise - Cameroonian\nHahnstraße 75, 60528 Frankfurt am Main\nTue-Thu 18:00-22:00, Fri 17:00-22:00, Sat 14:00-23:00, Sun 14:00-22:00 (closed Mon)",
+                "bodyText": "La Villageoise — Cameroonian, Frankfurt am Main",
                 "buttonType": "quick_reply",
                 "quickReplyPayload": "restaurant_la_villageoise"
               },
               {
                 "id": "kilimanjaro_ii",
                 "imageLink": "https://legal.botmanagementservice.eu/restaurants/afromarket-restaurant-kilimanjaro-ii.jpg",
-                "bodyText": "Kilimanjaro II - Eritrean & East African\nVorholzstraße 13, 76137 Karlsruhe\nSee website for hours & contact",
+                "bodyText": "Kilimanjaro II — Eritrean & East African, Karlsruhe",
                 "buttonType": "quick_reply",
                 "quickReplyPayload": "restaurant_kilimanjaro_ii"
               },
               {
                 "id": "ebony",
                 "imageLink": "https://legal.botmanagementservice.eu/restaurants/afromarket-restaurant-ebony.jpg",
-                "bodyText": "Ebony - African, since 1987\nHerzogstraße 11, 70176 Stuttgart\nTue-Thu 17:00-23:00, Fri-Sat 15:00-23:00 (closed Sun-Mon)",
+                "bodyText": "Ebony — African, since 1987, Stuttgart",
                 "buttonType": "quick_reply",
                 "quickReplyPayload": "restaurant_ebony"
               }
@@ -676,19 +676,19 @@
             "cards": [
               {
                 "imageLink": "https://legal.botmanagementservice.eu/partner-stores/afromarket-partner-mama-africa-foodmarket.jpg",
-                "bodyText": "Mama Africa Foodmarket - African & Caribbean groceries\nSonnenallee 45, 12045 Berlin (Neukölln)\nMon-Sat 08:00-21:00, Sun 10:00-18:00",
+                "bodyText": "Mama Africa Foodmarket — African & Caribbean groceries, Neukölln, Berlin",
                 "buttonType": "quick_reply",
                 "quickReplyPayload": "partner_mama_africa"
               },
               {
                 "imageLink": "https://legal.botmanagementservice.eu/partner-stores/afromarket-partner-kilimanjaro-grocery.jpg",
-                "bodyText": "Kilimanjaro Grocery - East African specialties\nKarl-Marx-Straße 102, 12043 Berlin (Neukölln)\nDaily 09:00-20:00",
+                "bodyText": "Kilimanjaro Grocery — East African specialties, Neukölln, Berlin",
                 "buttonType": "quick_reply",
                 "quickReplyPayload": "partner_kilimanjaro"
               },
               {
                 "imageLink": "https://legal.botmanagementservice.eu/partner-stores/afromarket-partner-sankofa-market.jpg",
-                "bodyText": "Sankofa Market - West African & Ghanaian goods\nTurmstraße 15, 10559 Berlin (Moabit)\nMon-Sat 09:00-19:00",
+                "bodyText": "Sankofa Market — West African & Ghanaian goods, Moabit, Berlin",
                 "buttonType": "quick_reply",
                 "quickReplyPayload": "partner_sankofa"
               }
