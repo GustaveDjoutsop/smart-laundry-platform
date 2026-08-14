@@ -1,5 +1,48 @@
 # AfroMarket WhatsApp Bot
 
+## v2.18 (2026-08-14): Bouillie Jaune's catalog_management blocker resolved -
+## product live, catalog welcome message live-verified end to end
+
+Closes out v2.16's one open blocker. The business owner granted
+`catalog_management` on the AfroMarket-Bot system user and regenerated
+`WHATSAPP_ACCESS_TOKEN_AFROMARKET` (updated in `.env` and both Railway dev/
+prod environments) - confirmed via `/debug_token`, the new token carries a
+much broader scope set including `catalog_management`.
+
+`node scripts/submitCatalogBatch.js` now succeeds. Confirmed live via a
+direct Graph API read against the Commerce Catalog: `bouillie_jaune_500g`
+present with correct name/price (€4.99)/availability/image_url.
+
+First `sendCatalogMessage()` call using `bouillie_jaune_500g` as
+`thumbnailProductRetailerId` still 400'd (`Products not found in FB
+Catalog`) immediately after the sync, despite the direct catalog read
+confirming the item was there - Meta's catalog write and its
+messaging-facing index don't appear to be immediately consistent. Not a
+code bug: the identical call for an already-synced product
+(`haricot_rouge_1kg`) worked instantly, and retrying the same
+`bouillie_jaune_500g` call a short time later succeeded with no code
+change. Worth knowing for any future "just-added product" send - expect a
+short propagation delay before a brand-new catalog item is safe to
+reference in a live send.
+
+**Sandbox test number's `conversational_automation` doesn't appear to
+support `enable_welcome_message`/Ice Breakers at all** - confirmed via
+`verified_name: "Test Number"` on that phone number (Meta's free
+test-number allocation, not a real purchased WhatsApp Business number).
+`scripts/setConversationalAutomation.js clear-ice-breakers` against it
+returns `{success: true}` but a follow-up `get` shows no
+`conversational_automation` object at all (production, by contrast,
+correctly reflects every change). This means `request_welcome` likely
+can't be verified on sandbox at all - production is the only real
+signal available, decided with the business owner to hold off enabling
+`enable_welcome_message` there until a deliberate live-verification pass,
+not bundled into this fix.
+
+Ice Breaker prompts on production were cleared manually by the business
+owner (confirmed via `setConversationalAutomation.js get` -
+`enable_welcome_message` is still `false`, `prompts` is absent) - separate
+from, and not blocking, the `request_welcome` activation decision above.
+
 ## v2.17 (2026-08-14): Promo/discount templates (Variant A + B) - submitted to
 ## both WABAs, only Variant A wired into live use
 
