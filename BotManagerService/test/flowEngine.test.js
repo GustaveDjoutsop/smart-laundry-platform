@@ -9,6 +9,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { FlowEngine, getCarouselFooterDelayMs } = require('../src/core/flows/flowEngine');
+const { CARD_BODY_VARIABLE_LIMIT } = require('../src/core/whatsapp/carouselCardBodyLimits');
 
 function withCarouselFooterDelayMsEnv(rawValue, fn) {
   const original = process.env.CAROUSEL_FOOTER_DELAY_MS;
@@ -508,6 +509,48 @@ test('FlowEngine accepts a carouselTemplate whose quickReplyPayload values match
   });
 
   assert.doesNotThrow(() => new FlowEngine({ botConfig }));
+});
+
+// Regression coverage for the real bug this pinned down (2026-08-13): a
+// production-approved carouselTemplate degraded permanently and silently to
+// its vertical fallback because card bodyText, once hydrated with Meta's
+// static per-card suffix, blew past limits Meta enforces but never
+// documents an exact threshold for - confirmed live against the real API,
+// not assumed. See docs/requirements/afromarket.md v2.15.
+test('FlowEngine rejects a carouselTemplate card bodyText that would exceed Meta\'s hydrated-body character limit', () => {
+  const botConfig = buildCarouselBotConfig({
+    carouselCards: [
+      { imageLink: 'https://example.com/a.jpg', quickReplyPayload: 'a', bodyText: 'x'.repeat(CARD_BODY_VARIABLE_LIMIT + 1) },
+      { imageLink: 'https://example.com/b.jpg', quickReplyPayload: 'b', bodyText: 'short' }
+    ],
+    itemButtonIds: ['a', 'b']
+  });
+
+  assert.throws(() => new FlowEngine({ botConfig }), /over the \d+-char limit once hydrated/);
+});
+
+test('FlowEngine accepts a carouselTemplate card bodyText right at Meta\'s hydrated-body character limit', () => {
+  const botConfig = buildCarouselBotConfig({
+    carouselCards: [
+      { imageLink: 'https://example.com/a.jpg', quickReplyPayload: 'a', bodyText: 'x'.repeat(CARD_BODY_VARIABLE_LIMIT) },
+      { imageLink: 'https://example.com/b.jpg', quickReplyPayload: 'b', bodyText: 'short' }
+    ],
+    itemButtonIds: ['a', 'b']
+  });
+
+  assert.doesNotThrow(() => new FlowEngine({ botConfig }));
+});
+
+test('FlowEngine rejects a multi-line carouselTemplate card bodyText (Meta\'s static suffix already spends the hydrated-body line-break budget)', () => {
+  const botConfig = buildCarouselBotConfig({
+    carouselCards: [
+      { imageLink: 'https://example.com/a.jpg', quickReplyPayload: 'a', bodyText: 'Name\nCity' },
+      { imageLink: 'https://example.com/b.jpg', quickReplyPayload: 'b', bodyText: 'short' }
+    ],
+    itemButtonIds: ['a', 'b']
+  });
+
+  assert.throws(() => new FlowEngine({ botConfig }), /bodyText must be single-line/);
 });
 
 test('FlowEngine cards state sends intro + one image-button message per item + footer, then gates on the reply', async () => {

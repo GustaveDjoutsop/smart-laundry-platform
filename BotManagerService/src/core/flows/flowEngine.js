@@ -1,6 +1,7 @@
 const { renderTemplate } = require('./templateRenderer');
 const { logger } = require('../../utils/logger');
 const { waitForCarouselDelivery } = require('../whatsapp/messageStatusWaiter');
+const { CARD_BODY_VARIABLE_LIMIT, CARD_BODY_VARIABLE_MAX_LINE_BREAKS } = require('../whatsapp/carouselCardBodyLimits');
 
 // Pulls the WhatsApp message id back out of a send() result so the caller
 // can correlate it to a later delivery-status webhook (see
@@ -210,6 +211,28 @@ function validateFlowConfig(botConfig) {
             }
             if (card.bodyText != null && (typeof card.bodyText !== 'string' || !card.bodyText.trim())) {
               throw new Error(`flow ${flowId} state ${state.id}: carouselTemplate card bodyText, when present, must be a non-empty string`);
+            }
+            // Meta hydrates bodyText into the approved template's
+            // `{{1}}${CARD_BODY_STATIC_SUFFIX}` BODY component and rejects the
+            // whole send with a 400 (#132018) once that combined length
+            // exceeds CARD_BODY_HYDRATED_LIMIT chars - confirmed against the
+            // real API. Caught here, at config-load time, instead of only
+            // surfacing as a permanent silent fallback to vertical cards in
+            // production (see docs/requirements/afromarket.md v2.15).
+            if (card.bodyText != null && card.bodyText.length > CARD_BODY_VARIABLE_LIMIT) {
+              throw new Error(
+                `flow ${flowId} state ${state.id}: carouselTemplate card bodyText is ${card.bodyText.length} chars, ` +
+                  `over the ${CARD_BODY_VARIABLE_LIMIT}-char limit once hydrated with Meta's static card suffix`
+              );
+            }
+            // Same story for line breaks: Meta rejects a hydrated card body
+            // with more than 2 total, and the static suffix already spends
+            // both of them - so bodyText itself must be single-line.
+            if (card.bodyText != null && (card.bodyText.match(/\n/g) || []).length > CARD_BODY_VARIABLE_MAX_LINE_BREAKS) {
+              throw new Error(
+                `flow ${flowId} state ${state.id}: carouselTemplate card bodyText must be single-line ` +
+                  `(Meta's hydrated-body line-break limit is already spent by the static card suffix)`
+              );
             }
             if (carouselButtonType === 'quick_reply') {
               if (typeof card.quickReplyPayload !== 'string' || !card.quickReplyPayload.trim()) {

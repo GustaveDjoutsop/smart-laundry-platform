@@ -1,5 +1,59 @@
 # AfroMarket WhatsApp Bot
 
+## v2.15 (2026-08-13): Live carousel test caught a real bug v2.14's "APPROVED"
+## status masked - hydrated card body character/line-break limits
+
+Live-testing the two carousels on the sandbox number (per v2.14's own
+recommendation to not treat template approval as proof of working
+end-to-end wiring) immediately showed the restaurant carousel still
+rendering as stacked vertical fallback messages, not a real carousel -
+despite `afromarket_restaurants_v2` being `APPROVED`.
+
+Reproduced directly against the real Graph API by calling
+`whatsappClient.sendCarouselTemplate()` with the actual production card
+data: Meta rejects the send with `400 (#132018)`, citing two limits on the
+card's *hydrated* body (the `{{1}}` variable substituted into the approved
+template's static per-card suffix, `\n\nTap the button below for more
+details.`) that template approval says nothing about:
+
+- **160 characters**, variable + static suffix combined.
+- **2 line breaks total** - the static suffix alone already spends both, so
+  `bodyText` must be single-line.
+
+Two of four restaurant cards and one of three Partner Stores cards were
+over the character limit; every card used a `\n` to separate name from
+address/hours, which alone violates the line-break rule independent of
+length. `flowEngine.js`'s catch-and-fall-back-to-vertical-cards path (added
+in v2.10 specifically so a template outage never leaves the customer with
+nothing) was doing exactly what it was designed to do - which is precisely
+why this degraded silently instead of erroring visibly.
+
+**Fix:**
+- Shortened every card's `bodyText` to a single-line teaser (name -
+  category, city). Restaurants keep full address/phone/hours on the
+  `restaurant_link_<id>` detail state reached after tapping the card
+  button, so no information is lost there. Partner Stores has no
+  equivalent per-store detail state (its quick-reply routes to the generic
+  `afromarket_store_info` state) - full per-store address/hours is
+  currently only visible via the vertical fallback, not the real-carousel
+  path; flagged, not fixed here (separate scope from this bug).
+- New `src/core/whatsapp/carouselCardBodyLimits.js` - shared constants
+  (`CARD_BODY_STATIC_SUFFIX`, `CARD_BODY_HYDRATED_LIMIT`,
+  `CARD_BODY_VARIABLE_LIMIT`, `CARD_BODY_VARIABLE_MAX_LINE_BREAKS`) used by
+  both `scripts/submitCarouselTemplate.js` (which bakes the suffix into the
+  template at submission time) and `flowEngine.js`'s config validation
+  (which now enforces both limits on every `carouselTemplate` card's
+  `bodyText` at flow-load time), so this exact failure mode fails loudly
+  and immediately on the next content edit instead of silently degrading
+  to the fallback again.
+- 3 new `flowEngine.test.js` cases covering the length limit (over/at
+  boundary) and the line-break rejection.
+
+**Verified live**, not just via unit tests: `sendCarouselTemplate()` now
+returns a successful WhatsApp API response for both templates against the
+real production card data, sent to the same test number used in
+`docs/testing/afromarket-live-test-2026-07-22.md`.
+
 ## v2.14 (2026-08-13): Both carousel templates approved by Meta on both WABAs
 
 `afromarket_restaurants_v2` (v2.10) and `afromarket_partner_stores_v2`

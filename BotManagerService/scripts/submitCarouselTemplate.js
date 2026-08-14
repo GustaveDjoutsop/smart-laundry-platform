@@ -54,6 +54,8 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 
+const { CARD_BODY_STATIC_SUFFIX } = require('../src/core/whatsapp/carouselCardBodyLimits');
+
 const WABA_ID = process.env.AFROMARKET_WABA_ID || '4464369590494418';
 
 // Resolve the upload app_id from the token itself rather than hardcoding
@@ -137,8 +139,11 @@ async function main() {
     // framing ("Parameters words ratio exceeds limit" / "too many variables
     // for its length") - confirmed against the real API, not documented with
     // an exact threshold. A short static call-to-action sentence around the
-    // variable satisfies the ratio and reads naturally either way.
-    const bodyText = `{{1}}\n\nTap the button below for more details.`;
+    // variable satisfies the ratio and reads naturally either way. This
+    // suffix is shared with flowEngine's runtime validation (see
+    // carouselCardBodyLimits.js) since the hydrated {{1}} + suffix combined
+    // is itself capped at CARD_BODY_HYDRATED_LIMIT chars by Meta.
+    const bodyText = `{{1}}${CARD_BODY_STATIC_SUFFIX}`;
 
     cardsWithHandles.push({
       components: [
