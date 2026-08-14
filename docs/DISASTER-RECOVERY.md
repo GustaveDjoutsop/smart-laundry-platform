@@ -104,6 +104,7 @@ it refuses to write to production:
 ```bash
 export DRILL_TARGET_URL='postgresql://postgres:pw@localhost:5432/drill_scratch'
 export R2_ACCOUNT_ID=... R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=... R2_BUCKET=...
+export R2_JURISDICTION=eu   # the bucket is EU-jurisdiction; without this, NoSuchBucket
 
 ./scripts/restore-drill.sh --db paymentdb --tier daily --recreate
 ```
@@ -125,14 +126,16 @@ the corruption is older than the last backup.
 
 ```bash
 aws s3 ls "s3://$R2_BUCKET/daily/" --recursive \
-  --endpoint-url "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com" | sort | tail -20
+  --endpoint-url "https://$R2_ACCOUNT_ID.eu.r2.cloudflarestorage.com" | sort | tail -20
 ```
 
 **3. Download it and its checksum, and verify before use.**
 
 ```bash
 KEY='daily/2026-08-13/paymentdb-2026-08-13T023045Z.dump'
-EP="https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com"
+# Note the .eu. — the backup bucket uses the EU jurisdiction and is NOT
+# reachable at the generic host, which reports NoSuchBucket instead.
+EP="https://$R2_ACCOUNT_ID.eu.r2.cloudflarestorage.com"
 aws s3 cp "s3://$R2_BUCKET/$KEY"        ./restore.dump        --endpoint-url "$EP"
 aws s3 cp "s3://$R2_BUCKET/$KEY.sha256" ./restore.dump.sha256 --endpoint-url "$EP"
 

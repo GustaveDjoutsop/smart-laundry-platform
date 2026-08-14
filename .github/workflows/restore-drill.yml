@@ -110,6 +110,9 @@ jobs:
           R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET:            ${{ secrets.R2_BUCKET }}
+          # Must match the jurisdiction the backup workflow wrote with, or the
+          # drill reads from a host where the bucket does not exist.
+          R2_JURISDICTION:      ${{ vars.R2_JURISDICTION || 'eu' }}
           DRILL_TARGET_URL: 'postgresql://postgres:drill@localhost:5432/drill_scratch'
           # Matches the standard GitHub runner's 2 vCPUs. Local benchmarking was
           # too noisy on shared CPU to show a reliable optimum (identical work

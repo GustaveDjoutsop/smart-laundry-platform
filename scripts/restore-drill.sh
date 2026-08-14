@@ -240,11 +240,34 @@ ok "Connected to scratch target ${TARGET_HOST}/${TARGET_DB}"
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
+# Buckets created with a jurisdiction (EU, FedRAMP) are reachable ONLY at their
+# own hostname. Requesting the generic host returns NoSuchBucket, which reads as
+# a wrong bucket name rather than a wrong endpoint — a bad thing to debug for the
+# first time during an actual recovery.
+#
+#   default   https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+#   eu        https://<ACCOUNT_ID>.eu.r2.cloudflarestorage.com
+#
+# https://developers.cloudflare.com/r2/reference/data-location/
+# This project's backup bucket is EU, so R2_JURISDICTION=eu is required. Kept
+# identical to scripts/backup-databases.sh on purpose: the drill must read from
+# exactly the host the backup wrote to, or it proves nothing.
+r2_endpoint() {
+  if [[ -n "${R2_ENDPOINT:-}" ]]; then
+    printf '%s' "$R2_ENDPOINT"
+  elif [[ -n "${R2_JURISDICTION:-}" && "${R2_JURISDICTION}" != "default" ]]; then
+    printf 'https://%s.%s.r2.cloudflarestorage.com' "$R2_ACCOUNT_ID" "$R2_JURISDICTION"
+  else
+    printf 'https://%s.r2.cloudflarestorage.com' "$R2_ACCOUNT_ID"
+  fi
+}
+
+
 r2() {
   AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" \
   AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
   AWS_DEFAULT_REGION=auto \
-  aws s3api "$@" --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" --bucket "$R2_BUCKET"
+  aws s3api "$@" --endpoint-url "$(r2_endpoint)" --bucket "$R2_BUCKET"
 }
 
 human() {

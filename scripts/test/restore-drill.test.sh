@@ -123,6 +123,51 @@ assert_output "identical to DATABASE_URL_PAYMENTDB" "--allow-unsafe-target does 
       bash "$DRILL" --db paymentdb --dump-file "$PLACEHOLDER" --allow-unsafe-target
 
 # ────────────────────────────────────────────────────────────────────────────
+group "UNIT — R2 endpoint matches the backup script"
+
+# The drill is only meaningful if it reads from the exact host the backup wrote
+# to. An EU-jurisdiction bucket is unreachable at the generic host (it returns
+# NoSuchBucket), so a mismatch between these two scripts would make the drill
+# either fail spuriously or, worse, verify the wrong bucket.
+# https://developers.cloudflare.com/r2/reference/data-location/
+BACKUP_SCRIPT="${SCRIPT_DIR}/scripts/backup-databases.sh"
+
+# Extract just the r2_endpoint function from a script and evaluate it in
+# isolation, so this tests the real shipped code rather than a copy.
+endpoint_from() { # $1 = script path, $2 = jurisdiction, $3 = explicit endpoint
+  local script="$1" juris="$2" explicit="$3"
+  sed -n '/^r2_endpoint() {/,/^}/p' "$script" > "${TMP}/fn.sh"
+  [[ -s "${TMP}/fn.sh" ]] || { echo "NO_FUNCTION"; return; }
+  ( R2_ACCOUNT_ID=acct R2_JURISDICTION="$juris" R2_ENDPOINT="$explicit"
+    # shellcheck disable=SC1091
+    . "${TMP}/fn.sh"; r2_endpoint )
+}
+
+if [[ ! -f "$BACKUP_SCRIPT" ]]; then
+  skip "backup script not present on this branch"
+else
+  for case_desc in "eu|eu|" "default||" "explicit-override|eu|https://custom.invalid"; do
+    IFS='|' read -r desc juris explicit <<<"$case_desc"
+    drill_ep="$(endpoint_from "$DRILL" "$juris" "$explicit")"
+    backup_ep="$(endpoint_from "$BACKUP_SCRIPT" "$juris" "$explicit")"
+    if [[ "$drill_ep" == "NO_FUNCTION" || "$backup_ep" == "NO_FUNCTION" ]]; then
+      fail "endpoints agree (${desc})" "could not extract r2_endpoint from one of the scripts"
+    elif [[ "$drill_ep" == "$backup_ep" ]]; then
+      pass "endpoints agree (${desc}): ${drill_ep}"
+    else
+      fail "endpoints agree (${desc})" "drill=${drill_ep} backup=${backup_ep}"
+    fi
+  done
+
+  # The EU host specifically, since that is what this project actually uses.
+  eu_ep="$(endpoint_from "$DRILL" eu "")"
+  if [[ "$eu_ep" == "https://acct.eu.r2.cloudflarestorage.com" ]]; then
+    pass "eu jurisdiction produces the .eu. host"
+  else
+    fail "eu jurisdiction produces the .eu. host" "got ${eu_ep}"
+  fi
+fi
+
 group "UNIT — Flyway minimums match the repo"
 
 # The drill only catches a partial or stale restore if MIN_FLYWAY_VERSION is
