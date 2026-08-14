@@ -833,3 +833,97 @@ test('FlowEngine input state saves value then transitions', async () => {
   assert.equal(res.state.context.x, '42');
   assert.equal(res.state.currentStateId, 'done');
 });
+
+// payloadTriggers: a promo-blast quick-reply payload (e.g.
+// "promo_add:bouillie_jaune_500g:20") must route straight to a specific
+// state regardless of prior conversation state, unlike the normal
+// exact-match flow trigger (which always resets to the flow's initial
+// state) - see flowEngine.js's matchPayloadTrigger and
+// docs/requirements/afromarket.md v2.16.
+function buildPayloadTriggerBotConfig() {
+  return {
+    botId: 't',
+    botName: 'TestBot',
+    defaultFlowId: 'main_menu',
+    payloadTriggers: [{ prefix: 'promo_add:', flowId: 'main_menu', stateId: 'promo_handler' }],
+    flows: {
+      main_menu: {
+        states: [
+          { id: 'welcome', type: 'message', template: 'welcome' },
+          { id: 'promo_handler', type: 'message', template: 'handled {{inboundText}}' }
+        ]
+      }
+    }
+  };
+}
+
+test('FlowEngine rejects a payloadTriggers entry with an empty prefix', () => {
+  const botConfig = buildPayloadTriggerBotConfig();
+  botConfig.payloadTriggers[0].prefix = '';
+
+  assert.throws(() => new FlowEngine({ botConfig }), /payloadTriggers entry requires a non-empty prefix/);
+});
+
+test('FlowEngine rejects a payloadTriggers entry pointing at a non-existent flow', () => {
+  const botConfig = buildPayloadTriggerBotConfig();
+  botConfig.payloadTriggers[0].flowId = 'no_such_flow';
+
+  assert.throws(() => new FlowEngine({ botConfig }), /requires a flowId matching an existing flow/);
+});
+
+test('FlowEngine rejects a payloadTriggers entry pointing at a non-existent state', () => {
+  const botConfig = buildPayloadTriggerBotConfig();
+  botConfig.payloadTriggers[0].stateId = 'no_such_state';
+
+  assert.throws(() => new FlowEngine({ botConfig }), /requires a stateId matching an existing state/);
+});
+
+test('FlowEngine accepts a valid payloadTriggers config', () => {
+  assert.doesNotThrow(() => new FlowEngine({ botConfig: buildPayloadTriggerBotConfig() }));
+});
+
+test('FlowEngine routes a cold conversation (no prior state) straight to the payload trigger\'s target state, not the flow\'s initial state', async () => {
+  const engine = new FlowEngine({ botConfig: buildPayloadTriggerBotConfig() });
+
+  const res = await engine.step({
+    from: '237670000000',
+    phone: '237670000000',
+    message: { text: { body: 'promo_add:bouillie_jaune_500g:20' } },
+    state: { currentFlowId: null, currentStateId: null, context: {} },
+    send: async () => {}
+  });
+
+  assert.equal(res.state.currentFlowId, 'main_menu');
+  assert.equal(res.state.currentStateId, 'promo_handler');
+});
+
+test('FlowEngine routes a payload trigger match even when the customer is mid-flow in a different state', async () => {
+  const engine = new FlowEngine({ botConfig: buildPayloadTriggerBotConfig() });
+
+  const res = await engine.step({
+    from: '237670000000',
+    phone: '237670000000',
+    message: { text: { body: 'promo_add:bouillie_jaune_500g:20' } },
+    state: { currentFlowId: 'main_menu', currentStateId: 'welcome', context: { unrelated: true } },
+    send: async () => {}
+  });
+
+  assert.equal(res.state.currentStateId, 'promo_handler');
+  // Existing context is preserved (e.g. an in-progress cart) - only the
+  // flow position changes, not the whole conversation context.
+  assert.equal(res.state.context.unrelated, true);
+});
+
+test('FlowEngine does not match a payload trigger against text that merely contains the prefix mid-string', async () => {
+  const engine = new FlowEngine({ botConfig: buildPayloadTriggerBotConfig() });
+
+  const res = await engine.step({
+    from: '237670000000',
+    phone: '237670000000',
+    message: { text: { body: 'see promo_add:x:1 in my message' } },
+    state: { currentFlowId: null, currentStateId: null, context: {} },
+    send: async () => {}
+  });
+
+  assert.equal(res.state.currentStateId, 'welcome');
+});

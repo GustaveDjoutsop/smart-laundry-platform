@@ -1,5 +1,152 @@
 # AfroMarket WhatsApp Bot
 
+## v2.17 (2026-08-14): Promo/discount templates (Variant A + B) - submitted to
+## both WABAs, only Variant A wired into live use
+
+Second half of `afromarket-dynamic-templates-todo.md`. Both variants share
+the same `{{1}}`=percentOff/`{{2}}`=productName body shape and image
+header, submitted via the new `scripts/submitPromoTemplate.js`
+(`no-code`/`lto` subcommands, same upload-then-submit pattern as
+`submitCarouselTemplate.js`). Submitted and `PENDING` on both WABAs:
+
+- Sandbox: `afromarket_promo_v1` id `1532686888903765`,
+  `afromarket_promo_code_v1` id `2319403952198773`.
+- Production (K-AfroMarket): `afromarket_promo_v1` id `1368662388709270`,
+  `afromarket_promo_code_v1` id `1733157687904263`.
+
+**Variant A (no code)**: `QUICK_REPLY` "Shop Now" button, payload set per
+send as `promo_add:<productId>:<percentOff>`. New
+`FlowEngine.matchPayloadTrigger()`/bot-config `payloadTriggers[]` - unlike
+the existing exact-match flow triggers (which always land on a flow's
+initial state), this matches by prefix and routes straight to a specific
+state, needed because a promo tap is a cold start with no prior
+conversation state. New `AfroMarketFlowPlugin._handleAddDiscounted`
+(`products.addDiscounted` action) parses the payload, recomputes the
+discount from the current `products[]` config (never trusts a price/percent
+implied by the template alone - same discipline as
+`_handleNativeOrder`'s webhook-price distrust), and adds the item to cart
+via an extended `addProductToCart(cart, product, { unitPriceOverride })`.
+New `WhatsAppCloudClient.sendPromoTemplate()` for the runtime send.
+
+**Variant B (LTO/discount code)**: prepared and submitted, **not wired into
+live sending** - `sendPromoTemplate()` intentionally does not support it.
+Two things learned building it that the todo doc's design couldn't have
+known:
+- Meta requires an LTO template's second button to be `URL`, not
+  `QUICK_REPLY` - confirmed live (`(#132018)`-style validation, not
+  documented with an exact rule findable in advance). This rules out
+  routing "Shop Now" back into the bot's own cart for this variant,
+  unlike Variant A.
+- **`wa.me` links are rejected as a template URL button target** ("Direct
+  links to WhatsApp aren't allowed for buttons") - confirmed live. This
+  broke the plan's original fallback (the same wa.me pattern
+  `submitCatalogBatch.js` uses for products with no dedicated webpage
+  doesn't work here). Shipped with `https://legal.botmanagementservice.eu/impressum.html`
+  as an honest, real, working placeholder instead - swap for the actual
+  discounted-checkout destination whenever this variant is activated.
+- `limited_time_offer.text` is capped at 16 characters (confirmed live,
+  not documented with an exact number).
+
+Also confirmed live (per the earlier restaurant/partner-store lesson - a
+`400` from a real send only shows up when you actually call the send
+function, not from template `PENDING`/`APPROVED` status alone):
+`QUICK_REPLY`/`URL` button *text* cannot contain emoji or newlines
+("Buttons can't have any variables, newlines, emojis or formatting
+characters") - both templates were resubmitted with plain-text button
+labels after hitting this on the first attempt.
+
+**Not yet done**: template approval status hasn't been checked yet (both
+still `PENDING` as of submission) - run
+`node scripts/checkTemplateStatus.js afromarket_promo_v1` /
+`afromarket_promo_code_v1` (with `AFROMARKET_WABA_ID=878603275008509` for
+production) before relying on either in production. `sendPromoTemplate()`
+has not yet been triggered against a real customer send (only covered by
+unit tests with a stubbed `fetchImpl`) - do that once a template is
+actually `APPROVED`, following the same live-verification discipline as
+v2.15's carousel fix.
+
+## v2.16 (2026-08-14): Bouillie Jaune product + catalog welcome message
+## (replaces Ice Breakers on request_welcome)
+
+First half of `afromarket-dynamic-templates-todo.md`
+(afromarket-dynamic-templates-todo.md, copied from the business owner's
+Downloads folder into the workspace root, same untracked-sibling-doc
+pattern as `afromarket-carousel-bugs-todo.md`). Before writing any code,
+verified the doc's technical assumptions against Meta's real API/docs -
+several didn't hold (recorded in full in the todo doc's own corrections
+section, mirroring how the carousel bugs doc accumulated corrections):
+the reference screenshots' "category row + Top Deals" layout isn't a
+template component at all (it's Meta's native Commerce-Catalog storefront,
+driven by Commerce Manager Collections - no code involved); the header
+image is sourced from a catalog product's own photo
+(`thumbnail_product_retailer_id`), never the WABA profile picture; "your
+own checkout" doesn't exist as a web page (AfroMarket checkout is entirely
+in-chat, ending in a per-order Stripe Checkout session URL, not a static
+product link).
+
+**New product**: Bouillie Jaune – Sèche 500g, €4.99, category
+`snack_breakfast` - added to `configs/bots/afromarket.bot.json`'s
+`products[]`, plus the full parallel legacy manual-category-browsing chain
+(`snack_breakfast_products`/`product_detail_bouillie_jaune_500g`, mirroring
+the existing `beans_nuts`/`leaves` chains) since that legacy flow is
+currently the *active* shop path in dev (`AFROMARKET_NATIVE_CATALOG_ENABLED`
+is unset), not just a dormant fallback - the product would otherwise be
+unreachable in the flow actually being tested. Photo uploaded to
+`GustaveDjoutsop/bms-legal`'s `products/` directory (the repo behind
+`legal.botmanagementservice.eu`, confirmed via `gh api`), matching the
+naming convention of the 4 existing product photos.
+
+**Blocked**: `node scripts/submitCatalogBatch.js` (syncs the new product
+into the live Meta Commerce Catalog) fails with `(#100) Missing
+Permission` - `WHATSAPP_ACCESS_TOKEN_AFROMARKET`'s scopes
+(`whatsapp_business_management, whatsapp_business_messaging,
+manage_app_solution, whatsapp_business_manage_events, public_profile`,
+confirmed via `/debug_token`) do not include `catalog_management`. Needs
+granting on the Meta Business Settings side (System User → the
+AfroMarket-Bot system user → add `catalog_management` on the Commerce
+Catalog asset → regenerate the token) before the product is live in the
+catalog. Everything else for this piece is done and tested.
+
+**New catalog welcome message** (Template 1): a plain interactive
+`catalog_message` (single "View Catalog" button, opens the whole connected
+catalog as WhatsApp's native storefront), not a submitted Template - it
+fires inside an already-open session, so template review isn't needed.
+New `WhatsAppCloudClient.sendCatalogMessage()`; new bot-config
+`catalogWelcome: {body, footer, thumbnailProductRetailerId}` block,
+rendered via the existing `renderTemplate()`/`buildTemplateContext()`
+mechanism.
+
+Triggered by Meta's `request_welcome` webhook event - fires the instant a
+customer opens the chat, before typing anything, once
+`conversational_automation.enable_welcome_message` is turned on for the
+phone number. New `scripts/setConversationalAutomation.js`
+(`get`/`clear-ice-breakers` commands) manages that Graph API field; new
+`ConfigBot._handleRequestWelcome()` intercepts `message.type ===
+'request_welcome'` at the very top of `handleMessage()`, entirely
+bypassing `FlowEngine.step()` and conversation-state persistence (not a
+real flow turn). Config-driven per bot, so a bot with no `catalogWelcome`
+configured just no-ops.
+
+Read production's live `conversational_automation` via the new script
+before touching anything - confirmed it exactly matches the three Ice
+Breaker prompts already documented in
+`afromarket-production-trust-onboarding-issues.md`'s Issue 3 ("Shop
+groceries" / "Get recipe ideas" / "See this week's promo"), with
+`enable_welcome_message: false`. **Cleared Ice Breakers and enabled
+`enable_welcome_message` on the sandbox number only** - production is
+deliberately untouched until the `request_welcome` webhook's exact raw
+payload shape is confirmed against a real event (the research describing
+it read like a third-party BSP's normalized terminology, not verified
+verbatim against Meta's own raw webhook - same "don't trust documentation
+over the real API" discipline as v2.15). Live-verified
+`sendCatalogMessage()` itself against the real API (both with and without
+a thumbnail product) - works correctly.
+
+**Not yet done**: trigger a real `request_welcome` event on sandbox (needs
+a genuinely fresh WhatsApp number opening the chat for the first time -
+this session had no live browser access to do it directly) and confirm the
+catalog message actually arrives before enabling on production.
+
 ## v2.15 (2026-08-13): Live carousel test caught a real bug v2.14's "APPROVED"
 ## status masked - hydrated card body character/line-break limits
 

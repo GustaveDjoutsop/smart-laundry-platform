@@ -31,7 +31,8 @@ function isNativeCatalogEnabled() {
 // for this one bot. Update alongside bot.json if categories ever change.
 const CATEGORY_TITLES = {
   beans_nuts: '🫘 Beans & Nuts',
-  leaves: '🌿 Dried Leaves'
+  leaves: '🌿 Dried Leaves',
+  snack_breakfast: '🥣 Snack & Breakfast'
 };
 
 function buildNativeCatalogSections(botConfig) {
@@ -48,8 +49,17 @@ function buildNativeCatalogSections(botConfig) {
   return Array.from(sectionsByCategory.entries()).map(([title, productRetailerIds]) => ({ title, productRetailerIds }));
 }
 
-function addProductToCart(cart, product) {
-  const existing = cart.find((line) => line.productId === product.id);
+// unitPriceOverride (promo/discounted adds - see _handleAddDiscounted) is
+// folded into the existing-line match itself rather than handled as a
+// special case: matching on productId+unitPrice together means a
+// promo-priced unit merges with an existing line only if that line is at
+// the same price, and otherwise starts its own line - a discounted tap
+// never silently merges into (or overwrites) an already-cart'd full-price
+// unit. Every pre-existing call site omits the override, so unitPrice is
+// always product.priceEur there and this match behaves exactly as before.
+function addProductToCart(cart, product, { unitPriceOverride } = {}) {
+  const unitPrice = unitPriceOverride != null ? Number(unitPriceOverride) || 0 : Number(product.priceEur) || 0;
+  const existing = cart.find((line) => line.productId === product.id && line.unitPrice === unitPrice);
   if (existing) {
     existing.qty += 1;
     return;
@@ -57,7 +67,7 @@ function addProductToCart(cart, product) {
   cart.push({
     productId: product.id,
     name: product.name,
-    unitPrice: Number(product.priceEur) || 0,
+    unitPrice,
     unit: product.unit,
     qty: 1
   });
@@ -201,6 +211,10 @@ class AfroMarketFlowPlugin extends FlowPlugin {
 
     if (action === 'products.route') {
       return this._handleProductAction(ctx);
+    }
+
+    if (action === 'products.addDiscounted') {
+      return this._handleAddDiscounted(ctx);
     }
 
     if (action === 'recipes.route') {
@@ -367,6 +381,47 @@ class AfroMarketFlowPlugin extends FlowPlugin {
     }
 
     ctx.goto('welcome');
+    return true;
+  }
+
+  // Lands here via a payloadTriggers entry (see flowEngine.js/bot.json),
+  // not a saveAs context value - a promo-blast quick-reply tap is a cold
+  // start, possibly days after the customer's last real conversation turn,
+  // so there's no prior state to have captured anything. Payload shape:
+  // "promo_add:<productId>:<percentOff>", produced by
+  // scripts/submitPromoTemplate.js's Variant A quick-reply button.
+  _handleAddDiscounted(ctx) {
+    const raw = String(ctx.inbound?.text || '');
+    const match = /^promo_add:([a-z0-9_]+):(\d{1,3})$/i.exec(raw);
+    if (!match) {
+      ctx.goto('welcome');
+      return true;
+    }
+
+    const [, productId, percentOffRaw] = match;
+    const percentOff = Math.min(100, Math.max(0, parseInt(percentOffRaw, 10)));
+
+    // Never trust a price/percentage implied by the tapped template alone -
+    // recompute from the current products config, the same "never trust
+    // stale client-side data" discipline already enforced for native cart
+    // orders (see AfroMarketBot._handleNativeOrder).
+    const product = findProduct(this.botConfig, productId);
+    if (!product) {
+      ctx.goto('welcome');
+      return true;
+    }
+
+    const discountedPrice = Math.round(Number(product.priceEur) * (1 - percentOff / 100) * 100) / 100;
+    const cart = ctx.get('cart') || [];
+    addProductToCart(cart, product, { unitPriceOverride: discountedPrice });
+    ctx.set('cart', cart);
+    ctx.set('cartAddedText', `✅ Added *${product.name}* at ${percentOff}% off (${formatEuro(discountedPrice)}) to your cart!\n\n`);
+    // So a subsequent "Add to Cart" tap on the shared product_actions state
+    // (_handleProductAction's cart_add branch) knows which product to add -
+    // at full price, since that's a distinct, explicit repeat add rather
+    // than another promo application.
+    ctx.set('currentProductId', productId);
+    ctx.goto('product_actions');
     return true;
   }
 

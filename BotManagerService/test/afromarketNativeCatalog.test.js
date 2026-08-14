@@ -93,12 +93,14 @@ test('isNativeCatalogEnabled accepts "true" case-insensitively but rejects other
 test('buildNativeCatalogSections groups afromarket.bot.json products by category', () => {
   const sections = buildNativeCatalogSections(botConfig);
 
-  assert.equal(sections.length, 2);
+  assert.equal(sections.length, 3);
   const beansSection = sections.find((s) => s.title === '🫘 Beans & Nuts');
   const leavesSection = sections.find((s) => s.title === '🌿 Dried Leaves');
+  const snackSection = sections.find((s) => s.title === '🥣 Snack & Breakfast');
 
   assert.deepEqual(beansSection.productRetailerIds.sort(), ['arachide_blanche_1kg', 'haricot_rouge_1kg']);
   assert.deepEqual(leavesSection.productRetailerIds.sort(), ['ndole_250g', 'okok_100g']);
+  assert.deepEqual(snackSection.productRetailerIds.sort(), ['bouillie_jaune_500g']);
 });
 
 test('shop_entry falls back to the legacy category list when the native catalog flag is off', async () => {
@@ -142,7 +144,7 @@ test('shop_entry sends only the native product_list message (no immediate second
     assert.equal(result.outboundIntents.length, 1);
     assert.equal(result.outboundIntents[0].type, 'product_list');
     assert.equal(result.outboundIntents[0].catalogId, 'cat_test_123');
-    assert.equal(result.outboundIntents[0].sections.length, 2);
+    assert.equal(result.outboundIntents[0].sections.length, 3);
     assert.equal(result.conversationState.currentStateId, 'shop_landing');
   } finally {
     if (originalFlag === undefined) delete process.env.AFROMARKET_NATIVE_CATALOG_ENABLED;

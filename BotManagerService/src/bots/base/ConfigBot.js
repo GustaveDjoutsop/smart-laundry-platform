@@ -3,6 +3,7 @@ const { redisManager } = require('../../core/redisManager');
 const { getAppConfig } = require('../../core/appConfig');
 const { FlowEngine } = require('../../core/flows/flowEngine');
 const { createWhatsAppClientForBot } = require('../../core/whatsapp/whatsappClientFactory');
+const { renderTemplate } = require('../../core/flows/templateRenderer');
 const { logger } = require('../../utils/logger');
 
 // Generic configuration-driven bot: runs entirely off a .bot.json flow config.
@@ -16,6 +17,19 @@ class ConfigBot extends BaseBot {
   }
 
   async handleMessage({ from, message, phone }) {
+    // A `request_welcome` event fires the instant a customer opens the chat
+    // for the first time - before they've typed anything - once
+    // conversational_automation.enable_welcome_message is turned on for the
+    // phone number (see scripts/setConversationalAutomation.js). It's not a
+    // real conversation turn: there's no message content to route through
+    // the flow engine, and no conversation state to advance, so it's
+    // handled entirely separately here rather than falling into
+    // flowEngine.step(). Config-driven per bot (catalogWelcome), so a bot
+    // with none configured just no-ops - existing bots are unaffected.
+    if (message?.type === 'request_welcome') {
+      return this._handleRequestWelcome({ from, phone });
+    }
+
     const appConfig = getAppConfig();
     const conversationKey = `conv:${this.config.botId}:${from}`;
 
@@ -114,6 +128,15 @@ class ConfigBot extends BaseBot {
       });
     }
 
+    if (outboundIntent.type === 'catalog_message') {
+      return this.whatsapp.sendCatalogMessage({
+        to: outboundIntent.to,
+        body: outboundIntent.body,
+        footer: outboundIntent.footer,
+        thumbnailProductRetailerId: outboundIntent.thumbnailProductRetailerId
+      });
+    }
+
     if (outboundIntent.type === 'template_carousel') {
       return this.whatsapp.sendCarouselTemplate({
         to: outboundIntent.to,
@@ -125,6 +148,28 @@ class ConfigBot extends BaseBot {
     }
 
     logger.warn('Unsupported outbound intent', outboundIntent);
+  }
+
+  async _handleRequestWelcome({ from, phone }) {
+    const catalogWelcome = this.config.catalogWelcome;
+    if (!catalogWelcome) {
+      logger.info(`${this.constructor.name}[${this.config.botId}] request_welcome received but no catalogWelcome configured - ignoring`);
+      return;
+    }
+
+    const templateContext = this.flowEngine.buildTemplateContext(from, phone);
+    const body = renderTemplate(catalogWelcome.body || '', templateContext);
+    const footer = catalogWelcome.footer ? renderTemplate(catalogWelcome.footer, templateContext) : undefined;
+
+    await this.sendIntent({
+      type: 'catalog_message',
+      to: from,
+      body,
+      footer,
+      thumbnailProductRetailerId: catalogWelcome.thumbnailProductRetailerId
+    });
+
+    logger.info(`${this.constructor.name}[${this.config.botId}] sent catalog welcome message to ${from} (request_welcome)`);
   }
 }
 
