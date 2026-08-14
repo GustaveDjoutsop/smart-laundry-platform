@@ -62,7 +62,11 @@ Nothing runs until the bucket and secrets exist. Roughly fifteen minutes.
 2. If prompted to onboard R2, note that Cloudflare may ask for a payment method even for the free tier. The 10 GB free allowance still applies.
 3. **Create bucket** → name it exactly `smart-laundry-backups`.
 4. Location: choose an EU hint if offered. Storage class: **Standard** (not Infrequent Access — restores from IA cost more, and a restore is exactly when you do not want a surprise).
-5. Note the **S3 API endpoint** shown in the bucket's settings: `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`. The `<ACCOUNT_ID>` part is your `R2_ACCOUNT_ID`.
+5. Note the **S3 API endpoint** shown in the bucket's settings. The `<ACCOUNT_ID>` part is your `R2_ACCOUNT_ID`.
+
+> **The jurisdiction changes the hostname.** A bucket created with an EU jurisdiction is reachable *only* at `https://<ACCOUNT_ID>.eu.r2.cloudflarestorage.com`, and requests to the generic `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` fail as though the bucket does not exist ([Cloudflare: data location](https://developers.cloudflare.com/r2/reference/data-location/)). That failure mode is misleading — it looks like a wrong bucket name, not a wrong host.
+>
+> This project's bucket **is** in the EU jurisdiction, so set `R2_JURISDICTION=eu` wherever the scripts run. The jurisdiction cannot be changed after the bucket is created.
 
 ### 4.2 Create a scoped API token
 
@@ -90,6 +94,14 @@ Repository → **Settings → Secrets and variables → Actions → New reposito
 | `DATABASE_URL_MACHINEDB` | connection URL for `machinedb` |
 | `DATABASE_URL_PAYMENTDB` | connection URL for `paymentdb` |
 
+Also add one repository **variable** (Settings → Secrets and variables → Actions → *Variables* tab), not a secret, since it is not sensitive:
+
+| Variable | Value |
+|---|---|
+| `R2_JURISDICTION` | `eu` |
+
+The workflows default to `eu` if it is absent, so this is belt and braces rather than strictly required. Set it to `default` if you ever move to a non-jurisdictional bucket.
+
 Use a **read-only** database role for the dumps if one exists; `pg_dump` needs no write access. Mirror the same values into Doppler so the scripts can be run locally.
 
 ### 4.4 Apply the lifecycle rules
@@ -98,6 +110,7 @@ Without this step, nothing is ever deleted and the free 10 GB fills up eventuall
 
 ```bash
 export R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… R2_BUCKET=smart-laundry-backups
+export R2_JURISDICTION=eu
 ./scripts/apply-r2-lifecycle.sh
 ./scripts/apply-r2-lifecycle.sh --show   # confirm
 ```
@@ -129,7 +142,7 @@ Do not trust a green checkmark alone — check that objects exist.
 
 ```bash
 export AWS_ACCESS_KEY_ID=$R2_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY=$R2_SECRET_ACCESS_KEY AWS_DEFAULT_REGION=auto
-ENDPOINT=https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com
+ENDPOINT=https://$R2_ACCOUNT_ID.eu.r2.cloudflarestorage.com   # .eu. because the bucket is EU-jurisdiction
 
 # Last few days of dumps
 aws s3 ls --endpoint-url $ENDPOINT s3://smart-laundry-backups/daily/ --recursive | tail -20

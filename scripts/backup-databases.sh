@@ -34,6 +34,8 @@
 #
 # Required environment (from Doppler locally, GitHub Secrets in CI):
 #   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET
+#   R2_JURISDICTION  optional; set to "eu" for an EU-jurisdiction bucket
+#   R2_ENDPOINT      optional; overrides the computed endpoint entirely
 #   DATABASE_URL_SMARTBOT, DATABASE_URL_MACHINEDB, DATABASE_URL_PAYMENTDB
 #
 # Connection strings must be full libpq URLs, e.g.
@@ -93,6 +95,29 @@ redact() {
   sed -E 's#(postgres(ql)?://[^:]+:)[^@]+@#\1***@#g'
 }
 
+# The S3 endpoint for this account. Buckets created with a jurisdiction (EU,
+# FedRAMP) are reachable ONLY via a jurisdiction-specific host, and requests to
+# the generic host fail as if the bucket did not exist:
+#
+#   default   https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+#   eu        https://<ACCOUNT_ID>.eu.r2.cloudflarestorage.com
+#
+# https://developers.cloudflare.com/r2/reference/data-location/
+#
+# This project's bucket is in the EU jurisdiction for GDPR reasons (customer
+# phone numbers and payment references), so R2_JURISDICTION must be set to "eu".
+# Getting this wrong produces a confusing NoSuchBucket rather than a permission
+# error, which is why it is computed once here instead of inline at each call.
+r2_endpoint() {
+  if [[ -n "${R2_ENDPOINT:-}" ]]; then
+    printf '%s' "$R2_ENDPOINT"          # explicit override wins
+  elif [[ -n "${R2_JURISDICTION:-}" && "${R2_JURISDICTION}" != "default" ]]; then
+    printf 'https://%s.%s.r2.cloudflarestorage.com' "$R2_ACCOUNT_ID" "$R2_JURISDICTION"
+  else
+    printf 'https://%s.r2.cloudflarestorage.com' "$R2_ACCOUNT_ID"
+  fi
+}
+
 # Upload one file to R2. Wrapped so endpoint, retries and credential handling
 # live in exactly one place.
 #
@@ -106,7 +131,7 @@ r2_cp() {
        AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
        AWS_DEFAULT_REGION="auto" \
        aws s3api put-object \
-         --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+         --endpoint-url "$(r2_endpoint)" \
          --bucket "$R2_BUCKET" \
          --key "$key" \
          --body "$src" \

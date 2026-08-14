@@ -28,7 +28,17 @@ command -v jq  >/dev/null || { echo "jq not found (needed to strip the _comment 
 export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
 export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
 export AWS_DEFAULT_REGION="auto"
-ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+# Jurisdictional buckets (EU, FedRAMP) are ONLY reachable via their own host;
+# the generic host reports the bucket as nonexistent. This project's bucket is in
+# the EU jurisdiction, so R2_JURISDICTION=eu is required.
+# https://developers.cloudflare.com/r2/reference/data-location/
+if [[ -n "${R2_ENDPOINT:-}" ]]; then
+  ENDPOINT="$R2_ENDPOINT"
+elif [[ -n "${R2_JURISDICTION:-}" && "${R2_JURISDICTION}" != "default" ]]; then
+  ENDPOINT="https://${R2_ACCOUNT_ID}.${R2_JURISDICTION}.r2.cloudflarestorage.com"
+else
+  ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+fi
 
 if [[ "$MODE" == "show" ]]; then
   echo "Lifecycle rules currently applied to ${R2_BUCKET}:"

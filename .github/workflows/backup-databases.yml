@@ -70,6 +70,10 @@ jobs:
           R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET:            ${{ secrets.R2_BUCKET }}
+          # The bucket is in the EU jurisdiction, which has its own S3 host.
+          # Without this the uploads fail with NoSuchBucket. Stored as a variable
+          # rather than a secret because it is not sensitive.
+          R2_JURISDICTION:      ${{ vars.R2_JURISDICTION || 'eu' }}
           DATABASE_URL_SMARTBOT:  ${{ secrets.DATABASE_URL_SMARTBOT }}
           DATABASE_URL_MACHINEDB: ${{ secrets.DATABASE_URL_MACHINEDB }}
           DATABASE_URL_PAYMENTDB: ${{ secrets.DATABASE_URL_PAYMENTDB }}
@@ -94,8 +98,15 @@ jobs:
             "${{ github.run_id }}" \
             "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             > heartbeat.json
+          # Must match the jurisdiction host used by the backup script above.
+          JURISDICTION="${{ vars.R2_JURISDICTION || 'eu' }}"
+          if [[ -n "$JURISDICTION" && "$JURISDICTION" != "default" ]]; then
+            ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.${JURISDICTION}.r2.cloudflarestorage.com"
+          else
+            ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          fi
           aws s3api put-object \
-            --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
+            --endpoint-url "$ENDPOINT" \
             --bucket "${{ secrets.R2_BUCKET }}" \
             --key "status/last-success.json" \
             --body heartbeat.json \

@@ -19,7 +19,7 @@
     "  AWS_SECRET_ACCESS_KEY=$R2_SECRET_ACCESS_KEY \\",
     "  AWS_DEFAULT_REGION=auto \\",
     "  aws s3api put-bucket-lifecycle-configuration \\",
-    "    --endpoint-url https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com \\",
+    "    --endpoint-url https://$R2_ACCOUNT_ID.$R2_JURISDICTION.r2.cloudflarestorage.com \\",
     "    --bucket smart-laundry-backups \\",
     "    --lifecycle-configuration file://scripts/r2-lifecycle.json",
     "",

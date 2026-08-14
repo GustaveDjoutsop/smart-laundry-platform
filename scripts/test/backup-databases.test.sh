@@ -66,12 +66,17 @@ STUB
 
   cat > "${bin}/aws" <<'STUB'
 #!/usr/bin/env bash
-key=""; prev=""
-for a in "$@"; do [[ "$prev" == "--key" ]] && key="$a"; prev="$a"; done
+key=""; endpoint=""; prev=""
+for a in "$@"; do
+  [[ "$prev" == "--key" ]] && key="$a"
+  [[ "$prev" == "--endpoint-url" ]] && endpoint="$a"
+  prev="$a"
+done
 case "${MODE:-good}" in
   upload-fails) echo "An error occurred (AccessDenied)" >&2; exit 1 ;;
 esac
 echo "$key" >> "${UPLOAD_LOG:-/dev/null}"
+echo "$endpoint" >> "${ENDPOINT_LOG:-/dev/null}"
 echo '{"ETag":"\"stub\""}'
 exit 0
 STUB
@@ -215,6 +220,43 @@ run_target env MODE=dump-fails \
   "DATABASE_URL_SMARTBOT=postgresql://user:SUPERSECRETPW@host:5432/smartbot" \
   "$TARGET"
 [[ "$OUTPUT" != *SUPERSECRETPW* ]] && pass "database password never printed" || fail "database password leaked into output"
+
+# 12. Jurisdiction-aware S3 endpoint.
+#
+# Buckets created with a jurisdiction are reachable ONLY at their own hostname;
+# the generic host returns NoSuchBucket, which looks like a wrong bucket name
+# rather than a wrong endpoint. The real bucket for this project is EU, so
+# getting this wrong means every upload silently fails on the first real run.
+# https://developers.cloudflare.com/r2/reference/data-location/
+
+endpoint_used() { # extra env... -> prints the first endpoint the stub saw
+  local log; log="$(mktemp)"
+  run_target env MODE=good "ENDPOINT_LOG=${log}" "${BASE_ENV[@]}" "$@" "$TARGET" || true
+  head -1 "$log"; rm -f "$log"
+}
+
+ep="$(endpoint_used)"
+check "default jurisdiction uses the generic endpoint" \
+  "https://stubaccount.r2.cloudflarestorage.com" "$ep"
+
+ep="$(endpoint_used R2_JURISDICTION=eu)"
+check "R2_JURISDICTION=eu uses the .eu. endpoint" \
+  "https://stubaccount.eu.r2.cloudflarestorage.com" "$ep"
+
+ep="$(endpoint_used R2_JURISDICTION=default)"
+check "R2_JURISDICTION=default is treated as no jurisdiction" \
+  "https://stubaccount.r2.cloudflarestorage.com" "$ep"
+[[ "$ep" != *".default."* ]] \
+  && pass "literal 'default' is not injected into the hostname" \
+  || fail "literal 'default' leaked into the hostname: $ep"
+
+ep="$(endpoint_used R2_JURISDICTION=fedramp)"
+check "an arbitrary jurisdiction is honoured" \
+  "https://stubaccount.fedramp.r2.cloudflarestorage.com" "$ep"
+
+ep="$(endpoint_used R2_ENDPOINT=https://example.invalid/custom R2_JURISDICTION=eu)"
+check "R2_ENDPOINT overrides the jurisdiction" \
+  "https://example.invalid/custom" "$ep"
 
 echo
 echo "=============================================================="
