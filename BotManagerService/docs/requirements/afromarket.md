@@ -1,5 +1,48 @@
 # AfroMarket WhatsApp Bot
 
+## v2.20 (2026-08-14): dev and production have two entirely separate Commerce
+## Catalogs - submitCatalogBatch.js was only ever syncing dev
+
+Business owner tested production after v2.19's fix and still saw "4
+products," not 5, and `sendCatalogMessage()` against production still 400'd
+("Products not found in FB Catalog") even with `enable_welcome_message`
+correctly `true`.
+
+Root cause, confirmed via `GET /{WABA_ID}/product_catalogs` on each WABA:
+**dev and production are connected to two entirely different Commerce
+Catalogs**, not one catalog shared across both:
+
+- Sandbox WABA `4464369590494418` → `AfroMarket-Dev-Catalog`
+  (`1678073176620294`) - what `AFROMARKET_CATALOG_ID` in `.env`/Railway has
+  always pointed at.
+- Production WABA `878603275008509` → `AfroMarket-Production-Catalog`
+  (`1333066702319721`) - never touched by `submitCatalogBatch.js` before
+  today, at all. Confirmed via a direct read: exactly the original 4
+  products, no Bouillie Jaune.
+
+Every `submitCatalogBatch.js` run in v2.16/v2.18 only ever wrote to the dev
+catalog - this is a second, independent instance of the exact sandbox/
+production split problem `submitCarouselTemplate.js` already solved for
+templates via `AFROMARKET_WABA_ID`, just not previously known to apply to
+catalogs too (the assumption through v2.16-v2.19 was one shared catalog).
+
+**Fixed**: `submitCatalogBatch.js` now defaults to the dev catalog (same
+default/override convention as `AFROMARKET_WABA_ID`), with the production
+catalog ID documented in the file header and targetable via
+`AFROMARKET_CATALOG_ID=1333066702319721`. The script now also prints which
+catalog it's targeting on every run, unconditionally - the wrong-catalog
+mistake above happened silently once already, this makes it visible from
+now on. Synced Bouillie Jaune into the production catalog - confirmed live
+via a direct read.
+
+`sendCatalogMessage()` against production: confirmed working correctly
+using an already-established product (`haricot_rouge_1kg`) as the
+thumbnail - succeeded instantly. Using the just-synced `bouillie_jaune_500g`
+still 400'd on the first two retries - the same messaging-index propagation
+delay already seen for this exact product in v2.18, isolated and confirmed
+as the only remaining cause (not a code or config problem) via the
+successful established-product send above.
+
 ## v2.19 (2026-08-14): setConversationalAutomation.js was hitting the wrong
 ## endpoint - enable_welcome_message never actually took effect on either WABA
 
