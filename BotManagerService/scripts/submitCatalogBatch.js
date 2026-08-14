@@ -16,13 +16,24 @@
  * Requires:
  *   WHATSAPP_ACCESS_TOKEN_AFROMARKET - same token used by the other
  *     AfroMarket scripts, needs catalog_management permission on the WABA.
- *   AFROMARKET_CATALOG_ID - the Commerce Catalog ID created in Meta
- *     Commerce Manager (see afromarket-catalog-cart-migration-todo.md,
- *     "Prerequisite: catalog setup" - that step is manual, not scripted).
  *   AFROMARKET_PHONE_NUMBER - the bot's WhatsApp number in E.164 without
  *     the leading "+" (e.g. "4915123456789"), used to build each product's
  *     required "link" field as a wa.me deep link back into the bot, since
  *     AfroMarket has no per-product webpage.
+ *
+ * Two real Commerce Catalogs exist - confirmed live (2026-08-14) via
+ * GET /{WABA_ID}/product_catalogs on each WABA, exactly the same
+ * sandbox/production split as the WABA_ID convention already used by
+ * submitCarouselTemplate.js/submitPromoTemplate.js, but a DIFFERENT split:
+ * a catalog is its own object, only ever connected to one WABA - there is
+ * no single catalog shared across both like there was assumed through
+ * v2.16-v2.19 (see docs/requirements/afromarket.md v2.20). The default
+ * below is the dev/sandbox catalog; override AFROMARKET_CATALOG_ID
+ * explicitly to target production. Syncing one does NOT sync the other -
+ * run this once per catalog whenever product data changes and both
+ * environments need to reflect it:
+ *   node scripts/submitCatalogBatch.js                                  # dev (AfroMarket-Dev-Catalog, 1678073176620294)
+ *   AFROMARKET_CATALOG_ID=1333066702319721 node scripts/submitCatalogBatch.js   # production (AfroMarket-Production-Catalog)
  *
  * Note: this script only ever UPDATEs (upserts) the products currently in
  * bot.json - it never DELETEs. If a product is removed from bot.json or its
@@ -44,6 +55,9 @@ if (require.main === module) {
 
 const API_VERSION = 'v20.0';
 const BRAND = 'AfroMarket';
+// Dev/sandbox catalog default, matching the WABA_ID default/override
+// convention elsewhere in scripts/ - see the file header for both real IDs.
+const DEFAULT_CATALOG_ID = '1678073176620294';
 
 function assertValidPhoneNumber(phoneNumber) {
   // AFROMARKET_PHONE_NUMBER is operator-set, not user input, but a stray
@@ -115,10 +129,11 @@ async function main() {
   if (!token) {
     throw new Error('WHATSAPP_ACCESS_TOKEN_AFROMARKET is not set');
   }
-  const catalogId = process.env.AFROMARKET_CATALOG_ID;
-  if (!catalogId) {
-    throw new Error('AFROMARKET_CATALOG_ID is not set');
-  }
+  const catalogId = process.env.AFROMARKET_CATALOG_ID || DEFAULT_CATALOG_ID;
+  // Printed unconditionally, not just on error - a wrong-catalog sync
+  // (dev vs. production) succeeds silently otherwise, exactly the mistake
+  // this script's history already made once (see the file header).
+  console.log('target catalog:', catalogId, catalogId === DEFAULT_CATALOG_ID ? '(dev/sandbox, default)' : '(override)');
   const phoneNumber = process.env.AFROMARKET_PHONE_NUMBER;
   if (!phoneNumber) {
     throw new Error('AFROMARKET_PHONE_NUMBER is not set');
