@@ -40,8 +40,16 @@ async function getConversationalAutomation(token, phoneNumberId) {
   return { status: res.status, body };
 }
 
+// This is a dedicated sub-resource endpoint, NOT a field on
+// POST /{phone-number-id} - confirmed against Meta's own Conversational
+// Automation API reference after an earlier version of this script posted
+// to the wrong endpoint (POST /{phone-number-id} with a nested
+// conversational_automation body) and got a misleading {success: true}
+// back on every call without the setting ever actually taking effect (GET
+// kept showing the old value indefinitely - not a propagation delay, a
+// wrong URL). See docs/requirements/afromarket.md v2.19.
 async function setConversationalAutomation(token, phoneNumberId, payload) {
-  const res = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}`, {
+  const res = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/conversational_automation`, {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
@@ -77,16 +85,16 @@ async function main() {
 
   if (command === 'clear-ice-breakers') {
     const clearCommands = rest.includes('--clear-commands');
-    const conversationalAutomation = {
+    // Fields go directly in the body at this endpoint - no
+    // messaging_product/conversational_automation wrapper (that wrapper
+    // belonged to the wrong endpoint this script used to hit).
+    const payload = {
       enable_welcome_message: true,
       prompts: []
     };
-    if (clearCommands) conversationalAutomation.commands = [];
+    if (clearCommands) payload.commands = [];
 
-    const { status, body } = await setConversationalAutomation(token, phoneNumberId, {
-      messaging_product: 'whatsapp',
-      conversational_automation: conversationalAutomation
-    });
+    const { status, body } = await setConversationalAutomation(token, phoneNumberId, payload);
     console.log('status:', status);
     console.log(JSON.stringify(body, null, 2));
     if (status !== 200 || !body.success) {
