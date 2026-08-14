@@ -987,3 +987,71 @@ test('AfroMarket: recipe_actions dynamic buttonsFromContext sets also respect Wh
   assert.ok(purchaseButtons.length <= 3);
   for (const button of purchaseButtons) assert.ok(button.title.length <= 20, `'${button.title}' exceeds 20 chars`);
 });
+
+// Regression coverage for the promo-blast quick-reply mechanism
+// (payloadTriggers + products.addDiscounted) - see
+// docs/requirements/afromarket.md v2.16. A promo tap is a cold start: no
+// "hi"/menu turn first, exactly like a customer tapping a promo template
+// button days after their last real conversation.
+test('AfroMarket: a cold promo_add payload adds the item to cart at the discounted price and confirms it', async () => {
+  const step = createStepper();
+
+  const result = await step('promo_add:bouillie_jaune_500g:20');
+
+  assert.equal(result.outboundIntents.length, 1);
+  assert.equal(result.outboundIntents[0].type, 'buttons');
+  // 4.99 * 0.8 = 3.992, rounded to 3.99
+  assert.match(result.outboundIntents[0].body, /Added \*Bouillie Jaune – Sèche 500g\* at 20% off \(€3\.99\)/);
+  assert.deepEqual(
+    result.outboundIntents[0].buttons.map((b) => b.id),
+    ['cart_add', 'view_cart', 'back_category']
+  );
+
+  const cartResult = await step('view_cart');
+  assert.match(cartResult.outboundIntents[0].body, /Bouillie Jaune/);
+  assert.match(cartResult.outboundIntents[0].body, /€3\.99/);
+});
+
+test('AfroMarket: a 100% promo_add discount is accepted (3-digit percentage, not rejected as malformed)', async () => {
+  const step = createStepper();
+
+  const result = await step('promo_add:bouillie_jaune_500g:100');
+
+  assert.match(result.outboundIntents[0].body, /Added \*Bouillie Jaune – Sèche 500g\* at 100% off \(€0\.00\)/);
+});
+
+test('AfroMarket: promo_add for an unknown product falls back to the welcome menu instead of erroring', async () => {
+  const step = createStepper();
+
+  const result = await step('promo_add:no_such_product:20');
+
+  assert.equal(result.outboundIntents[0].type, 'list');
+  assert.match(result.outboundIntents[0].body, /Welcome to \*AfroMarket\*/);
+});
+
+test('AfroMarket: a malformed promo_add payload (matches the payloadTriggers prefix but not the stricter parse regex) falls back to welcome', async () => {
+  const step = createStepper();
+
+  // Starts with "promo_add:" (matches the payloadTriggers prefix, so it
+  // still routes to promo_add_handler) but has no percentOff segment at
+  // all - _handleAddDiscounted's own regex must reject it.
+  const result = await step('promo_add:bouillie_jaune_500g');
+
+  assert.equal(result.outboundIntents[0].type, 'list');
+  assert.match(result.outboundIntents[0].body, /Welcome to \*AfroMarket\*/);
+});
+
+test('AfroMarket: a promo_add tap while mid-checkout still routes to the discounted add, not the checkout input prompt', async () => {
+  const step = createStepper();
+
+  await step('hi');
+  await step('shop_online');
+  await step('cat_beans_nuts');
+  await step('product_haricot_rouge_1kg');
+  await step('cart_add');
+  await step('view_cart');
+  await step('start_checkout'); // now sitting on a checkout input prompt
+
+  const result = await step('promo_add:bouillie_jaune_500g:10');
+  assert.match(result.outboundIntents[0].body, /Added \*Bouillie Jaune/);
+});

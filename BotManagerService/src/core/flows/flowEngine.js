@@ -331,6 +331,25 @@ function validateFlowConfig(botConfig) {
       }
     }
   }
+
+  // A bad payloadTriggers entry would otherwise silently never match at
+  // runtime (matchPayloadTrigger already guards flowId/stateId existence
+  // per-call) rather than fail loudly at config-load time - same
+  // fail-fast philosophy as every other check above.
+  const payloadTriggers = Array.isArray(botConfig.payloadTriggers) ? botConfig.payloadTriggers : [];
+  for (const trigger of payloadTriggers) {
+    if (typeof trigger?.prefix !== 'string' || !trigger.prefix.trim()) {
+      throw new Error('payloadTriggers entry requires a non-empty prefix');
+    }
+    if (typeof trigger.flowId !== 'string' || !flows[trigger.flowId]) {
+      throw new Error(`payloadTriggers entry "${trigger.prefix}" requires a flowId matching an existing flow`);
+    }
+    const targetFlow = flows[trigger.flowId];
+    const targetStateIds = new Set(targetFlow.states.map((s) => s && s.id));
+    if (typeof trigger.stateId !== 'string' || !targetStateIds.has(trigger.stateId)) {
+      throw new Error(`payloadTriggers entry "${trigger.prefix}" requires a stateId matching an existing state in flow ${trigger.flowId}`);
+    }
+  }
 }
 
 class FlowEngine {
@@ -366,6 +385,29 @@ class FlowEngine {
     if (this.botConfig.defaultFlowId && flows[this.botConfig.defaultFlowId]) return this.botConfig.defaultFlowId;
     const first = Object.keys(flows)[0];
     return first || null;
+  }
+
+  // Unlike selectFlowId's trigger match (exact-string, whole-flow only,
+  // always lands on that flow's initial state), a payload trigger matches
+  // by PREFIX and routes straight to a specific STATE. Built for cold
+  // promo-blast quick-reply taps ("promo_add:<productId>:<percentOff>") -
+  // the customer may have no active conversation state at all if they tap
+  // days after their last real message, so "just pick a flow and reset to
+  // its start" (the normal trigger behavior) would lose the payload
+  // entirely. Generic enough for any future button-triggered cold-start,
+  // not promo-specific itself - see bot config's payloadTriggers and
+  // docs/requirements/afromarket.md v2.17.
+  matchPayloadTrigger(inbound) {
+    if (!inbound || inbound.type !== 'text') return null;
+    const triggers = Array.isArray(this.botConfig.payloadTriggers) ? this.botConfig.payloadTriggers : [];
+    for (const trigger of triggers) {
+      const prefix = typeof trigger?.prefix === 'string' ? trigger.prefix : '';
+      if (!prefix || !inbound.text.startsWith(prefix)) continue;
+      if (!trigger.flowId || !this.botConfig.flows?.[trigger.flowId]) continue;
+      if (!trigger.stateId || !this.getStateDef(trigger.flowId, trigger.stateId)) continue;
+      return { flowId: trigger.flowId, stateId: trigger.stateId };
+    }
+    return null;
   }
 
   getStateDef(flowId, stateId) {
@@ -406,20 +448,32 @@ class FlowEngine {
     const conversationState = state || { currentFlowId: null, currentStateId: null, context: {} };
 
     const previousFlowId = conversationState.currentFlowId;
-    const selectedFlowId = this.selectFlowId({ inbound: inboundMessage, state: conversationState });
-    if (!selectedFlowId) {
-      return { state: conversationState, intents: [] };
-    }
+    const payloadTriggerTarget = this.matchPayloadTrigger(inboundMessage);
 
-    const didEnterOrSwitchFlow = !previousFlowId || previousFlowId !== selectedFlowId;
-
-    if (!conversationState.currentFlowId || conversationState.currentFlowId !== selectedFlowId) {
+    let selectedFlowId;
+    let didEnterOrSwitchFlow;
+    if (payloadTriggerTarget) {
+      selectedFlowId = payloadTriggerTarget.flowId;
       conversationState.currentFlowId = selectedFlowId;
-      conversationState.currentStateId = this.getInitialStateId(selectedFlowId);
+      conversationState.currentStateId = payloadTriggerTarget.stateId;
+      didEnterOrSwitchFlow = true;
+    } else {
+      selectedFlowId = this.selectFlowId({ inbound: inboundMessage, state: conversationState });
+      if (!selectedFlowId) {
+        return { state: conversationState, intents: [] };
+      }
+
+      didEnterOrSwitchFlow = !previousFlowId || previousFlowId !== selectedFlowId;
+
+      if (!conversationState.currentFlowId || conversationState.currentFlowId !== selectedFlowId) {
+        conversationState.currentFlowId = selectedFlowId;
+        conversationState.currentStateId = this.getInitialStateId(selectedFlowId);
+      }
     }
 
-    // When we (re)enter a flow due to a trigger/reset/default, we don't want the same inbound text
-    // (e.g., "hi", "menu") to be treated as the first menu selection.
+    // When we (re)enter a flow due to a trigger/reset/default/payload
+    // match, we don't want the same inbound text (e.g., "hi", "menu", a
+    // promo payload) to be treated as the first menu selection.
     let hasConsumedInboundText = didEnterOrSwitchFlow && inboundMessage.type === 'text';
     const outboundIntents = [];
     const sentImageStateIds = new Set();

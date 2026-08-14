@@ -325,6 +325,52 @@ class WhatsAppCloudClient {
     return this._postWithRetry(url, payload);
   }
 
+  // Catalog message - a single "View Catalog" button that opens the WHOLE
+  // connected Commerce Catalog as WhatsApp's own native, browsable
+  // storefront (categories/collections included, if configured in Commerce
+  // Manager) - not a curated set of items like sendProductList above. The
+  // header image is NOT the business profile picture (there is no such
+  // field on this message type) - it's sourced from a catalog product's own
+  // photo via thumbnailProductRetailerId, defaulting to the catalog's first
+  // item when omitted. See docs/requirements/afromarket.md v2.16.
+  async sendCatalogMessage({ to, body, footer, thumbnailProductRetailerId } = {}) {
+    if (!this.isConfigured()) {
+      throw new Error('WhatsApp client not configured (missing accessToken/phoneNumberId)');
+    }
+
+    const bodyText = String(body || '').trim();
+    if (!bodyText) {
+      throw new Error('sendCatalogMessage requires a non-empty body');
+    }
+
+    const url = buildMessagesUrl({
+      apiBase: this.apiBase,
+      apiVersion: this.apiVersion,
+      phoneNumberId: this.phoneNumberId
+    });
+
+    // Same 60-character footer cap as sendProductList/sendCtaUrl.
+    const footerText = utf16SliceSafe(String(footer || ''), 60).trim();
+    const thumbnailId = String(thumbnailProductRetailerId || '').trim();
+
+    const payload = {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'catalog_message',
+        body: { text: bodyText },
+        ...(footerText ? { footer: { text: footerText } } : {}),
+        action: {
+          name: 'catalog_message',
+          ...(thumbnailId ? { parameters: { thumbnail_product_retailer_id: thumbnailId } } : {})
+        }
+      }
+    };
+
+    return this._postWithRetry(url, payload);
+  }
+
   // Carousel template headers reference an uploaded media id, not a public URL
   // (unlike sendImage/sendButtons' image headers) - download the asset and
   // re-upload it to Meta's Media API to get that id.
@@ -456,6 +502,66 @@ class WhatsAppCloudClient {
             ? [{ type: 'body', parameters: safeBodyParams.map((text) => ({ type: 'text', text: String(text) })) }]
             : []),
           { type: 'carousel', cards: cardComponents }
+        ]
+      }
+    };
+
+    return this._postWithRetry(messagesUrl, templatePayload);
+  }
+
+  // Sends the "no-code" promo/discount template (Variant A - see
+  // scripts/submitPromoTemplate.js) - a single IMAGE header + a body with
+  // {{1}}=percentOff/{{2}}=productName + one QUICK_REPLY button whose
+  // payload is set here, per send, so a customer's tap routes back into
+  // the bot's own products.addDiscounted action (see afromarketFlowPlugin.js)
+  // rather than a static destination baked into the template. Variant B
+  // (the LTO/discount-code template) is intentionally NOT sendable yet -
+  // it's prepared and submitted but not wired into live use, per
+  // docs/requirements/afromarket.md v2.17.
+  async sendPromoTemplate({ to, templateName, languageCode, percentOff, productName, imageLink, imageMediaId, quickReplyPayload } = {}) {
+    if (!this.isConfigured()) {
+      throw new Error('WhatsApp client not configured (missing accessToken/phoneNumberId)');
+    }
+
+    const name = String(templateName || '').trim();
+    if (!name) {
+      throw new Error('sendPromoTemplate requires a non-empty templateName');
+    }
+    const payload = String(quickReplyPayload || '').trim();
+    if (!payload) {
+      throw new Error('sendPromoTemplate requires a non-empty quickReplyPayload');
+    }
+
+    const mediaId = imageMediaId || (imageLink ? await this.uploadMedia({ link: imageLink }) : null);
+    if (!mediaId) {
+      throw new Error('sendPromoTemplate requires imageLink or imageMediaId');
+    }
+
+    const messagesUrl = buildMessagesUrl({
+      apiBase: this.apiBase,
+      apiVersion: this.apiVersion,
+      phoneNumberId: this.phoneNumberId
+    });
+
+    const templatePayload = {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'template',
+      template: {
+        name,
+        language: { code: languageCode || 'en_US' },
+        components: [
+          { type: 'header', parameters: [{ type: 'image', image: { id: mediaId } }] },
+          {
+            type: 'body',
+            parameters: [{ type: 'text', text: String(percentOff) }, { type: 'text', text: String(productName) }]
+          },
+          {
+            type: 'button',
+            sub_type: 'quick_reply',
+            index: '0',
+            parameters: [{ type: 'payload', payload }]
+          }
         ]
       }
     };

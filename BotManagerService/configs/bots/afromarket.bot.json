@@ -11,12 +11,23 @@
     { "id": "haricot_rouge_1kg", "name": "Haricot Rouge – Meringué 1kg", "category": "beans_nuts", "priceEur": 7.99, "unit": "1 kg", "imageUrl": "https://legal.botmanagementservice.eu/products/afromarket-haricot-rouge-1kg.jpg", "description": "Carefully selected red beans. Once cooked, they develop a tender texture and a rich, satisfying flavour." },
     { "id": "arachide_blanche_1kg", "name": "Arachide Blanche Dépulpée 1kg", "category": "beans_nuts", "priceEur": 7.99, "unit": "1 kg", "imageUrl": "https://legal.botmanagementservice.eu/products/afromarket-arachide-blanche-1kg.jpg", "description": "Peeled white peanuts selected for their mild taste and creamy texture. Particularly suitable for Ndolè, peanut sauces, and many traditional African recipes." },
     { "id": "ndole_250g", "name": "Ndolè Cameroun – Lavé et Séché 250g", "category": "leaves", "priceEur": 9.99, "unit": "250 g", "imageUrl": "https://legal.botmanagementservice.eu/products/afromarket-ndole-250g.jpg", "description": "Washed and dried Cameroonian Ndolè leaves, ready for the well-known traditional dish. One 250 g pack is approximately equivalent to 2 kg of wet Ndolè, or around 18 balls." },
-    { "id": "okok_100g", "name": "Feuilles d'OKOK Séchées 100g", "category": "leaves", "priceEur": 4.99, "unit": "100 g", "imageUrl": "https://legal.botmanagementservice.eu/products/afromarket-okok-100g.jpg", "description": "Dried and finely cut OKOK leaves, ideal for traditional Cameroonian dishes. Easy to store and convenient to use in the kitchen." }
+    { "id": "okok_100g", "name": "Feuilles d'OKOK Séchées 100g", "category": "leaves", "priceEur": 4.99, "unit": "100 g", "imageUrl": "https://legal.botmanagementservice.eu/products/afromarket-okok-100g.jpg", "description": "Dried and finely cut OKOK leaves, ideal for traditional Cameroonian dishes. Easy to store and convenient to use in the kitchen." },
+    { "id": "bouillie_jaune_500g", "name": "Bouillie Jaune – Sèche 500g", "category": "snack_breakfast", "priceEur": 4.99, "unit": "500 g", "imageUrl": "https://legal.botmanagementservice.eu/products/afromarket-bouillie-jaune-500g.png", "description": "Yellow corn porridge, smooth and comforting, ideal for breakfast or a warm snack. Easy to prepare, with a creamy texture and a naturally pleasant taste. Directly imported from Cameroon." }
   ],
 
   "recipeIngredients": {
     "ndole": ["ndole_250g", "arachide_blanche_1kg"]
   },
+
+  "catalogWelcome": {
+    "body": "🌍 Welcome to K-AfroMarket's!\nYour one-stop shop for African groceries, delivered across Germany.\n\nTap View Catalog to browse everything we carry, by category.",
+    "footer": "K-AfroMarket",
+    "thumbnailProductRetailerId": "bouillie_jaune_500g"
+  },
+
+  "payloadTriggers": [
+    { "prefix": "promo_add:", "flowId": "main_menu", "stateId": "promo_add_handler" }
+  ],
 
   "defaultFlowId": "main_menu",
   "flows": {
@@ -84,6 +95,7 @@
               "rows": [
                 { "id": "cat_beans_nuts", "title": "🫘 Beans & Nuts", "description": "Red beans, white peanuts" },
                 { "id": "cat_leaves", "title": "🌿 Dried Leaves", "description": "Ndolè, Okok" },
+                { "id": "cat_snack_breakfast", "title": "🥣 Snack & Breakfast", "description": "Bouillie Jaune" },
                 { "id": "view_cart", "title": "👀 View Cart", "description": "See what you've added" },
                 { "id": "back_menu", "title": "🏠 Main Menu", "description": "Back to the start" }
               ]
@@ -101,6 +113,7 @@
             "map": {
               "cat_beans_nuts": "beans_nuts_products",
               "cat_leaves": "leaves_products",
+              "cat_snack_breakfast": "snack_breakfast_products",
               "view_cart": "cart_view",
               "back_menu": "welcome",
               "menu": "welcome"
@@ -146,6 +159,23 @@
           "next": "product_route"
         },
         {
+          "id": "snack_breakfast_products",
+          "type": "list",
+          "template": "🥣 *Snack & Breakfast*\n\nPick an item for details:",
+          "buttonText": "Choose Item",
+          "sections": [
+            {
+              "title": "Snack & Breakfast",
+              "rows": [
+                { "id": "product_bouillie_jaune_500g", "title": "Bouillie Jaune 500g", "description": "€4.99" },
+                { "id": "back_categories", "title": "⬅️ Categories", "description": "Back to category list" }
+              ]
+            }
+          ],
+          "saveAs": "productChoice",
+          "next": "product_route"
+        },
+        {
           "id": "product_route",
           "type": "action",
           "action": "route",
@@ -156,6 +186,7 @@
               "product_arachide_blanche_1kg": "product_detail_arachide_blanche_1kg",
               "product_ndole_250g": "product_detail_ndole_250g",
               "product_okok_100g": "product_detail_okok_100g",
+              "product_bouillie_jaune_500g": "product_detail_bouillie_jaune_500g",
               "back_categories": "groceries_categories",
               "menu": "welcome"
             },
@@ -167,6 +198,7 @@
         { "id": "product_detail_arachide_blanche_1kg", "type": "image", "productId": "arachide_blanche_1kg", "categoryStateId": "beans_nuts_products", "link": "https://legal.botmanagementservice.eu/products/afromarket-arachide-blanche-1kg.jpg", "caption": "*Arachide Blanche Dépulpée 1kg* — €7.99 / 1 kg\n\nPeeled white peanuts selected for their mild taste and creamy texture. Particularly suitable for Ndolè, peanut sauces, and many traditional African recipes.", "next": "product_actions" },
         { "id": "product_detail_ndole_250g", "type": "image", "productId": "ndole_250g", "categoryStateId": "leaves_products", "link": "https://legal.botmanagementservice.eu/products/afromarket-ndole-250g.jpg", "caption": "*Ndolè Cameroun – Lavé et Séché 250g* — €9.99 / 250 g\n\nWashed and dried Cameroonian Ndolè leaves, ready for the well-known traditional dish. One 250 g pack is approximately equivalent to 2 kg of wet Ndolè, or around 18 balls.", "next": "product_actions" },
         { "id": "product_detail_okok_100g", "type": "image", "productId": "okok_100g", "categoryStateId": "leaves_products", "link": "https://legal.botmanagementservice.eu/products/afromarket-okok-100g.jpg", "caption": "*Feuilles d'OKOK Séchées 100g* — €4.99 / 100 g\n\nDried and finely cut OKOK leaves, ideal for traditional Cameroonian dishes. Easy to store and convenient to use in the kitchen.", "next": "product_actions" },
+        { "id": "product_detail_bouillie_jaune_500g", "type": "image", "productId": "bouillie_jaune_500g", "categoryStateId": "snack_breakfast_products", "link": "https://legal.botmanagementservice.eu/products/afromarket-bouillie-jaune-500g.png", "caption": "*Bouillie Jaune – Sèche 500g* — €4.99 / 500 g\n\nYellow corn porridge, smooth and comforting, ideal for breakfast or a warm snack. Easy to prepare, with a creamy texture and a naturally pleasant taste. Directly imported from Cameroon.", "next": "product_actions" },
 
         {
           "id": "product_actions",
@@ -184,6 +216,12 @@
           "id": "product_action_route",
           "type": "action",
           "action": "products.route"
+        },
+
+        {
+          "id": "promo_add_handler",
+          "type": "action",
+          "action": "products.addDiscounted"
         },
 
         {

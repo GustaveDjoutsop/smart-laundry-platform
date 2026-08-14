@@ -387,6 +387,60 @@ test('WhatsAppCloudClient sendProductList rejects more than 30 total product ite
   );
 });
 
+test('WhatsAppCloudClient sendCatalogMessage builds a catalog_message interactive payload with thumbnail', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    return { ok: true, status: 200, json: async () => ({ messages: [{ id: 'wamid.catalog' }] }) };
+  };
+
+  const client = new WhatsAppCloudClient({ accessToken: 'token', phoneNumberId: '123', fetchImpl });
+
+  await client.sendCatalogMessage({
+    to: '237670000000',
+    body: 'Welcome! Tap View Catalog to browse.',
+    footer: 'K-AfroMarket',
+    thumbnailProductRetailerId: 'bouillie_jaune_500g'
+  });
+
+  const payload = JSON.parse(calls[0].init.body);
+  assert.equal(payload.messaging_product, 'whatsapp');
+  assert.equal(payload.type, 'interactive');
+  assert.equal(payload.interactive.type, 'catalog_message');
+  assert.equal(payload.interactive.body.text, 'Welcome! Tap View Catalog to browse.');
+  assert.equal(payload.interactive.footer.text, 'K-AfroMarket');
+  assert.deepEqual(payload.interactive.action, {
+    name: 'catalog_message',
+    parameters: { thumbnail_product_retailer_id: 'bouillie_jaune_500g' }
+  });
+});
+
+test('WhatsAppCloudClient sendCatalogMessage omits footer and thumbnail parameters when not provided', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  const client = new WhatsAppCloudClient({ accessToken: 'token', phoneNumberId: '123', fetchImpl });
+
+  await client.sendCatalogMessage({ to: '237670000000', body: 'Welcome!' });
+
+  const payload = JSON.parse(calls[0].init.body);
+  assert.equal(payload.interactive.footer, undefined);
+  assert.deepEqual(payload.interactive.action, { name: 'catalog_message' });
+});
+
+test('WhatsAppCloudClient sendCatalogMessage rejects an empty body', async () => {
+  const client = new WhatsAppCloudClient({
+    accessToken: 'token',
+    phoneNumberId: '123',
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) })
+  });
+
+  await assert.rejects(() => client.sendCatalogMessage({ to: '237670000000', body: '  ' }), /non-empty body/);
+});
+
 test('WhatsAppCloudClient uploadMedia downloads the image and uploads it to Meta, returning the media id', async () => {
   const calls = [];
   const fetchImpl = async (url, init) => {
@@ -557,6 +611,95 @@ test('WhatsAppCloudClient sendCarouselTemplate uploads each card image and posts
   assert.equal(carouselComponent.cards[1].card_index, 1);
   assert.equal(carouselComponent.cards[1].components[0].parameters[0].image.id, 'media_2');
   assert.equal(carouselComponent.cards[1].components[1].parameters[0].payload, 'recipe_egusi_soup');
+});
+
+test('WhatsAppCloudClient sendPromoTemplate uploads the image and posts the correct promo template payload', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    if (url === 'https://graph.facebook.com/v20.0/123/messages') {
+      return { ok: true, status: 200, json: async () => ({ messages: [{ id: 'wamid.promo' }] }) };
+    }
+    if (url.endsWith('/media')) {
+      return { ok: true, status: 200, json: async () => ({ id: 'media_promo_1' }) };
+    }
+    return { ok: true, status: 200, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => new ArrayBuffer(4) };
+  };
+
+  const client = new WhatsAppCloudClient({ accessToken: 'token', phoneNumberId: '123', fetchImpl });
+
+  const result = await client.sendPromoTemplate({
+    to: '237670000000',
+    templateName: 'afromarket_promo_v1',
+    languageCode: 'en_US',
+    percentOff: 20,
+    productName: 'Bouillie Jaune – Sèche 500g',
+    imageLink: 'https://example.com/bouillie.jpg',
+    quickReplyPayload: 'promo_add:bouillie_jaune_500g:20'
+  });
+
+  assert.deepEqual(result, { messages: [{ id: 'wamid.promo' }] });
+
+  const messagesCall = calls.find((c) => c.url === 'https://graph.facebook.com/v20.0/123/messages');
+  const payload = JSON.parse(messagesCall.init.body);
+  assert.equal(payload.template.name, 'afromarket_promo_v1');
+  assert.deepEqual(payload.template.components[0], {
+    type: 'header',
+    parameters: [{ type: 'image', image: { id: 'media_promo_1' } }]
+  });
+  assert.deepEqual(payload.template.components[1], {
+    type: 'body',
+    parameters: [
+      { type: 'text', text: '20' },
+      { type: 'text', text: 'Bouillie Jaune – Sèche 500g' }
+    ]
+  });
+  assert.deepEqual(payload.template.components[2], {
+    type: 'button',
+    sub_type: 'quick_reply',
+    index: '0',
+    parameters: [{ type: 'payload', payload: 'promo_add:bouillie_jaune_500g:20' }]
+  });
+});
+
+test('WhatsAppCloudClient sendPromoTemplate rejects a missing quickReplyPayload', async () => {
+  const client = new WhatsAppCloudClient({
+    accessToken: 'token',
+    phoneNumberId: '123',
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) })
+  });
+
+  await assert.rejects(
+    () =>
+      client.sendPromoTemplate({
+        to: '237670000000',
+        templateName: 'afromarket_promo_v1',
+        percentOff: 20,
+        productName: 'x',
+        imageLink: 'https://example.com/x.jpg'
+      }),
+    /non-empty quickReplyPayload/
+  );
+});
+
+test('WhatsAppCloudClient sendPromoTemplate rejects when neither imageLink nor imageMediaId is given', async () => {
+  const client = new WhatsAppCloudClient({
+    accessToken: 'token',
+    phoneNumberId: '123',
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) })
+  });
+
+  await assert.rejects(
+    () =>
+      client.sendPromoTemplate({
+        to: '237670000000',
+        templateName: 'afromarket_promo_v1',
+        percentOff: 20,
+        productName: 'x',
+        quickReplyPayload: 'promo_add:x:20'
+      }),
+    /requires imageLink or imageMediaId/
+  );
 });
 
 test('WhatsAppCloudClient sendCarouselTemplate includes a per-card body parameter only when the card provides bodyText', async () => {
