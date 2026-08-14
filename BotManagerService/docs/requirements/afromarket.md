@@ -1,5 +1,49 @@
 # AfroMarket WhatsApp Bot
 
+## v2.19 (2026-08-14): setConversationalAutomation.js was hitting the wrong
+## endpoint - enable_welcome_message never actually took effect on either WABA
+
+Business owner reported production showing a genuinely empty chat on first
+entry (no Ice Breakers - cleared manually - and no catalog welcome message
+either) and confirmed Bouillie Jaune "keeps showing 4 products," not 5.
+
+Investigating the empty-chat report surfaced the real bug:
+`scripts/setConversationalAutomation.js` was POSTing to
+`/{phone-number-id}` with a nested `conversational_automation` body field -
+Meta's API accepted this with `{success: true}` on every call, but a
+follow-up `get` always showed the old value, indefinitely (checked 4+ times
+across several minutes - not the catalog-sync-style propagation delay seen
+in v2.18, a genuinely different symptom). Confirmed via Meta's actual
+Conversational Automation API reference
+(`developers.facebook.com/.../conversational-automation-api`): this is a
+**dedicated sub-resource endpoint**,
+`POST /{phone-number-id}/conversational_automation`, not a field on the
+phone number's own POST endpoint. The misleading `{success: true}` response
+on the wrong endpoint
+is what let this ship in v2.16 without being caught - the script's own
+smoke test (a `get` immediately after a `set`) *should* have caught it, but
+wasn't run rigorously enough at the time to notice the value never changed.
+
+This also throws out an earlier, wrong conclusion from v2.16/v2.17: the
+sandbox Test Number was never incapable of supporting
+`conversational_automation` - it was hitting the identical wrong endpoint
+as production. Both numbers behave identically once the endpoint is
+correct.
+
+**Fixed**: `setConversationalAutomation.js` now posts to
+`/{phone-number-id}/conversational_automation` with the fields directly in
+the body (no wrapper). Re-ran `clear-ice-breakers` against both WABAs -
+confirmed via `get` immediately after, on both: `enable_welcome_message:
+true`, no `prompts`. `request_welcome` is now genuinely live on both
+sandbox and production, not just intended to be.
+
+Bouillie Jaune's "4 products" report is unrelated to this bug - re-confirmed
+via a direct Graph API read that all 5 products (Bouillie Jaune included,
+`in stock`) are present in the Commerce Catalog server-side. Likely a
+client-side WhatsApp cache, consistent with the propagation delay already
+seen in v2.18 for the same product - not yet independently re-confirmed
+after a client-side refresh.
+
 ## v2.18 (2026-08-14): Bouillie Jaune's catalog_management blocker resolved -
 ## product live, catalog welcome message live-verified end to end
 
