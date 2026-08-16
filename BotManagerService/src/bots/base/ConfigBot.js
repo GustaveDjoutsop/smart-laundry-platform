@@ -32,18 +32,34 @@ class ConfigBot extends BaseBot {
       ? JSON.parse(existingSerializedState)
       : { currentFlowId: null, currentStateId: null, context: {} };
 
+    // Whether another code path already staged real, meaningful work in
+    // conversationState before calling us - e.g. AfroMarketBot
+    // ._handleNativeOrder writes a `checkout_start` state (with the
+    // customer's submitted cart) before calling super.handleMessage(). If
+    // so, the flow engine below MUST still run this turn regardless of
+    // whether the catalog welcome also sends, or that staged work (a real
+    // order) would be silently lost - caught by a subagent review before
+    // this shipped; see afromarket.md v2.24's incident writeup.
+    const hasPreStagedWork = Boolean(conversationState.currentFlowId);
+
     // Meta removed the `request_welcome` webhook event and
     // `enable_welcome_message` from the Conversational Automation API on
     // 2026-03-27 ("this feature is no longer supported", per Meta's own
     // changelog) - there is no way left to react to a customer opening the
     // chat before they've typed anything. The closest achievable
     // substitute: send catalogWelcome once, on the customer's genuine first
-    // message, then let that same message continue through the flow engine
-    // as normal below.
+    // message - and, per product decision, ONLY the catalog on that turn.
+    // The old request_welcome design never touched flow-engine state at all
+    // (it wasn't a real conversation turn); this mirrors that intent as
+    // closely as possible: first contact gets the catalog and nothing else,
+    // the flow engine's own welcome/menu only appears from the customer's
+    // next interaction onward (another message, an Ice Breaker tap, etc.),
+    // not stacked on top of the catalog card. Config-driven per bot, so a
+    // bot with no catalogWelcome configured is unaffected.
     //
     // Deliberately NOT keyed off `conversationKey` (unlike the flow-engine
-    // state above) - other code paths write to that exact key before ever
-    // reaching here (e.g. AfroMarketBot._handleNativeOrder persists
+    // state read below) - other code paths write to that exact key before
+    // ever reaching here (e.g. AfroMarketBot._handleNativeOrder persists
     // checkout state for a native WhatsApp cart submission before calling
     // super.handleMessage()), which would make a customer whose first-ever
     // contact isn't plain text look like a returning customer and never get
@@ -60,17 +76,29 @@ class ConfigBot extends BaseBot {
     // catalog card is a mild UX hiccup, not a functional break - rather
     // than gating the send on redisManager.connected, which would silently
     // disable it for any local/dev setup that doesn't configure real Redis.
-    if (this.config.catalogWelcome && !this.whatsapp.isConfigured()) {
-      // Don't claim the key at all here - sendIntent() would return early
-      // without sending or throwing (see below), so claiming now would
-      // permanently suppress the welcome for this customer even after the
-      // misconfiguration is fixed, for the full 90-day claim TTL.
-      logger.warn(`${this.constructor.name}[${this.config.botId}] catalogWelcome configured but WhatsApp client isn't - skipping without claiming`);
-    } else if (this.config.catalogWelcome) {
-      const catalogWelcomeClaimKey = `catalog_welcome_sent:${this.config.botId}:${from}`;
-      const isFirstMessage = await redisManager.setnx(catalogWelcomeClaimKey, '1', CATALOG_WELCOME_CLAIM_TTL_SECONDS);
-      if (isFirstMessage) {
-        await this._sendCatalogWelcome({ from, phone });
+    if (this.config.catalogWelcome) {
+      if (!this.whatsapp.isConfigured()) {
+        // Don't claim the key at all here - sendIntent() would return early
+        // without sending or throwing (see below), so claiming now would
+        // permanently suppress the welcome for this customer even after the
+        // misconfiguration is fixed, for the full 90-day claim TTL.
+        logger.warn(`${this.constructor.name}[${this.config.botId}] catalogWelcome configured but WhatsApp client isn't - skipping without claiming`);
+      } else {
+        const catalogWelcomeClaimKey = `catalog_welcome_sent:${this.config.botId}:${from}`;
+        const isFirstMessage = await redisManager.setnx(catalogWelcomeClaimKey, '1', CATALOG_WELCOME_CLAIM_TTL_SECONDS);
+        if (isFirstMessage) {
+          const sentOk = await this._sendCatalogWelcome({ from, phone });
+          // Only skip the flow engine when the catalog actually went out
+          // AND there's no pre-staged work waiting on it (see
+          // hasPreStagedWork above) - a failed send (already logged inside
+          // _sendCatalogWelcome) falls through to the normal flow below
+          // regardless, so the customer still gets *something* rather than
+          // silence on their first message.
+          if (sentOk && !hasPreStagedWork) {
+            logger.info(`${this.constructor.name}[${this.config.botId}] first contact from ${from} handled by catalog welcome only - flow engine skipped this turn`);
+            return;
+          }
+        }
       }
     }
 
@@ -202,14 +230,17 @@ class ConfigBot extends BaseBot {
       });
 
       logger.info(`${this.constructor.name}[${this.config.botId}] sent catalog welcome to ${from} (first message)`);
+      return true;
     } catch (err) {
       // Never let a failed catalog send (e.g. a transient Graph API error)
-      // stop the customer's actual message from reaching the flow engine
-      // below - a missed catalog card is far better than a customer typing
-      // "Hi" and getting no response at all.
-      logger.warn(`${this.constructor.name}[${this.config.botId}] catalog welcome send failed for ${from} - continuing without it`, {
+      // silently swallow the customer's first message entirely - the caller
+      // falls through to the normal flow engine when this returns false, so
+      // a missed catalog card is far better than a customer typing "Hi" and
+      // getting no response at all.
+      logger.warn(`${this.constructor.name}[${this.config.botId}] catalog welcome send failed for ${from} - falling back to normal flow`, {
         error: err.message
       });
+      return false;
     }
   }
 }
