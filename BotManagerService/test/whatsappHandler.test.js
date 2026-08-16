@@ -12,6 +12,7 @@ const { createApp } = require('../src/app');
 const { botRegistry } = require('../src/core/botRegistry');
 const { queueManager } = require('../src/core/messageQueue');
 const { messageStatusWaiter } = require('../src/core/whatsapp/messageStatusWaiter');
+const { logger } = require('../src/utils/logger');
 
 const TEST_PHONE_NUMBER_ID = 'phone-number-id-bsuid-test';
 const TEST_BOT_NAME = 'bsuid-test-bot';
@@ -194,4 +195,62 @@ test('POST /api/whatsapp/webhook still ignores a genuinely empty non-message eve
   });
 
   assert.equal(enqueued.length, 0);
+});
+
+// Regression coverage for diagnosing the request_welcome silent-drop
+// mystery (see docs/requirements/afromarket.md v2.21): a `message` present
+// with no usable identifier (from/contacts[].wa_id/user_id all empty -
+// the suspected real shape of a request_welcome event) must be logged, not
+// just silently dropped the way it was before this fix, so the actual
+// payload shape is finally visible in production logs.
+test('POST /api/whatsapp/webhook logs the full value when a message is present but has no usable identifier, instead of silently dropping it', async (t) => {
+  registerTestBot();
+
+  const enqueued = [];
+  queueManager.setProcessor(async (job) => enqueued.push(job));
+  t.after(() => queueManager.setProcessor(async () => {}));
+
+  const warnCalls = t.mock.method(logger, 'warn');
+
+  await withServer(async (baseUrl) => {
+    const res = await fetch(`${baseUrl}/api/whatsapp/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        object: 'whatsapp_business_account',
+        entry: [
+          {
+            id: 'waba-id',
+            changes: [
+              {
+                value: {
+                  messaging_product: 'whatsapp',
+                  metadata: { display_phone_number: '15550783881', phone_number_id: TEST_PHONE_NUMBER_ID },
+                  contacts: [{ profile: {}, wa_id: '', user_id: '' }],
+                  messages: [{ id: 'wamid.request-welcome-test', timestamp: '1700000000', type: 'request_welcome' }]
+                },
+                field: 'messages'
+              }
+            ]
+          }
+        ]
+      })
+    });
+
+    assert.equal(res.status, 200);
+  });
+
+  assert.equal(enqueued.length, 0);
+  assert.equal(warnCalls.mock.callCount(), 1);
+  const [message, meta] = warnCalls.mock.calls[0].arguments;
+  assert.match(message, /missing a usable identifier/);
+  assert.equal(meta.phoneNumberId, TEST_PHONE_NUMBER_ID);
+  assert.equal(meta.messageType, 'request_welcome');
+  // Structure only (field names/types), never the actual PII-bearing
+  // values (phone numbers, names) - see shapeOf's comment in
+  // whatsappHandler.js.
+  assert.ok(meta.valueShape, 'expected a valueShape summary to be logged');
+  assert.equal(meta.valueShape.contacts.item.wa_id, 'string');
+  assert.equal(meta.valueShape.messages.item.type, 'string');
+  assert.ok(!JSON.stringify(meta.valueShape).includes(TEST_PHONE_NUMBER_ID));
 });

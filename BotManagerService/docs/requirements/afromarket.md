@@ -1,5 +1,53 @@
 # AfroMarket WhatsApp Bot
 
+## v2.21 (2026-08-16): request_welcome still silently produces nothing for a
+## genuinely first-time customer - added diagnostic logging, root cause not
+## yet confirmed
+
+Business owner confirmed a **genuinely first-time** customer (never
+messaged K-AfroMarket before) opened the chat via the wa.me link and got
+nothing - no catalog welcome message, matching the exact symptom already
+seen once before with a reused test number, but this time ruling out the
+"prior conversation history" explanation entirely. Sending "Hi" afterward
+worked completely correctly (routed through the normal `welcome` list
+state as expected) - confirming the webhook pipeline itself is healthy for
+ordinary messages; the bug is specific to `request_welcome`.
+
+All server-side config re-verified correct: `enable_welcome_message: true`
+on production (v2.19's fix), webhook correctly pointed at
+`bot.botmanagementservice.eu`, only the AfroMarket-Bot app subscribed to
+the WABA (no conflicting subscription). Could not inspect the app's actual
+webhook field subscriptions via `GET /{app-id}/subscriptions` -
+`WHATSAPP_APP_SECRET` isn't set, and that endpoint requires it.
+
+**Leading hypothesis, not yet confirmed**: `ConfigBot._handleRequestWelcome`
+(v2.16) was built assuming a `request_welcome` event arrives shaped like a
+normal message (`value.messages[0].type === 'request_welcome'`, with
+`from`/`contacts[].wa_id` populated the usual way) - that assumption was
+never verified against a real payload, only against third-party
+documentation that read like a paraphrase, not Meta's own raw schema (see
+v2.16's own caveat about this). `whatsappHandler.js`'s existing
+empty-message guard (`if (!phoneNumberId || !message || !from) return`)
+would silently swallow exactly this event, with no log, no trace, no
+error - if `from`/`contacts[]` come back empty for this specific event
+type, which is plausible if Meta identifies the customer some other way
+for this event.
+
+**Fixed enough to actually find out**: `whatsappHandler.js` now logs the
+webhook `value`'s *structure* - a new `shapeOf()` helper walking field
+names/nesting/array lengths/primitive types, never actual values -
+whenever a `message` is present but produces no usable identifier;
+previously this branch logged nothing at all. Deliberately not the raw
+value itself: `logger.js`'s redaction only strips `+`-prefixed phone
+numbers and known secret patterns, and WhatsApp's webhook payloads carry
+digit-only phone numbers (no `+`) plus the customer's real profile name -
+logging the raw payload would put that PII in cleartext production logs.
+Added regression test coverage. Not yet deployed-and-observed against a real
+`request_welcome` event as of this entry - next step is triggering it once
+more (needs a genuinely never-contacted number) and reading the resulting
+log line in Railway, either directly or relayed by the business owner
+(this session still has no live browser or Railway log access).
+
 ## v2.20 (2026-08-14): dev and production have two entirely separate Commerce
 ## Catalogs - submitCatalogBatch.js was only ever syncing dev
 
