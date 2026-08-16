@@ -60,7 +60,13 @@ class ConfigBot extends BaseBot {
     // catalog card is a mild UX hiccup, not a functional break - rather
     // than gating the send on redisManager.connected, which would silently
     // disable it for any local/dev setup that doesn't configure real Redis.
-    if (this.config.catalogWelcome) {
+    if (this.config.catalogWelcome && !this.whatsapp.isConfigured()) {
+      // Don't claim the key at all here - sendIntent() would return early
+      // without sending or throwing (see below), so claiming now would
+      // permanently suppress the welcome for this customer even after the
+      // misconfiguration is fixed, for the full 90-day claim TTL.
+      logger.warn(`${this.constructor.name}[${this.config.botId}] catalogWelcome configured but WhatsApp client isn't - skipping without claiming`);
+    } else if (this.config.catalogWelcome) {
       const catalogWelcomeClaimKey = `catalog_welcome_sent:${this.config.botId}:${from}`;
       const isFirstMessage = await redisManager.setnx(catalogWelcomeClaimKey, '1', CATALOG_WELCOME_CLAIM_TTL_SECONDS);
       if (isFirstMessage) {

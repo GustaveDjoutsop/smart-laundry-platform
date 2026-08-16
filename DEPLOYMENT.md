@@ -198,8 +198,9 @@ deletion once confirmed nothing depends on it.
 ## 3. Versioning and tags
 
 Tag a release right after merging something you're promoting to production traffic —
-not necessarily every single merge, since both environments deploy on every push.
-Tag when you've decided "this is a point I'd want to roll back to."
+not necessarily every single merge, since `dev` deploys on every push but
+`production` only ships once you run the manual deploy in §2a. Tag when you've
+decided "this is a point I'd want to roll back to."
 
 ```bash
 git checkout master
@@ -264,9 +265,9 @@ needed: merge the flow with `enabled: false`, verify on `dev` with the test numb
 then flip to `true` in a small follow-up PR when ready for real customers.
 
 **Current limitation:** flow config lives in the repo, so flipping `enabled` still
-needs a deploy (which, per §2, ships to `dev` and `production` simultaneously — the
-flag is what actually withholds the feature from real customers, not the deploy
-boundary).
+needs a deploy - to `dev` automatically, to `production` only via the manual step in
+§2a. Until that manual deploy runs, the flag change hasn't reached real customers
+regardless of what the flag itself says.
 
 ---
 

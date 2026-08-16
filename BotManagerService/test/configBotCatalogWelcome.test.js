@@ -84,6 +84,26 @@ test('the customer\'s first message still routes through the flow engine and per
   assert.equal(state.currentFlowId, 'main_menu');
 });
 
+// Regression test for a Copilot review comment on the PR: if the WhatsApp
+// client isn't configured, sendIntent() returns early without sending or
+// throwing (see ConfigBot.sendIntent), so the old code would still claim
+// the key and permanently suppress the welcome for that customer - even
+// after the misconfiguration got fixed - for the full claim TTL. The claim
+// must not be made at all when the client isn't configured, so the next
+// message after it IS configured still gets the welcome.
+test('when the WhatsApp client isn\'t configured, the catalog welcome claim is skipped so it can still be sent once configured', async (t) => {
+  const { bot, sent } = createAfroMarketBot(t);
+  const from = nextFrom();
+  bot.whatsapp.isConfigured = () => false;
+
+  await bot.handleMessage({ from, message: { type: 'text', text: { body: 'hi' } }, phone: from });
+  assert.equal(sent.filter((s) => s.type === 'catalog_message').length, 0);
+
+  bot.whatsapp.isConfigured = () => true;
+  await bot.handleMessage({ from, message: { type: 'text', text: { body: 'hi again' } }, phone: from });
+  assert.equal(sent.filter((s) => s.type === 'catalog_message').length, 1);
+});
+
 test('a bot with no catalogWelcome configured sends no catalog message and processes the first message normally', async () => {
   const sent = [];
   const bot = new ConfigBot(
