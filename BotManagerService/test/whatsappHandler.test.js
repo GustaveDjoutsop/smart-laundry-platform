@@ -197,12 +197,15 @@ test('POST /api/whatsapp/webhook still ignores a genuinely empty non-message eve
   assert.equal(enqueued.length, 0);
 });
 
-// Regression coverage for diagnosing the request_welcome silent-drop
-// mystery (see docs/requirements/afromarket.md v2.21): a `message` present
-// with no usable identifier (from/contacts[].wa_id/user_id all empty -
-// the suspected real shape of a request_welcome event) must be logged, not
-// just silently dropped the way it was before this fix, so the actual
-// payload shape is finally visible in production logs.
+// Regression coverage for the general "message present but no usable
+// identifier" guard (see docs/requirements/afromarket.md v2.21/v2.22) - a
+// `message` with from/contacts[].wa_id/user_id all empty must be logged,
+// not silently dropped, so an unfamiliar payload shape is visible in
+// production logs instead of vanishing with no trace. Uses a
+// `request_welcome`-shaped payload as the example (that was the original
+// trigger for adding this guard, before Meta's removal of the
+// request_welcome event itself was confirmed as the real root cause) - the
+// guard itself is generic and not specific to that event type.
 test('POST /api/whatsapp/webhook logs the full value when a message is present but has no usable identifier, instead of silently dropping it', async (t) => {
   registerTestBot();
 
