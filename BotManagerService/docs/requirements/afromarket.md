@@ -1,5 +1,46 @@
 # AfroMarket WhatsApp Bot
 
+## v2.25 (2026-08-16): all 4 pending templates now APPROVED on both WABAs
+
+Checked via `scripts/checkTemplateStatus.js` against both WABAs (not
+assumed from the last-known `PENDING` status recorded when each was
+submitted):
+
+- `afromarket_restaurants_v2` - APPROVED (sandbox id `1256941286482149`,
+  production id `2188265671958576`) - already confirmed in v2.14, still
+  approved.
+- `afromarket_partner_stores_v2` - **now APPROVED** (sandbox id
+  `1075297564846605`, production id `1931253917551627`) - was `PENDING` as
+  of v2.11's submission.
+- `afromarket_promo_v1` (Variant A, no code) - **now APPROVED** (sandbox id
+  `1532686888903765`, production id `1368662388709270`) - was `PENDING` as
+  of v2.17's submission.
+- `afromarket_promo_code_v1` (Variant B, with code) - **now APPROVED**
+  (sandbox id `2319403952198773`, production id `1733157687904263`) - was
+  `PENDING` as of v2.17's submission.
+
+**What "approved" actually unlocks, checked per template** (approval alone
+doesn't mean a template is in active use - see v2.14's own caveat about
+this):
+
+- Both carousels (`afromarket_restaurants_v2`, `afromarket_partner_stores_v2`)
+  are referenced directly in `configs/bots/afromarket.bot.json` (lines 546,
+  711) and already wired into the live flow - now that they're approved,
+  they should just work end-to-end for real customers without further
+  changes.
+- `afromarket_promo_v1`: the *receiving* side is wired (tapping its
+  quick-reply button correctly routes to the discounted cart via
+  `FlowEngine.matchPayloadTrigger`/`payloadTriggers`), but nothing in the
+  codebase currently **sends** this template to a customer - grepped
+  `src/`/`configs/` for the template name and found no call site. Promo
+  blasts are business-initiated marketing sends, not something the bot
+  triggers automatically in response to a message, so this is expected -
+  worth noting as a real gap only if/when an automated promo-sending
+  trigger (scheduled, admin-command, etc.) is actually wanted.
+- `afromarket_promo_code_v1`: approved but not wired into anything, per
+  v2.17's own note (built "per explicit instruction, not wired into live
+  sending").
+
 ## v2.24 (2026-08-16): first contact showed catalog + normal flow stacked
 ## together; QR code now prefills a message; Ice Breakers re-enabled
 
