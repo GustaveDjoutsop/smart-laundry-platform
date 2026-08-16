@@ -1,5 +1,139 @@
 # AfroMarket WhatsApp Bot
 
+## v2.23 (2026-08-16): root cause found - Meta removed request_welcome
+## entirely; replaced with catalog-on-first-message, dead code removed
+
+**Root cause, confirmed against Meta's own official changelog** (not
+third-party docs, learning v2.16's own stated lesson the hard way):
+
+> **Mar 27, 2026 - Cloud API, Conversational Components:** "Removed the
+> `request_welcome` webhook and welcome message feature from conversational
+> components. **This feature is no longer supported.** The
+> `enable_welcome_message` parameter has been removed from the
+> Conversational Automation API."
+
+`ConfigBot._handleRequestWelcome` (v2.16, built 2026-08-13/14) targeted a
+mechanism Meta had already killed **4.5 months earlier**. This fully
+explains every symptom chased across v2.16-v2.22: `GET
+.../conversational_automation` now 404s ("(#100) Tried accessing
+nonexisting field"); zero webhook traffic ever reached `production` across
+two live tests in this session; and v2.19's `enable_welcome_message: true`
+confirmation was reading/writing a field that no longer does anything
+functional. Meta's replacement, "Welcome Message Sequences" (added Aug 11,
+2025), only covers Click-to-WhatsApp ads - not organic wa.me/QR-code/
+business-profile entry, so it wouldn't have covered AfroMarket's actual
+customer paths even if adopted.
+
+**The business owner's own 2026-08-14 screenshot** (chat showing the
+catalog message ~16:38, after a 15:29 test send) initially looked like
+counter-evidence, live on `dev`. Resolved by reading `dev`'s raw Railway
+logs for that exact window: two `POST /api/whatsapp/webhook 200` calls did
+land at 16:38:38 (~13ms/~9ms, no errors) - but neither produced
+`ConfigBot.handleMessage`'s unconditional log line (`handled message
+from...` or `sent catalog welcome message...`), which appears nowhere in
+`dev`'s logs across the full 7-day retention window covering the feature's
+entire lifetime. Conclusion: those two webhook calls were outbound
+delivery-status receipts (sent/delivered), not inbound `request_welcome` -
+generated because *something* called `sendCatalogMessage()` directly against
+the real API outside the app (a Claude Code session manually verifying the
+send mechanism, matching `5e84695`'s own commit message: "Live-verified
+against the real API"), not because Meta delivered the event.
+
+**Fix**: there is no way left to react to a customer opening the chat
+before they type anything - that door is closed platform-side, permanently.
+The closest achievable substitute, and what's now shipped: send
+`catalogWelcome` once on the customer's **genuine first message**, then let
+that same message continue through the flow engine as normal. Reliable by
+construction - it depends on nothing Meta can deprecate out from under it
+again, and covers every entry path (wa.me, QR code, business profile, CTWA
+ads) uniformly instead of only one Meta-blessed trigger. A failed catalog
+send (e.g. a transient Graph API error) is caught and logged, never blocking
+the customer's actual message from being answered.
+
+**First draft of this fix used the flow engine's own `conv:{botId}:{from}`
+Redis key to detect "new customer" - a subagent review before commit caught
+two real problems with that**: (1) `AfroMarketBot._handleNativeOrder`
+persists that exact key *before* calling `super.handleMessage()`, so a
+customer whose first-ever contact is a native WhatsApp cart submission
+(not plain text) would look like a returning customer and never get
+welcomed; (2) two concurrent deliveries of the same new customer's first
+message (Meta documents at-least-once webhook redelivery) could both read
+"no state" and both send the catalog card. **Shipped instead**: a dedicated
+`catalog_welcome_sent:{botId}:{from}` key, claimed atomically via
+`redisManager.setnx` (already existed in the codebase, just unused here) -
+independent of whatever the flow engine or other code paths do with
+conversation state, and immune to the race since only one `setnx` call can
+win the claim. TTL set to 90 days (deliberately longer than the
+conversation-state TTL) so this behaves as "once, effectively permanently"
+rather than re-welcoming a customer who's merely gone quiet for a while.
+Both scenarios now have dedicated regression tests. Residual, accepted risk:
+a genuine Redis outage could still cause an extra catalog send if a customer
+messages again during it (setnx fails soft to a per-process fallback) -
+judged acceptable rather than gating the send on `redisManager.connected`,
+which would silently disable it for any local/dev setup without real Redis.
+
+**Removed as dead code**: `ConfigBot._handleRequestWelcome`, the
+`request_welcome` type-check in `handleMessage`, `scripts/
+setConversationalAutomation.js` (POSTs to a Graph API field that no longer
+exists), and `test/configBotRequestWelcome.test.js`. Replaced by
+`ConfigBot._sendCatalogWelcome` and `test/configBotCatalogWelcome.test.js`.
+`whatsappHandler.js`'s "message present but no usable identifier" guard
+(v2.21) stays - it's a generic safety net, not specific to `request_welcome`
+- comment updated to not perpetuate the now-resolved theory. 334/334 tests
+passing.
+
+## v2.22 (2026-08-16): production was silently 2 days stale - v2.21's fix was
+## never live; redeployed and retested, no webhook traffic arrives at all
+
+Before v2.21's `shapeOf()` logging could be observed against a real event,
+checked whether it had actually reached production. It hadn't:
+**`production`'s active Railway deployment was still PR #97 (merged
+2026-08-14 14:28), four merges behind `master`** - including v2.21's own
+logging commit (`91e6afb`, merged that same morning), the
+`setConversationalAutomation.js` endpoint fix (`ba72969`), and the
+production-catalog-support commit (`2716c5c`). Root cause: `production`'s
+GitHub branch connection has **"Auto deploy" disabled** (Railway service
+settings → Source), contrary to what `DEPLOYMENT.md` documented at the
+time ("both environments auto-deploy on every push to `master`") - that
+claim was simply wrong for `production`, corrected in the same session.
+Nothing merged to `master` reaches real customers until someone manually
+runs Railway's command-palette "Deploy latest commit" action; see
+`DEPLOYMENT.md` §2a (new) for the exact steps.
+
+**Deployed `master` HEAD (`91e6afb`) to production manually** and confirmed
+via Railway's Deployments tab (`ACTIVE`, "Deployment successful", old PR #97
+moved to `HISTORY`/`REMOVED`).
+
+**Retested live twice** - once immediately before this deploy, once ~40s
+after it went `ACTIVE` - both via WhatsApp Web
+(`web.whatsapp.com/send?phone=4915905495011`) opening a chat with zero
+prior message history, no "Hi" sent either time. **Both times: zero webhook
+traffic reached `production` at all** - not just no catalog message, but
+literally no `POST /api/whatsapp/webhook` line in Deploy Logs or Network
+Logs for the entire window, confirmed by scrolling Railway's logs to their
+actual tail (container start → healthcheck → nothing else, for the
+post-deploy run). This rules out v2.21's "arrives but gets silently
+swallowed by the empty-message guard" theory for *this specific trigger
+path* - there was nothing to swallow, `shapeOf()` never had anything to log
+because the request never arrived.
+
+**Leading hypothesis now shifts**: either (a) Meta genuinely isn't
+delivering `request_welcome` to this WABA's webhook at all (a subscription
+or entitlement issue upstream of the app - still can't confirm via
+`GET /{app-id}/subscriptions`, still blocked on `WHATSAPP_APP_SECRET` not
+being set), or (b) opening a chat via WhatsApp Web's `/send?phone=` flow
+from an already-registered WhatsApp Business account isn't a
+`request_welcome`-qualifying entry point at all, and only genuine
+first-open paths (wa.me on a fresh mobile client, business-profile
+"Message" button, click-to-WhatsApp ad) trigger it - which would mean
+neither of this session's two tests, nor the business owner's own earlier
+wa.me-link test (v2.21), actually exercised the failure condition
+correctly, and the real event has still never been observed.
+**Not resolved either way** - next step is either fixing the
+`WHATSAPP_APP_SECRET` gap to inspect subscriptions directly, or getting a
+genuinely fresh mobile client (not WhatsApp Web, not this session's
+account) to open the chat while watching Railway logs live.
+
 ## v2.21 (2026-08-16): request_welcome still silently produces nothing for a
 ## genuinely first-time customer - added diagnostic logging, root cause not
 ## yet confirmed

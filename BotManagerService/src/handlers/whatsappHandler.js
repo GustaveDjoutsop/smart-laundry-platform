@@ -105,14 +105,15 @@ const whatsappHandler = {
       if (!phoneNumberId || !message || !from) {
         // A `message` is present but got dropped anyway - almost certainly
         // because `from`/contacts[].wa_id/user_id came back empty for this
-        // event's type. This is the exact suspected shape of Meta's
-        // request_welcome event (see ConfigBot._handleRequestWelcome/
-        // docs/requirements/afromarket.md v2.16) - its real raw payload has
-        // never been captured, only guessed at from third-party
-        // documentation. Log the payload's structure (field names/nesting,
-        // never actual values - see shapeOf's comment) so the real shape is
-        // visible in production logs the next time this fires, instead of
-        // silently vanishing with no trace the way it has been - see v2.21.
+        // event's type. Originally added to catch Meta's `request_welcome`
+        // event (see docs/requirements/afromarket.md v2.21/v2.22) - that
+        // theory turned out to be wrong (Meta removed request_welcome
+        // entirely on 2026-03-27; see ConfigBot.handleMessage's comment),
+        // but the guard stays as a general safety net for any other
+        // unfamiliar webhook shape. Log the payload's structure (field
+        // names/nesting, never actual values - see shapeOf's comment) so an
+        // unexpected shape is visible in production logs instead of
+        // silently vanishing with no trace.
         if (message) {
           logger.warn('Webhook message present but missing a usable identifier - dropped without processing', {
             phoneNumberId,
