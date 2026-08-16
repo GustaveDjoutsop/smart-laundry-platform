@@ -1,5 +1,86 @@
 # AfroMarket WhatsApp Bot
 
+## v2.24 (2026-08-16): first contact showed catalog + normal flow stacked
+## together; QR code now prefills a message; Ice Breakers re-enabled
+
+Business owner live-tested v2.23's fix on production and reported the
+customer's first "Hi" produced **two** messages back to back: the catalog
+welcome card, immediately followed by the normal flow engine's own
+`welcome` list response ("Welcome to AfroMarket! ... What can we help you
+with today?"). Working as coded, not as intended - `ConfigBot.handleMessage`
+sent the catalog and then *still* ran the same message through
+`flowEngine.step()`, which produces its own greeting regardless.
+
+**Fixed**: a customer's genuine first contact now gets the catalog welcome
+*only* - `handleMessage` returns immediately after a successful catalog
+send, skipping the flow engine (and conversation-state persistence) for
+that turn. Mirrors the old `request_welcome` design's own intent more
+closely than v2.23 did (it never touched flow state either - wasn't a real
+conversation turn). The flow engine's own welcome/menu only appears from
+the customer's *next* interaction onward. A failed catalog send still falls
+through to the flow engine as a fallback (`_sendCatalogWelcome` now returns
+a success boolean) - a missed catalog card beats silence, but a
+*successful* one no longer gets a redundant second message stacked on top.
+
+**Second bug caught by a subagent review before this shipped**: the naive
+"skip the flow engine on a successful catalog send" rule breaks
+`AfroMarketBot._handleNativeOrder`, which stages real work (a submitted
+cart, `checkout_start` state) in `conv:{botId}:{from}` *before* calling
+`super.handleMessage()`. If that customer's native-cart submission also
+happened to be their first-ever contact, the early return would have
+silently stranded their order - no checkout continuation, no error, no
+trace, just gone. Fixed by checking whether `conversationState` already had
+a non-null `currentFlowId` (i.e. another code path staged real work) before
+deciding to skip the flow engine - if so, the flow engine still runs this
+turn regardless of whether the catalog also sent, so an order is never
+lost even at the cost of one extra catalog card alongside it. New test
+covers this exact scenario end-to-end (pre-staged checkout + first-contact
+catalog claim; asserts both the catalog sends AND the checkout actually
+advances past `checkout_start`, not just that a catalog message went out).
+335/335 tests passing.
+
+**Separately, chased down what's actually achievable for the "scan QR code
+→ content appears automatically" ask** (the business owner initially
+proposed doing this via an approved Message Template on the Messages
+endpoint - confirmed via research this doesn't work: Templates solve a
+different problem, re-engaging an *already-known* contact outside the 24h
+window, not reaching someone whose phone number the business doesn't have
+yet). Two things verified and shipped instead:
+
+1. **QR code regenerated with a prefilled message**, via WhatsApp's own QR
+   Code Management API (`POST /{phone-number-id}/message_qrdls`,
+   `prefilled_message: "Show me the catalog"`). Live-verified via the
+   resulting `wa.me/message/{code}` deep link: opens with the message
+   already typed in the compose box - one tap to send instead of the
+   customer having to type something themselves. Not truly zero-tap (WhatsApp
+   never auto-sends without an explicit tap - confirmed, not assumed), but
+   the closest the platform allows. Saved as
+   `afromarket-whatsapp-qr-prefilled.png`, not yet swapped in for the
+   existing printed/shared QR code pending business owner confirmation.
+2. **Ice Breakers (`conversational_automation.prompts`) confirmed still
+   live and functional** - unlike `enable_welcome_message`, Meta's Mar 27
+   changelog entry never mentions removing these, and they don't depend on
+   the dead `request_welcome` webhook at all (tapping one just sends that
+   exact text as a completely normal, still-fully-supported message).
+   Set live on production: "Show catalog", "Get recipe ideas", "Current
+   promo", "AfroMarket Store". **Real platform limitation hit and worked
+   around**: the requested emoji (🛒🍲🎉🏪) get silently corrupted to the
+   Unicode replacement character by this specific Graph API field -
+   confirmed via direct API round-trip (POST then GET), isolated to emoji
+   specifically (plain symbols like `☆` persist fine, `❤` doesn't - not a
+   simple BMP/astral-plane split). Shipped as plain text instead of
+   guessing further.
+
+**Open product question, not yet resolved**: with the current design, *any*
+first message - including an Ice Breaker tap - triggers the catalog-only
+response, regardless of what the customer actually tapped/typed. A
+first-time customer tapping "Get recipe ideas" or "Current promo" would see
+the generic catalog card, not recipe/promo content, and would need to
+interact again to reach it. Whether that's acceptable or those three
+Ice Breakers need to route to their specific content even on a genuine
+first contact is a decision for the business owner, not something assumed
+here.
+
 ## v2.23 (2026-08-16): root cause found - Meta removed request_welcome
 ## entirely; replaced with catalog-on-first-message, dead code removed
 

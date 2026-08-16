@@ -2,13 +2,16 @@
 // behavior. Replaces the old request_welcome-triggered mechanism, which
 // depended on a Meta webhook event removed from the platform on
 // 2026-03-27 ("this feature is no longer supported", per Meta's own
-// changelog) - see docs/requirements/afromarket.md v2.23 for the full
+// changelog) - see docs/requirements/afromarket.md v2.23/v2.24 for the full
 // root-cause writeup. The closest achievable substitute: send
 // catalogWelcome once, on a customer's genuine first message, tracked via
 // a dedicated `catalog_welcome_sent:{botId}:{from}` claim key (not the flow
 // engine's own `conv:{botId}:{from}` state - see ConfigBot.handleMessage's
-// comment for why), then continue routing that same message through the
-// flow engine as normal.
+// comment for why). Per product decision (v2.24, after production showed
+// both the catalog AND the normal flow welcome stacked on the same first
+// message): the customer's genuine first contact gets ONLY the catalog -
+// the flow engine doesn't run at all that turn. The normal flow/menu
+// response only appears from the customer's next interaction onward.
 process.env.STRIPE_SECRET_KEY = 'sk_test';
 process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
 process.env.STRIPE_SUCCESS_URL = 'https://afromarket.example.com/payment-return';
@@ -46,18 +49,17 @@ function createAfroMarketBot(t) {
   return { bot, sent };
 }
 
-test('a genuinely new customer\'s first message gets the catalog welcome before the normal flow response', async (t) => {
+test('a genuinely new customer\'s first message gets ONLY the catalog welcome, not the normal flow response', async (t) => {
   const { bot, sent } = createAfroMarketBot(t);
   const from = nextFrom();
 
   await bot.handleMessage({ from, message: { type: 'text', text: { body: 'hi' } }, phone: from });
 
-  assert.equal(sent.length, 2);
+  assert.equal(sent.length, 1);
   assert.equal(sent[0].type, 'catalog_message');
   assert.equal(sent[0].to, from);
   assert.match(sent[0].body, /K-AfroMarket/);
   assert.equal(sent[0].thumbnailProductRetailerId, 'bouillie_jaune_500g');
-  assert.equal(sent[1].type, 'list');
 });
 
 test('a returning customer with existing conversation state does not get the catalog welcome again', async (t) => {
@@ -72,16 +74,23 @@ test('a returning customer with existing conversation state does not get the cat
   assert.equal(sent.filter((s) => s.type === 'catalog_message').length, 0);
 });
 
-test('the customer\'s first message still routes through the flow engine and persists conversation state', async (t) => {
-  const { bot } = createAfroMarketBot(t);
+test('the flow engine (and conversation-state persistence) only kicks in from the customer\'s second message onward', async (t) => {
+  const { bot, sent } = createAfroMarketBot(t);
   const from = nextFrom();
 
   await bot.handleMessage({ from, message: { type: 'text', text: { body: 'hi' } }, phone: from });
+  const stateAfterFirst = await redisManager.get(`conv:${afromarketBotConfig.botId}:${from}`);
+  assert.equal(stateAfterFirst, undefined, 'the catalog-only first turn should not touch flow-engine state');
 
-  const stored = await redisManager.get(`conv:${afromarketBotConfig.botId}:${from}`);
-  assert.ok(stored, 'conversation state should be persisted after the first message');
-  const state = JSON.parse(stored);
-  assert.equal(state.currentFlowId, 'main_menu');
+  sent.length = 0;
+  await bot.handleMessage({ from, message: { type: 'text', text: { body: 'hi again' } }, phone: from });
+
+  assert.equal(sent.filter((s) => s.type === 'catalog_message').length, 0);
+  assert.equal(sent.filter((s) => s.type === 'list').length, 1);
+
+  const stateAfterSecond = await redisManager.get(`conv:${afromarketBotConfig.botId}:${from}`);
+  assert.ok(stateAfterSecond, 'conversation state should be persisted once the flow engine actually runs');
+  assert.equal(JSON.parse(stateAfterSecond).currentFlowId, 'main_menu');
 });
 
 // Regression test for a Copilot review comment on the PR: if the WhatsApp
@@ -134,16 +143,22 @@ test('a failed catalog welcome send does not block the customer\'s first message
   assert.equal(sent[0].type, 'list');
 });
 
-// Regression test for a real bug caught in review: AfroMarketBot._handleNativeOrder
-// persists `conv:{botId}:{from}` state *before* calling super.handleMessage() -
-// so a customer whose first-ever contact is a native WhatsApp cart submission
-// (not plain text) would look like a "returning customer" if the catalog-welcome
-// check were keyed off that same conversation-state key, and would never get
-// welcomed. Simulates the same precondition directly (state already exists for a
-// `from` that has never received a catalog welcome) without needing the full
-// native-order/Stripe code path, to isolate exactly the invariant that matters:
-// the catalog-welcome claim must be independent of conversation state.
-test('a customer whose conversation state already exists from another code path still gets the catalog welcome on their first ConfigBot.handleMessage call', async (t) => {
+// Regression test for two real bugs caught in review, both around
+// AfroMarketBot._handleNativeOrder persisting `conv:{botId}:{from}` state
+// (a submitted cart, staged for checkout) *before* calling
+// super.handleMessage():
+// 1. The catalog-welcome claim must be independent of conversation state -
+//    otherwise this customer would look like a "returning customer" and
+//    never get welcomed at all.
+// 2. Once the catalog-only-first-message short-circuit was added (v2.24),
+//    a second bug appeared: skipping the flow engine on a successful
+//    catalog send would silently strand this exact staged checkout -
+//    the customer's real order would just vanish, no error, no trace.
+// Simulates the precondition directly (state already exists for a `from`
+// that has never received a catalog welcome) without needing the full
+// native-order/Stripe code path, to isolate both invariants at once: the
+// welcome still sends, AND the pre-staged checkout still gets processed.
+test('a customer whose conversation state already exists from another code path gets the catalog welcome AND still has that pre-staged work processed', async (t) => {
   const { bot, sent } = createAfroMarketBot(t);
   const from = nextFrom();
 
@@ -151,12 +166,21 @@ test('a customer whose conversation state already exists from another code path 
   await redisManager.setex(
     `conv:${afromarketBotConfig.botId}:${from}`,
     appConfig.redis.ttlSeconds,
-    JSON.stringify({ currentFlowId: 'main_menu', currentStateId: 'checkout_start', context: { cart: [] } })
+    JSON.stringify({ currentFlowId: 'main_menu', currentStateId: 'checkout_start', context: { cart: [{ productId: 'ndole_250g', qty: 1 }] } })
   );
 
   await bot.handleMessage({ from, message: { type: 'text', text: { body: 'hi' } }, phone: from });
 
   assert.equal(sent.filter((s) => s.type === 'catalog_message').length, 1);
+  // checkout_start (an action state, no saved profile in test) advances to
+  // checkout_name, which - in the same turn - consumes this message's "hi"
+  // as the name input and advances again to checkout_address, prompting
+  // for the delivery address. Proof the flow engine actually ran this turn
+  // (multiple states deep) instead of being skipped entirely.
+  assert.ok(sent.some((s) => s.type === 'text' && /delivery address/.test(s.body)), 'the staged checkout should still advance through the flow, not get stranded');
+
+  const stored = await redisManager.get(`conv:${afromarketBotConfig.botId}:${from}`);
+  assert.equal(JSON.parse(stored).currentStateId, 'checkout_address', 'conversation state should have advanced past checkout_start, not stayed stranded');
 });
 
 // Regression test for the duplicate-delivery race caught in review: Meta
