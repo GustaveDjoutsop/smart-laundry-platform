@@ -9,6 +9,27 @@ function getQueryParam(req, key) {
   return req && req.query ? req.query[key] : undefined;
 }
 
+// Structural shape only - field names, nesting, array lengths, primitive
+// types - never actual values. Needed because logger.js's redact() only
+// catches "+"-prefixed phone numbers via regex, and WhatsApp's own webhook
+// payloads carry raw digit-only numbers (no "+") plus the customer's real
+// profile name - logging the raw payload verbatim (as an earlier version
+// of this diagnostic did) would put that PII in cleartext production logs.
+// Enough to diagnose an unfamiliar event's shape without ever printing
+// what a customer said or who they are - see docs/requirements/
+// afromarket.md v2.21.
+function shapeOf(value, depth = 0) {
+  if (depth > 4) return '…';
+  if (value === null) return 'null';
+  if (Array.isArray(value)) {
+    return { length: value.length, item: value.length ? shapeOf(value[0], depth + 1) : null };
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).map((key) => [key, shapeOf(value[key], depth + 1)]));
+  }
+  return typeof value;
+}
+
 const whatsappHandler = {
   verify: (req, res) => {
     const mode = getQueryParam(req, 'hub.mode');
@@ -82,6 +103,23 @@ const whatsappHandler = {
       const identifierType = phone ? 'phone' : bsuid ? 'bsuid' : null;
 
       if (!phoneNumberId || !message || !from) {
+        // A `message` is present but got dropped anyway - almost certainly
+        // because `from`/contacts[].wa_id/user_id came back empty for this
+        // event's type. This is the exact suspected shape of Meta's
+        // request_welcome event (see ConfigBot._handleRequestWelcome/
+        // docs/requirements/afromarket.md v2.16) - its real raw payload has
+        // never been captured, only guessed at from third-party
+        // documentation. Log the payload's structure (field names/nesting,
+        // never actual values - see shapeOf's comment) so the real shape is
+        // visible in production logs the next time this fires, instead of
+        // silently vanishing with no trace the way it has been - see v2.21.
+        if (message) {
+          logger.warn('Webhook message present but missing a usable identifier - dropped without processing', {
+            phoneNumberId,
+            messageType: message.type || null,
+            valueShape: shapeOf(value)
+          });
+        }
         return res.status(200).json({ ok: true }); // Ignore non-message events
       }
 
