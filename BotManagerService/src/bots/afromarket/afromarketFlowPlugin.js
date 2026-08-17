@@ -3,6 +3,32 @@ const { FlowPlugin } = require('../../core/flows/flowPlugin');
 const { getPaymentService } = require('../../core/payments/paymentService');
 const { CustomerProfileStore } = require('../../core/customers/customerProfileStore');
 const { logger } = require('../../utils/logger');
+const { extractMessageId, getCarouselFooterDelayMs } = require('../../core/flows/flowEngine');
+const { messageStatusWaiter } = require('../../core/whatsapp/messageStatusWaiter');
+
+// Same mechanism as flowEngine.js's waitForCarouselDelivery (blocks on
+// WhatsApp's delivery-status webhook for messageId, or a bounded timeout
+// fallback when there's nothing to correlate a webhook to) - reimplemented
+// locally rather than reused directly because that helper's own timeout log
+// line hardcodes "carousel/card message" wording, which would misleadingly
+// point anyone debugging a real promo-delivery problem at the wrong feature
+// (caught in review). Same never-rejects contract as the original.
+async function waitForPromoTemplateDelivery(messageId, timeoutMs) {
+  if (!messageId) {
+    await new Promise((resolve) => {
+      setTimeout(resolve, timeoutMs);
+    });
+    return;
+  }
+
+  const { timedOut } = await messageStatusWaiter.waitFor(messageId, timeoutMs);
+  if (timedOut) {
+    logger.warn('AfroMarket: no delivery status for promo template before follow-up options send, proceeding after timeout', {
+      messageId,
+      timeoutMs
+    });
+  }
+}
 
 function formatEuro(amount) {
   const value = Number(amount) || 0;
@@ -513,8 +539,20 @@ class AfroMarketFlowPlugin extends FlowPlugin {
 
     const percentOff = computePercentOff(product);
 
+    // Tracks whether the template send itself succeeded, separately from
+    // the try/catch below - mirrors flowEngine.js's own carouselSent flag
+    // for the identical carousel-then-footer race. Keeps the delivery wait
+    // (below, outside the try) from ever running inside the same try/catch
+    // as the send: messageStatusWaiter's wait never rejects today (see its
+    // own file), but coupling them would silently mean "a successful send
+    // followed by a hypothetical future throw from the wait" falls into the
+    // catch and fires a duplicate/contradictory text fallback after the
+    // template already went out - not just a wasted wait.
+    let templateSent = false;
+    let sentMessageId = null;
+
     try {
-      await ctx.send({
+      const sendResult = await ctx.send({
         type: 'promo_template',
         to: ctx.from,
         templateName: 'afromarket_promo_v1',
@@ -524,6 +562,8 @@ class AfroMarketFlowPlugin extends FlowPlugin {
         imageLink: product.imageUrl,
         quickReplyPayload: `promo_add:${product.id}:${percentOff}`
       });
+      templateSent = true;
+      sentMessageId = extractMessageId(sendResult);
     } catch (err) {
       // Same discipline as _handleShopEntry/_handleCheckout's payment-link
       // fallback: a failed template send (disapproved, throttled WABA,
@@ -540,6 +580,27 @@ class AfroMarketFlowPlugin extends FlowPlugin {
         to: ctx.from,
         body: `🎉 *This week's deal*\n\n${product.name} — ${percentOff}% off (${formatEuro(Number(product.salePriceEur))})!`
       });
+    }
+
+    if (templateSent) {
+      // A template with a header image goes through Meta's own async media
+      // upload + template hydration before it's actually delivered to the
+      // device - measurably slower than the plain interactive buttons
+      // message current_promo_followup sends right after it. Live-tested on
+      // dev: without this wait, the follow-up buttons ("What would you like
+      // to do next?") reliably rendered on the customer's phone a full
+      // ~30-60s *before* the promo template it's supposed to follow, even
+      // though both were sent in the correct order server-side within the
+      // same turn. Same fix already proven for flowEngine.js's carousel-
+      // then-footer race, via the same mechanism (see
+      // waitForPromoTemplateDelivery above for why it's a local copy, not a
+      // direct call to that one) - blocks on WhatsApp's delivery-status
+      // webhook for this specific message, or the same bounded timeout as a
+      // fallback. Deliberately outside the try/catch above (and gated on
+      // templateSent, not just "did this throw") - a text fallback carries
+      // no image/hydration delay to guard against, so there's nothing to
+      // wait for on that path.
+      await waitForPromoTemplateDelivery(sentMessageId, getCarouselFooterDelayMs());
     }
 
     ctx.goto('current_promo_followup');

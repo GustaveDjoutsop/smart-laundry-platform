@@ -634,6 +634,67 @@ test('AfroMarket: current promo falls back to a text summary if the template sen
   assert.match(result.outboundIntents[2].body, /What would you like to do next/);
 });
 
+// Regression test for a real bug caught live on dev: the promo template's
+// header image goes through Meta's own async media upload + hydration, so
+// it reliably rendered on the customer's device *after* the plain
+// current_promo_followup buttons message, even though both were sent in
+// the correct order server-side within the same turn (confirmed via
+// Railway logs: both sends completed within the same second). Same fix
+// already proven for flowEngine.js's carousel-then-footer race (see the
+// "footer-before-carousel ordering bug" test above) - proves the follow-up
+// buttons wait on the promo template's own delivery-status webhook instead
+// of firing immediately, by setting the fallback timeout absurdly high
+// (30s): if the wait still fell through to a fixed sleep instead of the
+// webhook, this test would hang for 30s instead of completing almost
+// instantly.
+test('AfroMarket: current promo waits for the template\'s delivery status before sending follow-up options, so they can\'t race ahead of it', async (t) => {
+  const { messageStatusWaiter } = require('../src/core/whatsapp/messageStatusWaiter');
+  const previousDelay = process.env.CAROUSEL_FOOTER_DELAY_MS;
+  process.env.CAROUSEL_FOOTER_DELAY_MS = '30000';
+  t.after(() => {
+    process.env.CAROUSEL_FOOTER_DELAY_MS = previousDelay;
+    messageStatusWaiter.reset();
+  });
+
+  const flowEngine = new FlowEngine({ botConfig, plugin: new AfroMarketFlowPlugin({ botConfig }) });
+  let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
+  const step = async (text, send) => {
+    const outboundIntents = [];
+    ({ state: conversationState } = await flowEngine.step({
+      from: '+33600000099',
+      phone: '+33600000099',
+      message: { text: { body: text } },
+      state: conversationState,
+      send: send || (async (outboundIntent) => outboundIntents.push(outboundIntent))
+    }));
+    return { outboundIntents, conversationState };
+  };
+
+  await step('hi');
+
+  const events = [];
+  const start = Date.now();
+  await step('current_promo', async (outboundIntent) => {
+    if (outboundIntent.type === 'promo_template') {
+      events.push('promo-template-send-resolved');
+      // Simulate the real webhook: WhatsApp reports the message as "sent"
+      // shortly after the send API call itself returns.
+      setImmediate(() => {
+        events.push('status-webhook');
+        messageStatusWaiter.notify('wamid.test-promo-template', 'sent');
+      });
+      return { messages: [{ id: 'wamid.test-promo-template' }] };
+    }
+
+    events.push(`${outboundIntent.type}-send`);
+    return {};
+  });
+  const elapsedMs = Date.now() - start;
+
+  assert.ok(elapsedMs < 1000, `expected the follow-up to fire on the status webhook, not the 30s fallback timer (took ${elapsedMs}ms)`);
+  assert.deepEqual(events, ['promo-template-send-resolved', 'status-webhook', 'buttons-send']);
+});
+
 test('AfroMarket: production hides Partner Stores and shows the Steinheim delivery-only message', async () => {
   // No physical store or real partner stores exist yet - dev keeps the
   // placeholder Berlin store + partner carousel unchanged (CONFIG_ENV
