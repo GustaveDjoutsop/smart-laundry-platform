@@ -286,6 +286,19 @@ class ConfigBot extends BaseBot {
       });
     }
 
+    if (outboundIntent.type === 'promo_template') {
+      return this.whatsapp.sendPromoTemplate({
+        to: outboundIntent.to,
+        templateName: outboundIntent.templateName,
+        languageCode: outboundIntent.languageCode,
+        percentOff: outboundIntent.percentOff,
+        productName: outboundIntent.productName,
+        imageLink: outboundIntent.imageLink,
+        imageMediaId: outboundIntent.imageMediaId,
+        quickReplyPayload: outboundIntent.quickReplyPayload
+      });
+    }
+
     logger.warn('Unsupported outbound intent', outboundIntent);
   }
 

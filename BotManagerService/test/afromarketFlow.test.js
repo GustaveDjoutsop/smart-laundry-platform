@@ -513,12 +513,36 @@ test('AfroMarket: every recipe in recipeIngredients maps to real product ids', (
   }
 });
 
-test('AfroMarket: current promo, restaurant info and store info are reachable and loop back', async () => {
+// Regression test for a real bug: "Current promo" used to send a static
+// hardcoded blurb unrelated to whatever the catalog actually showed on
+// sale. It must now send the approved afromarket_promo_v1 template for
+// whichever product has a salePriceEur set, with the percentage derived
+// from that same field - see findCurrentPromoProduct/computePercentOff -
+// so it can never drift from the catalog's own sale_price display.
+test('AfroMarket: current promo sends the approved promo template aligned with catalog pricing, then follow-up options; restaurant info and store info are reachable and loop back', async () => {
   const step = createStepper();
 
   await step('hi');
   let result = await step('current_promo');
-  assert.match(result.outboundIntents[0].body, /New in the shop/);
+  assert.equal(result.outboundIntents.length, 2);
+
+  const [promoIntent, followupIntent] = result.outboundIntents;
+  assert.equal(promoIntent.type, 'promo_template');
+  assert.equal(promoIntent.templateName, 'afromarket_promo_v1');
+  assert.equal(promoIntent.productName, 'Bouillie Jaune – Sèche 500g');
+  assert.equal(promoIntent.imageLink, 'https://legal.botmanagementservice.eu/products/afromarket-bouillie-jaune-500g.png');
+  // 4.99 -> 3.99 is a ~20.04% discount; must match the whole-number percent
+  // _handleAddDiscounted will later recompute from the same payload.
+  assert.equal(promoIntent.percentOff, 20);
+  assert.equal(promoIntent.quickReplyPayload, 'promo_add:bouillie_jaune_500g:20');
+
+  assert.equal(followupIntent.type, 'buttons');
+  assert.match(followupIntent.body, /What would you like to do next/);
+  assert.deepEqual(
+    followupIntent.buttons.map((b) => b.id),
+    ['shop_online', 'recipes', 'menu']
+  );
+
   result = await step('menu');
   assert.equal(result.outboundIntents[0].type, 'list');
 
@@ -526,6 +550,79 @@ test('AfroMarket: current promo, restaurant info and store info are reachable an
   assert.match(result.outboundIntents[0].body, /AfroMarket Store/);
   assert.match(result.outboundIntents[0].body, /Gewürzstraße/);
   assert.match(result.outboundIntents[0].body, /Opening Hours/);
+});
+
+// Regression test for the fallback path: if no product currently has a
+// salePriceEur set, "Current promo" must not send a promo template with
+// nothing to actually announce - it degrades to the same "what's new"
+// message this menu option always showed before this fix.
+test('AfroMarket: current promo falls back to the "what\'s new" message when no product is on sale', async () => {
+  const noSaleBotConfig = JSON.parse(JSON.stringify(botConfig));
+  for (const product of noSaleBotConfig.products) {
+    delete product.salePriceEur;
+  }
+
+  const flowEngine = new FlowEngine({ botConfig: noSaleBotConfig, plugin: new AfroMarketFlowPlugin({ botConfig: noSaleBotConfig }) });
+  let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
+  const step = async (text) => {
+    const outboundIntents = [];
+    ({ state: conversationState } = await flowEngine.step({
+      from: '+33600000000',
+      phone: '+33600000000',
+      message: { text: { body: text } },
+      state: conversationState,
+      send: async (outboundIntent) => outboundIntents.push(outboundIntent)
+    }));
+    return { outboundIntents, conversationState };
+  };
+
+  await step('hi');
+  const result = await step('current_promo');
+
+  assert.equal(result.outboundIntents.length, 1);
+  assert.equal(result.outboundIntents[0].type, 'buttons');
+  assert.match(result.outboundIntents[0].body, /New in the shop/);
+});
+
+// Regression test for the send-failure fallback: a disapproved template,
+// throttled WABA, or missing image must not leave the customer with
+// silence after tapping "Current promo" - see _handleSendCurrentPromo's
+// catch block. Simulates the failure by making the `send` stub throw
+// specifically for the promo_template intent, same technique used
+// elsewhere in this suite to simulate a failed WhatsApp send.
+test('AfroMarket: current promo falls back to a text summary if the template send fails, and still offers follow-up options', async () => {
+  const flowEngine = new FlowEngine({ botConfig, plugin: new AfroMarketFlowPlugin({ botConfig }) });
+  let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
+  const step = async (text) => {
+    const outboundIntents = [];
+    ({ state: conversationState } = await flowEngine.step({
+      from: '+33600000000',
+      phone: '+33600000000',
+      message: { text: { body: text } },
+      state: conversationState,
+      send: async (outboundIntent) => {
+        outboundIntents.push(outboundIntent);
+        if (outboundIntent.type === 'promo_template') {
+          throw new Error('simulated WhatsApp template send failure');
+        }
+      }
+    }));
+    return { outboundIntents, conversationState };
+  };
+
+  await step('hi');
+  const result = await step('current_promo');
+
+  // The failed promo_template attempt, the plain-text fallback carrying the
+  // same offer, then the follow-up buttons - never total silence.
+  assert.equal(result.outboundIntents.length, 3);
+  assert.equal(result.outboundIntents[0].type, 'promo_template');
+  assert.equal(result.outboundIntents[1].type, 'text');
+  assert.match(result.outboundIntents[1].body, /Bouillie Jaune – Sèche 500g/);
+  assert.match(result.outboundIntents[1].body, /20% off/);
+  assert.match(result.outboundIntents[1].body, /€3\.99/);
+  assert.equal(result.outboundIntents[2].type, 'buttons');
+  assert.match(result.outboundIntents[2].body, /What would you like to do next/);
 });
 
 test('AfroMarket: production hides Partner Stores and shows the Steinheim delivery-only message', async () => {
@@ -1015,9 +1112,51 @@ test('AfroMarket: a cold promo_add payload adds the item to cart at the discount
 test('AfroMarket: a 100% promo_add discount is accepted (3-digit percentage, not rejected as malformed)', async () => {
   const step = createStepper();
 
-  const result = await step('promo_add:bouillie_jaune_500g:100');
+  // Uses ndole_250g, not bouillie_jaune_500g - it has no catalog
+  // salePriceEur, so this isolates 3-digit percentage parsing from the
+  // salePriceEur-priority behavior covered by the test below.
+  const result = await step('promo_add:ndole_250g:100');
 
-  assert.match(result.outboundIntents[0].body, /Added \*Bouillie Jaune – Sèche 500g\* at 100% off \(€0\.00\)/);
+  assert.match(result.outboundIntents[0].body, /Added \*Ndolè Cameroun – Lavé et Séché 250g\* at 100% off \(€0\.00\)/);
+});
+
+// Regression test for a bug caught in review on the fix above: percentOff is
+// a rounded whole number, so reconstructing a price from it alone can drift
+// a cent or two from the catalog's actual salePriceEur for non-round
+// discounts - the same class of alignment bug this whole feature exists to
+// prevent, just one step removed. A tapped payload's percentOff must never
+// override the catalog's own live salePriceEur (or the percentage shown
+// alongside it) when the product still has one - proven here with a
+// deliberately mismatched payload percentOff (50%, not the product's real
+// ~20%) that must still land on the catalog's actual price *and* percentage
+// (3.99 / 20%), not the stale/mismatched ones from the tap (2.50 / 50%).
+test('AfroMarket: promo_add always uses the catalog\'s live salePriceEur and its real percentage, even if the tapped payload carries a different percentOff', async () => {
+  const step = createStepper();
+
+  const result = await step('promo_add:bouillie_jaune_500g:50');
+
+  assert.match(result.outboundIntents[0].body, /Added \*Bouillie Jaune – Sèche 500g\* at 20% off \(€3\.99\)/);
+
+  const cartResult = await step('view_cart');
+  assert.match(cartResult.outboundIntents[0].body, /€3\.99/);
+});
+
+// Regression test suggested in review: since salePriceEur-priority means the
+// price used no longer varies with whatever percentOff a given tap happens
+// to carry, two taps of the same product (e.g. a stale/cached promo message
+// tapped after a fresher one) must merge into a single cart line rather than
+// fragmenting into two, even though their payloads carry different
+// percentOff values - addProductToCart merges by productId + unitPrice, and
+// both taps now resolve to the same catalog-sourced unitPrice (3.99).
+test('AfroMarket: two promo_add taps for the same product with different payload percentages still merge into one cart line', async () => {
+  const step = createStepper();
+
+  await step('promo_add:bouillie_jaune_500g:20');
+  await step('promo_add:bouillie_jaune_500g:50');
+
+  const cartResult = await step('view_cart');
+  assert.match(cartResult.outboundIntents[0].body, /2x Bouillie Jaune – Sèche 500g — €7\.98/);
+  assert.doesNotMatch(cartResult.outboundIntents[0].body, /1x Bouillie Jaune/);
 });
 
 test('AfroMarket: promo_add for an unknown product falls back to the welcome menu instead of erroring', async () => {

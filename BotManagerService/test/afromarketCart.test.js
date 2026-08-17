@@ -1,7 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { formatEuro, buildCartSummaryText, generateOrderNumber } = require('../src/bots/afromarket/afromarketFlowPlugin');
+const {
+  formatEuro,
+  buildCartSummaryText,
+  generateOrderNumber,
+  findCurrentPromoProduct,
+  computePercentOff
+} = require('../src/bots/afromarket/afromarketFlowPlugin');
 
 test('formatEuro formats amounts with two decimals and a euro sign', () => {
   assert.equal(formatEuro(3.5), '€3.50');
@@ -38,4 +44,37 @@ test('generateOrderNumber produces unique AM-prefixed codes', () => {
   assert.match(a, /^AM-[A-Z0-9]+$/);
   assert.match(b, /^AM-[A-Z0-9]+$/);
   assert.notEqual(a, b);
+});
+
+test('findCurrentPromoProduct returns the product with a valid salePriceEur below priceEur', () => {
+  const botConfig = {
+    products: [
+      { id: 'a', priceEur: 5 },
+      { id: 'b', priceEur: 10, salePriceEur: 8 },
+      { id: 'c', priceEur: 3, salePriceEur: 3 } // equal to priceEur - not a real discount
+    ]
+  };
+
+  const product = findCurrentPromoProduct(botConfig);
+
+  assert.equal(product.id, 'b');
+});
+
+test('findCurrentPromoProduct returns null when no product has an active sale price', () => {
+  const botConfig = {
+    products: [
+      { id: 'a', priceEur: 5 },
+      { id: 'b', priceEur: 3, salePriceEur: 3 },
+      { id: 'c', priceEur: 4, salePriceEur: -1 }
+    ]
+  };
+
+  assert.equal(findCurrentPromoProduct(botConfig), null);
+});
+
+test('computePercentOff derives the whole-number discount from priceEur/salePriceEur', () => {
+  // Mirrors the real bouillie_jaune_500g config (4.99 -> 3.99) - must round
+  // to a whole number since it's rendered as plain text in the template.
+  assert.equal(computePercentOff({ priceEur: 4.99, salePriceEur: 3.99 }), 20);
+  assert.equal(computePercentOff({ priceEur: 10, salePriceEur: 5 }), 50);
 });

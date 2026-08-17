@@ -514,6 +514,23 @@
 
         {
           "id": "current_promo",
+          "type": "action",
+          "action": "promo.sendCurrent"
+        },
+        {
+          "id": "current_promo_followup",
+          "type": "buttons",
+          "template": "👇 What would you like to do next?",
+          "buttons": [
+            { "id": "shop_online", "title": "🛒 Shop now" },
+            { "id": "recipes", "title": "🍲 Ndolè recipe" },
+            { "id": "menu", "title": "🏠 Main menu" }
+          ],
+          "saveAs": "promoChoice",
+          "next": "promo_route"
+        },
+        {
+          "id": "current_promo_none",
           "type": "buttons",
           "template": "🎉 *New in the shop!*\n\nAuthentic Cameroonian staples now available: Haricot Rouge, Ndolè, Arachide Blanche and Feuilles d'OKOK — everything you need for real home cooking, delivered across Germany.",
           "buttons": [
