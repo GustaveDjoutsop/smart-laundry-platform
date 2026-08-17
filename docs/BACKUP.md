@@ -1,8 +1,8 @@
 # Database Backups
 
-**Recovery point objective (RPO): 24 hours.** **Recovery time objective (RTO): not yet measured** — that is established by the restore drill in R3, and until then the RTO number is unknown rather than optimistic.
+**Recovery point objective (RPO): 24 hours.** **Recovery time objective (RTO): not yet measured** — that is established by the restore drill (`scripts/restore-drill.sh`, quarterly via `.github/workflows/restore-drill.yml`), whose measurements belong in [`docs/DISASTER-RECOVERY.md`](./DISASTER-RECOVERY.md) §2. Until a drill has run against real production backups the RTO number is unknown rather than optimistic.
 
-Related: [`docs/SECRET-ROTATION.md`](./SECRET-ROTATION.md) · `docs/DISASTER-RECOVERY.md` (lands with R3)
+Related: [`docs/SECRET-ROTATION.md`](./SECRET-ROTATION.md) · [`docs/DISASTER-RECOVERY.md`](./DISASTER-RECOVERY.md)
 
 ---
 
@@ -15,7 +15,7 @@ Related: [`docs/SECRET-ROTATION.md`](./SECRET-ROTATION.md) · `docs/DISASTER-REC
 | **Where** | Cloudflare R2 bucket `smart-laundry-backups` |
 | **Retention** | 7 daily, 4 weekly, 3 monthly — enforced by bucket lifecycle rules |
 | **Cost** | Zero at current data volumes: R2 gives 10 GB free with no egress fees, and GitHub Actions scheduled runs are free on this repository |
-| **Not covered** | Object storage contents, Doppler secrets, Auth0 tenant configuration, Grafana dashboards. Each is recreatable, but the recreation steps belong in `docs/DISASTER-RECOVERY.md` (R3) |
+| **Not covered** | Object storage contents, Doppler secrets, Auth0 tenant configuration, Grafana dashboards. Each is recreatable, but the recreation steps belong in [`docs/DISASTER-RECOVERY.md`](./DISASTER-RECOVERY.md) §1 |
 
 ### Why not Supabase PITR
 
