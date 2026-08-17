@@ -142,7 +142,7 @@ Record each rotation as it happens, so the next reader can tell what is genuinel
 | Control | Mechanism | Status |
 |---|---|---|
 | Block secrets entering new PRs | `.github/workflows/secret-scan.yml` (gitleaks, blocking) | This PR |
-| Catch anything the PR scan missed | Weekly full-history gitleaks sweep | This PR |
+| Detect regressions in the checked-out tree | Weekly working-tree gitleaks sweep | This PR |
 | Detect what is already in history | `scripts/audit-git-history-secrets.sh` | This PR |
 | Central secret storage | Doppler, per-service projects with `dev`/`ci`/`prd` | Already in place |
 | Keep secrets out of local files | `.gitignore` covers `.env`; use `doppler run --` instead | Already in place |

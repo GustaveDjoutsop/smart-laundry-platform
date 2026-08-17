@@ -7,7 +7,7 @@
 - [ ] Remove hardcoded CamPay app key/secret/webhook-secret defaults from `PaymentManagementService/src/main/resources/application.yml`; require via env vars
 - [ ] Remove hardcoded Auth0 client-id/secret defaults and WhatsApp access token default from `spring-bot-manager-only/bot-app/src/main/resources/application.yaml`
 - [ ] Rotate any secrets that were committed in plaintext — inventory complete, rotation tracked in [`docs/SECRET-ROTATION.md`](./docs/SECRET-ROTATION.md) (R1). Note: the earlier stripping pass covered `application.yml`/`application.yaml` only; a live Twilio SID + auth token survived at HEAD in root `docker-compose.yml` and a real Meta token in a test fixture. Both remediated in code; provider-side rotation still outstanding.
-- [x] Add automated secret scanning so this cannot recur — blocking gitleaks gate in `.github/workflows/secret-scan.yml` plus weekly full-history sweep (R1)
+- [x] Add automated secret scanning so this cannot recur — blocking gitleaks gate in `.github/workflows/secret-scan.yml` plus weekly working-tree sweep (R1)
 - [ ] Move all secrets to a secret manager (Vault / AWS Secrets Manager / k8s Secrets) per environment
 - [ ] Remove legacy MQTT fallback config from spring-bot-manager-only
 - [ ] Fix `smart-laundry-dashboard/.env.example` vs `src/lib/api.ts` API base URL mismatch (align both on the future reporting-api URL)
