@@ -9,7 +9,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { FlowEngine } = require('../src/core/flows/flowEngine');
-const { AfroMarketFlowPlugin } = require('../src/bots/afromarket/afromarketFlowPlugin');
+const { AfroMarketFlowPlugin, findCurrentPromoProduct, computePercentOff, formatEuro } = require('../src/bots/afromarket/afromarketFlowPlugin');
 
 // eslint-disable-next-line global-require
 const botConfig = require('../configs/bots/afromarket.bot.json');
@@ -522,6 +522,13 @@ test('AfroMarket: every recipe in recipeIngredients maps to real product ids', (
 test('AfroMarket: current promo sends the approved promo template aligned with catalog pricing, then follow-up options; restaurant info and store info are reachable and loop back', async () => {
   const step = createStepper();
 
+  // Derived from the same helpers the feature itself uses, not hardcoded -
+  // whichever product actually has a salePriceEur in afromarket.bot.json
+  // today, this stays correct if that ever moves to a different product.
+  const promoProduct = findCurrentPromoProduct(botConfig);
+  assert.ok(promoProduct, 'this test requires at least one product with a live salePriceEur in afromarket.bot.json');
+  const expectedPercentOff = computePercentOff(promoProduct);
+
   await step('hi');
   let result = await step('current_promo');
   assert.equal(result.outboundIntents.length, 2);
@@ -529,12 +536,10 @@ test('AfroMarket: current promo sends the approved promo template aligned with c
   const [promoIntent, followupIntent] = result.outboundIntents;
   assert.equal(promoIntent.type, 'promo_template');
   assert.equal(promoIntent.templateName, 'afromarket_promo_v1');
-  assert.equal(promoIntent.productName, 'Bouillie Jaune – Sèche 500g');
-  assert.equal(promoIntent.imageLink, 'https://legal.botmanagementservice.eu/products/afromarket-bouillie-jaune-500g.png');
-  // 4.99 -> 3.99 is a ~20.04% discount; must match the whole-number percent
-  // _handleAddDiscounted will later recompute from the same payload.
-  assert.equal(promoIntent.percentOff, 20);
-  assert.equal(promoIntent.quickReplyPayload, 'promo_add:bouillie_jaune_500g:20');
+  assert.equal(promoIntent.productName, promoProduct.name);
+  assert.equal(promoIntent.imageLink, promoProduct.imageUrl);
+  assert.equal(promoIntent.percentOff, expectedPercentOff);
+  assert.equal(promoIntent.quickReplyPayload, `promo_add:${promoProduct.id}:${expectedPercentOff}`);
 
   assert.equal(followupIntent.type, 'buttons');
   assert.match(followupIntent.body, /What would you like to do next/);
@@ -591,6 +596,10 @@ test('AfroMarket: current promo falls back to the "what\'s new" message when no 
 // specifically for the promo_template intent, same technique used
 // elsewhere in this suite to simulate a failed WhatsApp send.
 test('AfroMarket: current promo falls back to a text summary if the template send fails, and still offers follow-up options', async () => {
+  const promoProduct = findCurrentPromoProduct(botConfig);
+  assert.ok(promoProduct, 'this test requires at least one product with a live salePriceEur in afromarket.bot.json');
+  const expectedPercentOff = computePercentOff(promoProduct);
+
   const flowEngine = new FlowEngine({ botConfig, plugin: new AfroMarketFlowPlugin({ botConfig }) });
   let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
   const step = async (text) => {
@@ -618,9 +627,9 @@ test('AfroMarket: current promo falls back to a text summary if the template sen
   assert.equal(result.outboundIntents.length, 3);
   assert.equal(result.outboundIntents[0].type, 'promo_template');
   assert.equal(result.outboundIntents[1].type, 'text');
-  assert.match(result.outboundIntents[1].body, /Bouillie Jaune – Sèche 500g/);
-  assert.match(result.outboundIntents[1].body, /20% off/);
-  assert.match(result.outboundIntents[1].body, /€3\.99/);
+  assert.ok(result.outboundIntents[1].body.includes(promoProduct.name));
+  assert.ok(result.outboundIntents[1].body.includes(`${expectedPercentOff}% off`));
+  assert.ok(result.outboundIntents[1].body.includes(formatEuro(Number(promoProduct.salePriceEur))));
   assert.equal(result.outboundIntents[2].type, 'buttons');
   assert.match(result.outboundIntents[2].body, /What would you like to do next/);
 });
