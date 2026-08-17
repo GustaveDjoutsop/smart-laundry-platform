@@ -14,6 +14,47 @@ function findProduct(botConfig, productId) {
   return products.find((p) => p && p.id === productId) || null;
 }
 
+// Shared by findCurrentPromoProduct and _handleAddDiscounted below - a
+// product's salePriceEur is only trustworthy as a live discount when it's a
+// positive number strictly less than priceEur (same rule
+// submitCatalogBatch.js's validation already enforces before Meta ever sees
+// it, checked again here since bot.json and the catalog sync are two
+// independently-read copies of the same file, not one shared value).
+function hasValidSalePrice(product) {
+  if (!product) return false;
+  const salePrice = Number(product.salePriceEur);
+  const price = Number(product.priceEur);
+  return Number.isFinite(salePrice) && salePrice > 0 && Number.isFinite(price) && salePrice < price;
+}
+
+// The "Current promo" menu option and the catalog's own sale_price display
+// (see submitCatalogBatch.js's salePriceEur -> sale_price mapping) must never
+// drift apart - the bug this exists to fix was exactly that mismatch (a
+// hardcoded promo blurb unrelated to whatever the catalog actually showed on
+// sale). salePriceEur on a product config entry is the single source of
+// truth for both; this just finds whichever product currently has one set.
+// Picks the first match - AfroMarket runs one active promo at a time today,
+// and afromarket_promo_v1 (a single-product template) can only feature one
+// product per send regardless.
+function findCurrentPromoProduct(botConfig) {
+  const products = Array.isArray(botConfig.products) ? botConfig.products : [];
+  return products.find(hasValidSalePrice) || null;
+}
+
+// Derives the whole-number percent-off the promo template displays directly
+// from priceEur/salePriceEur - never a separately hand-maintained number -
+// so the template's headline percentage and the discounted cart price
+// _handleAddDiscounted computes from the same payload always agree with the
+// catalog's own sale_price. Rounds rather than truncates for the same reason
+// scripts/sendPromoTemplate.js rejects a non-integer CLI argument: WhatsApp
+// template variables are plain text, so this must already be the exact
+// number to display, not something Meta or the client will further round.
+function computePercentOff(product) {
+  const price = Number(product.priceEur);
+  const salePrice = Number(product.salePriceEur);
+  return Math.round((1 - salePrice / price) * 100);
+}
+
 // Ships disabled by default (per afromarket-catalog-cart-migration-todo.md's
 // rollout strategy) - deliberately its own flag rather than reusing
 // isProductionEnv()/hideInProd from flowEngine.js, since that helper's
@@ -217,6 +258,10 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       return this._handleAddDiscounted(ctx);
     }
 
+    if (action === 'promo.sendCurrent') {
+      return this._handleSendCurrentPromo(ctx);
+    }
+
     if (action === 'recipes.route') {
       return this._handleRecipeAction(ctx);
     }
@@ -411,17 +456,93 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       return true;
     }
 
-    const discountedPrice = Math.round(Number(product.priceEur) * (1 - percentOff / 100) * 100) / 100;
+    // percentOff (parsed from the tapped payload) is a rounded whole number
+    // (see computePercentOff) - reconstructing the price from it alone can
+    // land a cent or two off the catalog's actual salePriceEur for any
+    // discount that isn't a round percentage (e.g. 33.33% rounds to 33%,
+    // reconstructing a price the catalog doesn't actually show). Caught in
+    // review: this is the exact class of bug this whole feature exists to
+    // prevent, just one step removed. Prefer the catalog's own salePriceEur
+    // verbatim whenever it's still a valid discount for this product - it's
+    // always the live, current-truth number, unlike anything embedded in a
+    // possibly-days-old tapped message. Falls back to the percentOff
+    // reconstruction only when the product currently has no catalog
+    // salePriceEur at all (e.g. a one-off manual blast via
+    // scripts/sendPromoTemplate.js for a discount not reflected in the
+    // catalog).
+    const usesCatalogSalePrice = hasValidSalePrice(product);
+    const discountedPrice = usesCatalogSalePrice
+      ? Number(product.salePriceEur)
+      : Math.round(Number(product.priceEur) * (1 - percentOff / 100) * 100) / 100;
+    // The displayed percentage must describe the price actually being
+    // charged - showing the tapped payload's percentOff next to a price
+    // computed from salePriceEur instead would just move the alignment bug
+    // into the confirmation text itself (e.g. a stale "50% off" label next
+    // to the catalog's real ~20%-off price).
+    const displayPercentOff = usesCatalogSalePrice ? computePercentOff(product) : percentOff;
     const cart = ctx.get('cart') || [];
     addProductToCart(cart, product, { unitPriceOverride: discountedPrice });
     ctx.set('cart', cart);
-    ctx.set('cartAddedText', `✅ Added *${product.name}* at ${percentOff}% off (${formatEuro(discountedPrice)}) to your cart!\n\n`);
+    ctx.set('cartAddedText', `✅ Added *${product.name}* at ${displayPercentOff}% off (${formatEuro(discountedPrice)}) to your cart!\n\n`);
     // So a subsequent "Add to Cart" tap on the shared product_actions state
     // (_handleProductAction's cart_add branch) knows which product to add -
     // at full price, since that's a distinct, explicit repeat add rather
     // than another promo application.
     ctx.set('currentProductId', productId);
     ctx.goto('product_actions');
+    return true;
+  }
+
+  // "Current promo" from the main menu - was a static hardcoded blurb
+  // (unrelated to whatever the catalog actually showed on sale), which is
+  // the bug this exists to fix. Now sends the approved afromarket_promo_v1
+  // template for whichever product actually has a salePriceEur set, with
+  // the percentage derived from that same field - see
+  // findCurrentPromoProduct/computePercentOff above for why that keeps this
+  // aligned with the catalog's own sale_price display, not a second,
+  // independently-maintained number.
+  async _handleSendCurrentPromo(ctx) {
+    const product = findCurrentPromoProduct(this.botConfig);
+    if (!product) {
+      // Nothing currently on sale - degrade to the same "what's new"
+      // message this menu option used to always show, rather than sending
+      // a promo template with no discount to actually announce.
+      ctx.goto('current_promo_none');
+      return true;
+    }
+
+    const percentOff = computePercentOff(product);
+
+    try {
+      await ctx.send({
+        type: 'promo_template',
+        to: ctx.from,
+        templateName: 'afromarket_promo_v1',
+        languageCode: 'en_US',
+        percentOff,
+        productName: product.name,
+        imageLink: product.imageUrl,
+        quickReplyPayload: `promo_add:${product.id}:${percentOff}`
+      });
+    } catch (err) {
+      // Same discipline as _handleShopEntry/_handleCheckout's payment-link
+      // fallback: a failed template send (disapproved, throttled WABA,
+      // missing image) must not leave the customer with nothing after
+      // tapping "Current promo" - fall back to a plain-text version of the
+      // exact same offer instead of losing it.
+      logger.warn('AfroMarket: failed to send promo template from current_promo, falling back to text', {
+        productId: product.id,
+        percentOff,
+        error: err && err.message ? err.message : String(err)
+      });
+      await ctx.send({
+        type: 'text',
+        to: ctx.from,
+        body: `🎉 *This week's deal*\n\n${product.name} — ${percentOff}% off (${formatEuro(Number(product.salePriceEur))})!`
+      });
+    }
+
+    ctx.goto('current_promo_followup');
     return true;
   }
 
@@ -686,6 +807,8 @@ module.exports = {
   generateOrderNumber,
   buildOrderConfirmationText,
   findProduct,
+  findCurrentPromoProduct,
+  computePercentOff,
   isNativeCatalogEnabled,
   buildNativeCatalogSections
 };
