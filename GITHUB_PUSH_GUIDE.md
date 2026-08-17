@@ -1,5 +1,24 @@
 # 🚀 Guide: Pousser les Repositories sur GitHub
 
+> ## ⚠️ DOCUMENT HISTORIQUE — NE PLUS SUIVRE
+>
+> Ce guide décrit une architecture en **trois dépôts séparés** (`laundry-backend`,
+> `laundry-frontend`, `laundry-esp32`) qui **n'existe plus**. Le projet est
+> aujourd'hui un monodépôt unique contenant les services Spring Boot
+> (`spring-bot-manager-only`, `PaymentManagementService`, `MachineStateService`,
+> `reporting-bff`, `api-gateway`) et le tableau de bord Next.js
+> (`smart-laundry-dashboard`).
+>
+> Les chemins cités (`/home/claude/laundry-projects/...`) et les commandes
+> `git remote add` ne s'appliquent pas à ce dépôt.
+>
+> Conservé uniquement comme trace de la structure initiale. Pour l'état réel,
+> voir [`CURRENT_ARCHITECTURE.md`](./CURRENT_ARCHITECTURE.md) et
+> [`ARCHITECTURE_TODO.md`](./ARCHITECTURE_TODO.md).
+>
+> **Twilio a été retiré du projet.** La messagerie WhatsApp utilise l'API
+> **Meta WhatsApp Cloud**. Voir [`docs/SECRET-ROTATION.md`](./docs/SECRET-ROTATION.md).
+
 ## ✅ Repositories Créés Localement
 
 Trois repositories ont été créés et initialisés avec leur structure complète :
@@ -129,7 +148,7 @@ laundry-backend/
 - Redis
 - MQTT (Mosquitto)
 - 5 Payment APIs: CamPay, MTN MoMo, Nkwa, Kora, Wave
-- WhatsApp (Twilio)
+- WhatsApp (Meta WhatsApp Cloud API — Twilio a été retiré du projet)
 
 ---
 
@@ -201,8 +220,13 @@ MTN_SUBSCRIPTION_KEY=...
 NKWA_API_SECRET=...
 KORA_SECRET_KEY=...
 WAVE_API_SECRET=...
-TWILIO_AUTH_TOKEN=...
+WHATSAPP_ACCESS_TOKEN=...
+WHATSAPP_APP_SECRET=...
 ```
+
+> Note : `TWILIO_AUTH_TOKEN` figurait ici. Twilio n'est plus utilisé ; les
+> identifiants concernés doivent être révoqués côté fournisseur
+> (voir [`docs/SECRET-ROTATION.md`](./docs/SECRET-ROTATION.md) §4.1).
 
 ---
 
