@@ -4,13 +4,6 @@
 // from eating that delay for real on every run. Set before requiring
 // flowEngine.js since the value is read fresh per call, not cached.
 process.env.CAROUSEL_FOOTER_DELAY_MS = '0';
-// Same reasoning, for afromarketFlowPlugin.js's own independent delay (see
-// getPromoTemplateFooterDelayMs) - without this, any test whose send stub
-// doesn't return a real WhatsApp message id (createStepper()'s does not)
-// falls into waitForPromoTemplateDelivery's no-messageId branch, a real
-// setTimeout for the full default 6000ms. Caught in review: a test hit this
-// exact case and silently added 6s of real wall-clock time to the suite.
-process.env.PROMO_TEMPLATE_FOOTER_DELAY_MS = '0';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -526,7 +519,17 @@ test('AfroMarket: every recipe in recipeIngredients maps to real product ids', (
 // whichever product has a salePriceEur set, with the percentage derived
 // from that same field - see findCurrentPromoProduct/computePercentOff -
 // so it can never drift from the catalog's own sale_price display.
-test('AfroMarket: current promo sends the approved promo template aligned with catalog pricing, then follow-up options; restaurant info and store info are reachable and loop back', async () => {
+//
+// Sends ONLY the template - no follow-up message. An earlier version also
+// sent a "What would you like to do next?" buttons message right after,
+// which business-owner testing on dev found unacceptable (it visually
+// raced ahead of the template on-device even with a delivery-status wait)
+// and explicitly asked to have removed. Also proves a subsequent, unrelated
+// message ("menu") is handled normally afterward, not swallowed or
+// mistaken for another promo request - see current_promo_landing/
+// _handleCurrentPromoLanding, the same armed/landing pattern already
+// proven for shop_entry/shop_landing.
+test('AfroMarket: current promo sends ONLY the approved promo template, aligned with catalog pricing, with no follow-up message; a later message is still handled normally', async () => {
   const step = createStepper();
 
   // Derived from the same helpers the feature itself uses, not hardcoded -
@@ -538,9 +541,9 @@ test('AfroMarket: current promo sends the approved promo template aligned with c
 
   await step('hi');
   let result = await step('current_promo');
-  assert.equal(result.outboundIntents.length, 2);
+  assert.equal(result.outboundIntents.length, 1);
 
-  const [promoIntent, followupIntent] = result.outboundIntents;
+  const [promoIntent] = result.outboundIntents;
   assert.equal(promoIntent.type, 'promo_template');
   assert.equal(promoIntent.templateName, 'afromarket_promo_v1');
   assert.equal(promoIntent.productName, promoProduct.name);
@@ -548,15 +551,12 @@ test('AfroMarket: current promo sends the approved promo template aligned with c
   assert.equal(promoIntent.percentOff, expectedPercentOff);
   assert.equal(promoIntent.quickReplyPayload, `promo_add:${promoProduct.id}:${expectedPercentOff}`);
 
-  assert.equal(followupIntent.type, 'buttons');
-  assert.match(followupIntent.body, /What would you like to do next/);
-  assert.deepEqual(
-    followupIntent.buttons.map((b) => b.id),
-    ['shop_online', 'recipes', 'menu']
-  );
-
+  // The customer's next, unrelated message must be handled normally - not
+  // swallowed, and not mistaken for another "Current promo" tap.
   result = await step('menu');
+  assert.equal(result.outboundIntents.length, 1);
   assert.equal(result.outboundIntents[0].type, 'list');
+  assert.notEqual(result.outboundIntents[0].type, 'promo_template');
 
   result = await step('afromarket_store');
   assert.match(result.outboundIntents[0].body, /AfroMarket Store/);
@@ -602,7 +602,7 @@ test('AfroMarket: current promo falls back to the "what\'s new" message when no 
 // catch block. Simulates the failure by making the `send` stub throw
 // specifically for the promo_template intent, same technique used
 // elsewhere in this suite to simulate a failed WhatsApp send.
-test('AfroMarket: current promo falls back to a text summary if the template send fails, and still offers follow-up options', async () => {
+test('AfroMarket: current promo falls back to a text summary if the template send fails, and sends nothing else', async () => {
   const promoProduct = findCurrentPromoProduct(botConfig);
   assert.ok(promoProduct, 'this test requires at least one product with a live salePriceEur in afromarket.bot.json');
   const expectedPercentOff = computePercentOff(promoProduct);
@@ -629,82 +629,14 @@ test('AfroMarket: current promo falls back to a text summary if the template sen
   await step('hi');
   const result = await step('current_promo');
 
-  // The failed promo_template attempt, the plain-text fallback carrying the
-  // same offer, then the follow-up buttons - never total silence.
-  assert.equal(result.outboundIntents.length, 3);
+  // The failed promo_template attempt, then the plain-text fallback
+  // carrying the same offer - never total silence, but nothing more.
+  assert.equal(result.outboundIntents.length, 2);
   assert.equal(result.outboundIntents[0].type, 'promo_template');
   assert.equal(result.outboundIntents[1].type, 'text');
   assert.ok(result.outboundIntents[1].body.includes(promoProduct.name));
   assert.ok(result.outboundIntents[1].body.includes(`${expectedPercentOff}% off`));
   assert.ok(result.outboundIntents[1].body.includes(formatEuro(Number(promoProduct.salePriceEur))));
-  assert.equal(result.outboundIntents[2].type, 'buttons');
-  assert.match(result.outboundIntents[2].body, /What would you like to do next/);
-});
-
-// Regression test for a real bug caught live on dev: the promo template's
-// header image goes through Meta's own async media upload + hydration, so
-// it reliably rendered on the customer's device *after* the plain
-// current_promo_followup buttons message, even though both were sent in
-// the correct order server-side within the same turn (confirmed via
-// Railway logs: both sends completed within the same second). Same fix
-// already proven for flowEngine.js's carousel-then-footer race (see the
-// "footer-before-carousel ordering bug" test above) - proves the follow-up
-// buttons wait on the promo template's own delivery-status webhook instead
-// of firing immediately, by setting the fallback timeout absurdly high
-// (30s): if the wait still fell through to a fixed sleep instead of the
-// webhook, this test would hang for 30s instead of completing almost
-// instantly. Uses PROMO_TEMPLATE_FOOTER_DELAY_MS, not
-// CAROUSEL_FOOTER_DELAY_MS - a second live-dev test after this fix first
-// shipped found dev's CAROUSEL_FOOTER_DELAY_MS still set to 2500, the exact
-// value flowEngine.js's own history already found insufficient for this
-// identical race, which would have silently undermined this feature too had
-// it shared that variable.
-test('AfroMarket: current promo waits for the template\'s delivery status before sending follow-up options, so they can\'t race ahead of it', async (t) => {
-  const { messageStatusWaiter } = require('../src/core/whatsapp/messageStatusWaiter');
-  const previousDelay = process.env.PROMO_TEMPLATE_FOOTER_DELAY_MS;
-  process.env.PROMO_TEMPLATE_FOOTER_DELAY_MS = '30000';
-  t.after(() => {
-    process.env.PROMO_TEMPLATE_FOOTER_DELAY_MS = previousDelay;
-    messageStatusWaiter.reset();
-  });
-
-  const flowEngine = new FlowEngine({ botConfig, plugin: new AfroMarketFlowPlugin({ botConfig }) });
-  let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
-  const step = async (text, send) => {
-    const outboundIntents = [];
-    ({ state: conversationState } = await flowEngine.step({
-      from: '+33600000099',
-      phone: '+33600000099',
-      message: { text: { body: text } },
-      state: conversationState,
-      send: send || (async (outboundIntent) => outboundIntents.push(outboundIntent))
-    }));
-    return { outboundIntents, conversationState };
-  };
-
-  await step('hi');
-
-  const events = [];
-  const start = Date.now();
-  await step('current_promo', async (outboundIntent) => {
-    if (outboundIntent.type === 'promo_template') {
-      events.push('promo-template-send-resolved');
-      // Simulate the real webhook: WhatsApp reports the message as "sent"
-      // shortly after the send API call itself returns.
-      setImmediate(() => {
-        events.push('status-webhook');
-        messageStatusWaiter.notify('wamid.test-promo-template', 'sent');
-      });
-      return { messages: [{ id: 'wamid.test-promo-template' }] };
-    }
-
-    events.push(`${outboundIntent.type}-send`);
-    return {};
-  });
-  const elapsedMs = Date.now() - start;
-
-  assert.ok(elapsedMs < 1000, `expected the follow-up to fire on the status webhook, not the 30s fallback timer (took ${elapsedMs}ms)`);
-  assert.deepEqual(events, ['promo-template-send-resolved', 'status-webhook', 'buttons-send']);
 });
 
 test('AfroMarket: production hides Partner Stores and shows the Steinheim delivery-only message', async () => {
@@ -1235,6 +1167,29 @@ test('AfroMarket: two promo_add taps for the same product with different payload
 
   await step('promo_add:bouillie_jaune_500g:20');
   await step('promo_add:bouillie_jaune_500g:50');
+
+  const cartResult = await step('view_cart');
+  assert.match(cartResult.outboundIntents[0].body, /2x Bouillie Jaune – Sèche 500g — €7\.98/);
+  assert.doesNotMatch(cartResult.outboundIntents[0].body, /1x Bouillie Jaune/);
+});
+
+// Regression test for a real bug caught live by the business owner: tapping
+// "Shop Now" on a promo template correctly charged the discounted price
+// (via promo_add/_handleAddDiscounted), but then tapping "Add to Cart" on
+// the very next screen (_handleProductAction's cart_add, the SAME button
+// shown for any product) silently reverted to full price for that second
+// unit - reported directly as "the price ... which is going to be charged".
+// cart_add must now charge the catalog's live salePriceEur whenever the
+// product still has one, exactly like the promo tap itself - both taps end
+// up charging the same price and merge into one cart line, not two.
+test('AfroMarket: "Add to Cart" after a discounted promo add still charges the sale price, not full price', async () => {
+  const step = createStepper();
+
+  await step('promo_add:bouillie_jaune_500g:20');
+  const result = await step('cart_add');
+
+  assert.match(result.outboundIntents[0].body, /Added \*Bouillie Jaune – Sèche 500g\* \(€3\.99\)/);
+  assert.doesNotMatch(result.outboundIntents[0].body, /€4\.99/);
 
   const cartResult = await step('view_cart');
   assert.match(cartResult.outboundIntents[0].body, /2x Bouillie Jaune – Sèche 500g — €7\.98/);

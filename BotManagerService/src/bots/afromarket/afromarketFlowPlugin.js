@@ -3,71 +3,6 @@ const { FlowPlugin } = require('../../core/flows/flowPlugin');
 const { getPaymentService } = require('../../core/payments/paymentService');
 const { CustomerProfileStore } = require('../../core/customers/customerProfileStore');
 const { logger } = require('../../utils/logger');
-const { extractMessageId } = require('../../core/flows/flowEngine');
-const { messageStatusWaiter } = require('../../core/whatsapp/messageStatusWaiter');
-
-// Deliberately its own env var, not a reuse of flowEngine.js's
-// CAROUSEL_FOOTER_DELAY_MS - live-tested on dev (2026-08-17) and found that
-// environment's CAROUSEL_FOOTER_DELAY_MS is set to 2500, the exact value
-// flowEngine.js's own history describes as already proven insufficient for
-// this identical race (its comment: "2500ms, then bumped to 6000ms after a
-// live test... showed the footer still rendering before the carousel").
-// Sharing that variable would silently inherit whatever stale value dev
-// happens to have for a different feature, rather than this feature's own
-// considered default. Same 6000ms starting point flowEngine.js settled on,
-// same NaN-guard reasoning - trims first, unlike that original (caught in
-// review): Number('   ') coerces to 0, not NaN, so an untrimmed
-// whitespace-only value would silently disable the very wait this guard
-// exists to bound, with no warning. flowEngine.js's own test suite
-// documents that exact coercion as an accepted "explicit disable" for
-// CAROUSEL_FOOTER_DELAY_MS - not changing that established, separately-
-// owned contract here, just not repeating it for this newer, independent
-// variable where the safer behavior is cheap to have from the start.
-function getPromoTemplateFooterDelayMs() {
-  const raw = String(process.env.PROMO_TEMPLATE_FOOTER_DELAY_MS || '').trim();
-  if (!raw) return 6000;
-
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 6000;
-}
-
-// Same mechanism as flowEngine.js's waitForCarouselDelivery (blocks on
-// WhatsApp's delivery-status webhook for messageId, or a bounded timeout
-// fallback when there's nothing to correlate a webhook to) - reimplemented
-// locally rather than reused directly because that helper's own timeout log
-// line hardcodes "carousel/card message" wording, which would misleadingly
-// point anyone debugging a real promo-delivery problem at the wrong feature
-// (caught in review). Same never-rejects contract as the original.
-async function waitForPromoTemplateDelivery(messageId, timeoutMs) {
-  if (!messageId) {
-    await new Promise((resolve) => {
-      setTimeout(resolve, timeoutMs);
-    });
-    return;
-  }
-
-  // Elapsed time is logged on both outcomes, not just the timeout - caught
-  // in review that the timeout-only log left no way to tell, from
-  // production data, whether timeoutMs actually has headroom (vs. the
-  // webhook routinely landing close to the bound) rather than guessing a
-  // second time the way 2500ms -> 6000ms already had to for carousels.
-  const startedAt = Date.now();
-  const { timedOut } = await messageStatusWaiter.waitFor(messageId, timeoutMs);
-  const elapsedMs = Date.now() - startedAt;
-  if (timedOut) {
-    logger.warn('AfroMarket: no delivery status for promo template before follow-up options send, proceeding after timeout', {
-      messageId,
-      timeoutMs,
-      elapsedMs
-    });
-  } else {
-    logger.info('AfroMarket: promo template delivery status received before follow-up options send', {
-      messageId,
-      timeoutMs,
-      elapsedMs
-    });
-  }
-}
 
 function formatEuro(amount) {
   const value = Number(amount) || 0;
@@ -327,6 +262,10 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       return this._handleSendCurrentPromo(ctx);
     }
 
+    if (action === 'promo.landing') {
+      return this._handleCurrentPromoLanding(ctx);
+    }
+
     if (action === 'recipes.route') {
       return this._handleRecipeAction(ctx);
     }
@@ -472,9 +411,25 @@ class AfroMarketFlowPlugin extends FlowPlugin {
     if (choice === 'cart_add') {
       const product = findProduct(this.botConfig, ctx.get('currentProductId'));
       if (product) {
-        addProductToCart(cart, product);
+        // Regression fix: this is the SAME "Add to Cart" button shown on
+        // product_actions regardless of how the customer got there - after
+        // a discounted promo add (_handleAddDiscounted), or just browsing a
+        // product normally. It used to always charge product.priceEur, so a
+        // customer who tapped "Shop Now" on a promo (correctly charged the
+        // sale price), then tapped "Add to Cart" again on the very next
+        // screen, saw the discount silently vanish for that unit - flagged
+        // live by the business owner as a real billing concern ("which is
+        // going to be charged"). Now charges the catalog's live salePriceEur
+        // whenever the product still has one, exactly like
+        // _handleAddDiscounted already does - so "Add to Cart" always
+        // reflects the price actually on sale, consistent with every other
+        // add path for this product, not a separate "explicit repeat add"
+        // concept.
+        const usesCatalogSalePrice = hasValidSalePrice(product);
+        const unitPrice = usesCatalogSalePrice ? Number(product.salePriceEur) : Number(product.priceEur);
+        addProductToCart(cart, product, { unitPriceOverride: unitPrice });
         ctx.set('cart', cart);
-        ctx.set('cartAddedText', `✅ Added *${product.name}* (${formatEuro(product.priceEur)}) to your cart!\n\n`);
+        ctx.set('cartAddedText', `✅ Added *${product.name}* (${formatEuro(unitPrice)}) to your cart!\n\n`);
       }
       ctx.goto('product_actions');
       return true;
@@ -566,6 +521,17 @@ class AfroMarketFlowPlugin extends FlowPlugin {
   // findCurrentPromoProduct/computePercentOff above for why that keeps this
   // aligned with the catalog's own sale_price display, not a second,
   // independently-maintained number.
+  //
+  // Sends ONLY the template (or its text fallback) - no follow-up message.
+  // An earlier version also sent a "What would you like to do next?" buttons
+  // message right after, which needed a delivery-status wait to avoid
+  // visually racing ahead of the template (a template's header image goes
+  // through Meta's own async media upload + hydration, slower than a plain
+  // interactive message). Live-tested on dev: even a 6s wait wasn't always
+  // enough on the sandbox WABA. Removed per explicit business-owner
+  // feedback ("we should not receive the message What would you like to do
+  // next?") - simpler and structurally immune to that whole class of race,
+  // since there's no second message left to race against.
   async _handleSendCurrentPromo(ctx) {
     const product = findCurrentPromoProduct(this.botConfig);
     if (!product) {
@@ -578,20 +544,8 @@ class AfroMarketFlowPlugin extends FlowPlugin {
 
     const percentOff = computePercentOff(product);
 
-    // Tracks whether the template send itself succeeded, separately from
-    // the try/catch below - mirrors flowEngine.js's own carouselSent flag
-    // for the identical carousel-then-footer race. Keeps the delivery wait
-    // (below, outside the try) from ever running inside the same try/catch
-    // as the send: messageStatusWaiter's wait never rejects today (see its
-    // own file), but coupling them would silently mean "a successful send
-    // followed by a hypothetical future throw from the wait" falls into the
-    // catch and fires a duplicate/contradictory text fallback after the
-    // template already went out - not just a wasted wait.
-    let templateSent = false;
-    let sentMessageId = null;
-
     try {
-      const sendResult = await ctx.send({
+      await ctx.send({
         type: 'promo_template',
         to: ctx.from,
         templateName: 'afromarket_promo_v1',
@@ -601,8 +555,6 @@ class AfroMarketFlowPlugin extends FlowPlugin {
         imageLink: product.imageUrl,
         quickReplyPayload: `promo_add:${product.id}:${percentOff}`
       });
-      templateSent = true;
-      sentMessageId = extractMessageId(sendResult);
     } catch (err) {
       // Same discipline as _handleShopEntry/_handleCheckout's payment-link
       // fallback: a failed template send (disapproved, throttled WABA,
@@ -621,28 +573,40 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       });
     }
 
-    if (templateSent) {
-      // A template with a header image goes through Meta's own async media
-      // upload + template hydration before it's actually delivered to the
-      // device - measurably slower than the plain interactive buttons
-      // message current_promo_followup sends right after it. Live-tested on
-      // dev: without this wait, the follow-up buttons ("What would you like
-      // to do next?") reliably rendered on the customer's phone a full
-      // ~30-60s *before* the promo template it's supposed to follow, even
-      // though both were sent in the correct order server-side within the
-      // same turn. Same fix already proven for flowEngine.js's carousel-
-      // then-footer race, via the same mechanism (see
-      // waitForPromoTemplateDelivery above for why it's a local copy, not a
-      // direct call to that one) - blocks on WhatsApp's delivery-status
-      // webhook for this specific message, or the same bounded timeout as a
-      // fallback. Deliberately outside the try/catch above (and gated on
-      // templateSent, not just "did this throw") - a text fallback carries
-      // no image/hydration delay to guard against, so there's nothing to
-      // wait for on that path.
-      await waitForPromoTemplateDelivery(sentMessageId, getPromoTemplateFooterDelayMs());
+    // Lands on 'current_promo_landing' (armed) rather than ending the turn
+    // here directly, for the exact reason _handleShopEntry lands on
+    // 'shop_landing' (armed) instead of just returning - see that method's
+    // own long comment for the full mechanics. Short version: ctx.goto()
+    // alone doesn't end the engine turn, and hasConsumedInboundText is
+    // already true this turn (the customer's "Current promo" tap was
+    // consumed by the main menu list before reaching here), so goto'ing
+    // straight to any prompt-rendering state would render/send it
+    // immediately - reintroducing a second message, just a different one.
+    // _handleCurrentPromoLanding below deliberately does not goto anywhere
+    // on this armed pass, which combined with current_promo_landing having
+    // no `next` in bot.json, is what actually stops the loop with only the
+    // template (or its fallback) sent.
+    ctx.set('currentPromoArmed', true);
+    ctx.goto('current_promo_landing');
+    return true;
+  }
+
+  // See the long comment in _handleSendCurrentPromo for why this needs the
+  // 'currentPromoArmed' flag rather than just always redirecting - same
+  // "runs twice per interaction" shape as _handleShopLanding (armed right
+  // after the template, unarmed on the customer's actual next message).
+  // Same opportunistic-routing behavior on the unarmed pass too: see
+  // _handleShopLanding's own comment for why goto('welcome') here doesn't
+  // guarantee a welcome re-render, and why that's correct, not a bug.
+  _handleCurrentPromoLanding(ctx) {
+    if (ctx.get('currentPromoArmed')) {
+      ctx.set('currentPromoArmed', false);
+      logger.info('AfroMarket: current_promo armed - ending turn silently after promo template');
+      return true;
     }
 
-    ctx.goto('current_promo_followup');
+    logger.info('AfroMarket: current_promo unarmed - handing off to main_route via welcome');
+    ctx.goto('welcome');
     return true;
   }
 
@@ -909,7 +873,6 @@ module.exports = {
   findProduct,
   findCurrentPromoProduct,
   computePercentOff,
-  getPromoTemplateFooterDelayMs,
   isNativeCatalogEnabled,
   buildNativeCatalogSections
 };
