@@ -3,8 +3,33 @@ const { FlowPlugin } = require('../../core/flows/flowPlugin');
 const { getPaymentService } = require('../../core/payments/paymentService');
 const { CustomerProfileStore } = require('../../core/customers/customerProfileStore');
 const { logger } = require('../../utils/logger');
-const { extractMessageId, getCarouselFooterDelayMs } = require('../../core/flows/flowEngine');
+const { extractMessageId } = require('../../core/flows/flowEngine');
 const { messageStatusWaiter } = require('../../core/whatsapp/messageStatusWaiter');
+
+// Deliberately its own env var, not a reuse of flowEngine.js's
+// CAROUSEL_FOOTER_DELAY_MS - live-tested on dev (2026-08-17) and found that
+// environment's CAROUSEL_FOOTER_DELAY_MS is set to 2500, the exact value
+// flowEngine.js's own history describes as already proven insufficient for
+// this identical race (its comment: "2500ms, then bumped to 6000ms after a
+// live test... showed the footer still rendering before the carousel").
+// Sharing that variable would silently inherit whatever stale value dev
+// happens to have for a different feature, rather than this feature's own
+// considered default. Same 6000ms starting point flowEngine.js settled on,
+// same NaN-guard reasoning - trims first, unlike that original (caught in
+// review): Number('   ') coerces to 0, not NaN, so an untrimmed
+// whitespace-only value would silently disable the very wait this guard
+// exists to bound, with no warning. flowEngine.js's own test suite
+// documents that exact coercion as an accepted "explicit disable" for
+// CAROUSEL_FOOTER_DELAY_MS - not changing that established, separately-
+// owned contract here, just not repeating it for this newer, independent
+// variable where the safer behavior is cheap to have from the start.
+function getPromoTemplateFooterDelayMs() {
+  const raw = String(process.env.PROMO_TEMPLATE_FOOTER_DELAY_MS || '').trim();
+  if (!raw) return 6000;
+
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 6000;
+}
 
 // Same mechanism as flowEngine.js's waitForCarouselDelivery (blocks on
 // WhatsApp's delivery-status webhook for messageId, or a bounded timeout
@@ -21,11 +46,25 @@ async function waitForPromoTemplateDelivery(messageId, timeoutMs) {
     return;
   }
 
+  // Elapsed time is logged on both outcomes, not just the timeout - caught
+  // in review that the timeout-only log left no way to tell, from
+  // production data, whether timeoutMs actually has headroom (vs. the
+  // webhook routinely landing close to the bound) rather than guessing a
+  // second time the way 2500ms -> 6000ms already had to for carousels.
+  const startedAt = Date.now();
   const { timedOut } = await messageStatusWaiter.waitFor(messageId, timeoutMs);
+  const elapsedMs = Date.now() - startedAt;
   if (timedOut) {
     logger.warn('AfroMarket: no delivery status for promo template before follow-up options send, proceeding after timeout', {
       messageId,
-      timeoutMs
+      timeoutMs,
+      elapsedMs
+    });
+  } else {
+    logger.info('AfroMarket: promo template delivery status received before follow-up options send', {
+      messageId,
+      timeoutMs,
+      elapsedMs
     });
   }
 }
@@ -600,7 +639,7 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       // templateSent, not just "did this throw") - a text fallback carries
       // no image/hydration delay to guard against, so there's nothing to
       // wait for on that path.
-      await waitForPromoTemplateDelivery(sentMessageId, getCarouselFooterDelayMs());
+      await waitForPromoTemplateDelivery(sentMessageId, getPromoTemplateFooterDelayMs());
     }
 
     ctx.goto('current_promo_followup');
@@ -870,6 +909,7 @@ module.exports = {
   findProduct,
   findCurrentPromoProduct,
   computePercentOff,
+  getPromoTemplateFooterDelayMs,
   isNativeCatalogEnabled,
   buildNativeCatalogSections
 };
