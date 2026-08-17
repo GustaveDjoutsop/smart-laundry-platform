@@ -147,7 +147,11 @@ r2_cp() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=true; shift ;;
-    --db)      ONLY_DB="${2:-}"; shift 2 ;;
+    --db)
+      [[ -n "${2:-}" ]] || die "--db requires a database name"
+      ONLY_DB="$2"
+      shift 2
+      ;;
     -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)         die "Unknown argument: $1" ;;
   esac
@@ -157,7 +161,7 @@ done
 
 log "Preflight checks"
 
-for tool in pg_dump pg_restore gzip sha256sum; do
+for tool in pg_dump pg_restore sha256sum; do
   command -v "$tool" >/dev/null 2>&1 || die "Required tool not found: $tool"
 done
 
@@ -178,6 +182,13 @@ log "pg_dump major version: ${PG_DUMP_VERSION}"
 if (( PG_DUMP_VERSION < 16 )); then
   warn "pg_dump ${PG_DUMP_VERSION} is older than the newest server in this project (17)."
   warn "Dumps of newer servers will be refused. Install postgresql-client-17."
+fi
+
+if [[ -n "$ONLY_DB" ]]; then
+  case "$ONLY_DB" in
+    paymentdb|machinedb|smartbot) ;;
+    *) die "Unknown database name for --db: $ONLY_DB" ;;
+  esac
 fi
 
 # ── Retention tier for this run ─────────────────────────────────────────────
@@ -208,8 +219,9 @@ for entry in "${DATABASES[@]}"; do
 
   conn="${!url_var:-}"
   if [[ -z "$conn" ]]; then
-    warn "${url_var} is not set — skipping ${db_name}."
-    SUMMARY+=("${db_name}|SKIPPED|no connection string")
+    warn "${url_var} is not set — cannot back up ${db_name}."
+    SUMMARY+=("${db_name}|FAILED|missing connection string")
+    FAILED=1
     continue
   fi
 
@@ -279,8 +291,10 @@ for entry in "${DATABASES[@]}"; do
       upload_failed=1
       continue
     fi
-    r2_cp "${dump_file}.sha256" "${key}.sha256" \
-      || warn "Checksum sidecar upload failed: ${key}.sha256"
+    if ! r2_cp "${dump_file}.sha256" "${key}.sha256"; then
+      warn "Checksum sidecar upload failed: ${key}.sha256"
+      upload_failed=1
+    fi
     ok "Uploaded to ${tier}/"
   done
 
@@ -305,14 +319,14 @@ for row in "${SUMMARY[@]}"; do
 done
 echo
 
-if (( FAILED )); then
-  die "One or more databases failed to back up. See above."
-fi
-
 # A run where every database was skipped exits 0 without this guard, which
 # would make a misconfigured schedule look healthy.
 if [[ "${SUMMARY[*]}" != *"|OK|"* && "${SUMMARY[*]}" != *"|DRY-RUN|"* ]]; then
   die "No database was backed up successfully — check that the DATABASE_URL_* secrets are set."
+fi
+
+if (( FAILED )); then
+  die "One or more databases failed to back up. See above."
 fi
 
 ok "All backups completed."
