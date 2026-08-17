@@ -280,22 +280,23 @@ else
       # $3 = output dump path
       local fv="$1" age="$2" out="$3"
       psql --dbname="$SRC" -v ON_ERROR_STOP=1 -q >/dev/null 2>&1 <<SQL
-DROP SCHEMA public CASCADE; CREATE SCHEMA public;
-CREATE TABLE payments (
+DROP SCHEMA IF EXISTS payment CASCADE;
+CREATE SCHEMA payment;
+CREATE TABLE payment.payments (
   id bigserial PRIMARY KEY,
   tx_reference varchar(64) NOT NULL,
   amount_minor bigint NOT NULL CHECK (amount_minor > 0),
   created_at timestamptz NOT NULL,
   CONSTRAINT uq_tx UNIQUE (tx_reference)
 );
-CREATE INDEX idx_payments_created ON payments (created_at DESC);
-INSERT INTO payments (tx_reference, amount_minor, created_at)
+CREATE INDEX idx_payments_created ON payment.payments (created_at DESC);
+INSERT INTO payment.payments (tx_reference, amount_minor, created_at)
 SELECT 'TX-'||g, 500+g, now() - ('${age} days')::interval
 FROM generate_series(1,500) g;
 SQL
       if [[ "$fv" != "none" ]]; then
         psql --dbname="$SRC" -v ON_ERROR_STOP=1 -q >/dev/null 2>&1 <<SQL
-CREATE TABLE flyway_schema_history (
+CREATE TABLE payment.flyway_schema_history (
   installed_rank integer PRIMARY KEY, version varchar(50),
   description varchar(200) NOT NULL, type varchar(20) NOT NULL,
   script varchar(1000) NOT NULL, checksum integer,
@@ -303,7 +304,7 @@ CREATE TABLE flyway_schema_history (
   installed_on timestamp NOT NULL DEFAULT now(),
   execution_time integer NOT NULL, success boolean NOT NULL
 );
-INSERT INTO flyway_schema_history VALUES
+INSERT INTO payment.flyway_schema_history VALUES
   (1,'${fv}','test','SQL','V${fv}__test.sql',1,'t',now(),1,true);
 SQL
       fi

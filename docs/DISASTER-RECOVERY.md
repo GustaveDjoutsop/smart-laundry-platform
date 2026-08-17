@@ -85,7 +85,7 @@ grounds (see `docs/BACKUP.md` §1).
 
 Fill this in from the drill's step summary or from
 `drill-records/<db>-<date>.json`. Re-measure at least yearly, and after any
-significant growth in `payments` or `outbox_event`.
+significant growth in `transactions` or `outbox`.
 
 Rough expectation until measured: restore is usually minutes, and the dominant
 cost is the human steps around it — deciding to restore, locating credentials,

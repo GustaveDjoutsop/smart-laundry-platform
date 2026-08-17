@@ -71,6 +71,12 @@ declare -A MIN_FLYWAY_VERSION=(
   [paymentdb]=15
 )
 
+declare -A RESTORE_SCHEMA=(
+  [smartbot]=bot
+  [machinedb]=machine
+  [paymentdb]=payment
+)
+
 # Hosts that must never be a restore target, matched as substrings.
 PROD_HOST_DENYLIST=(
   "supabase.co"
@@ -235,6 +241,23 @@ done
 
 psql_t() { psql --dbname="$TARGET_URL" -v ON_ERROR_STOP=1 -tAqc "$1" 2>/dev/null; }
 
+reset_scratch_schemas() {
+  psql --dbname="$TARGET_URL" -v ON_ERROR_STOP=1 -qc "
+DO \$\$
+DECLARE
+  schema_name text;
+BEGIN
+  FOR schema_name IN
+    SELECT nspname
+    FROM pg_namespace
+    WHERE nspname NOT IN ('pg_catalog','information_schema','pg_toast')
+  LOOP
+    EXECUTE format('DROP SCHEMA IF EXISTS %I CASCADE', schema_name);
+  END LOOP;
+END
+\$\$;" >/dev/null
+}
+
 psql_t "SELECT 1" >/dev/null || die "Cannot connect to the scratch database at ${TARGET_HOST}/${TARGET_DB}."
 ok "Connected to scratch target ${TARGET_HOST}/${TARGET_DB}"
 
@@ -303,6 +326,9 @@ FAILED=0
 for db in "${DB_LIST[@]}"; do
   printf '\n%s── %s ─────────────────────────────────────────%s\n' "$BOLD" "$db" "$RESET"
 
+  schema="${RESTORE_SCHEMA[$db]:-}"
+  [[ -n "$schema" ]] || die "No restore schema configured for ${db}"
+
   dump_path=""
   dl_secs="n/a"
   source_key="local file"
@@ -370,18 +396,20 @@ for db in "${DB_LIST[@]}"; do
   # ── Guard 4 — refuse to overwrite a non-empty target ──
   existing="$(psql_t "SELECT count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema')")"
   existing="${existing:-0}"
-  if (( existing > 0 )); then
-    if [[ "$RECREATE" != true ]]; then
-      err "Scratch database already holds ${existing} table(s). Refusing to restore over it."
-      err "Pass --recreate to drop and rebuild the public schema first."
-      RESULTS+=("${db}|FAILED|target not empty")
+  if [[ "$RECREATE" == true ]]; then
+    log "Resetting scratch schema (--recreate)"
+    if ! reset_scratch_schemas; then
+      err "Could not reset the scratch schemas."
+      RESULTS+=("${db}|FAILED|schema reset failed")
       FAILED=1
       continue
     fi
-    log "Resetting scratch schema (--recreate)"
-    psql --dbname="$TARGET_URL" -v ON_ERROR_STOP=1 -qc \
-      "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" >/dev/null \
-      || { err "Could not reset the scratch schema."; RESULTS+=("${db}|FAILED|schema reset failed"); FAILED=1; continue; }
+  elif (( existing > 0 )); then
+    err "Scratch database already holds ${existing} table(s). Refusing to restore over it."
+    err "Pass --recreate to drop and rebuild the scratch schemas first."
+    RESULTS+=("${db}|FAILED|target not empty")
+    FAILED=1
+    continue
   fi
 
   # ── The restore itself — this is the number that matters ──
@@ -406,46 +434,47 @@ for db in "${DB_LIST[@]}"; do
   vf_start="$(now_s)"
   problems=()
 
-  table_count="$(psql_t "SELECT count(*) FROM pg_tables WHERE schemaname='public'")"
+  table_count="$(psql_t "SELECT count(*) FROM pg_tables WHERE schemaname='${schema}'")"
   table_count="${table_count:-0}"
-  (( table_count > 0 )) || problems+=("no tables in public schema")
+  (( table_count > 0 )) || problems+=("no tables in ${schema} schema")
 
   # Flyway version: the authoritative statement of "which migrations are here".
   flyway_version="absent"
-  has_flyway="$(psql_t "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename='flyway_schema_history'")"
+  has_flyway="$(psql_t "SELECT count(*) FROM pg_tables WHERE schemaname='${schema}' AND tablename='flyway_schema_history'")"
   if [[ "${has_flyway:-0}" == "1" ]]; then
-    flyway_version="$(psql_t "SELECT coalesce(max(version::numeric)::text,'none') FROM flyway_schema_history WHERE success")"
+    flyway_version="$(psql_t "SELECT coalesce(max(version::numeric)::text,'none') FROM ${schema}.flyway_schema_history WHERE success")"
     min="${MIN_FLYWAY_VERSION[$db]:-0}"
     if [[ "$flyway_version" == "none" ]]; then
       problems+=("flyway_schema_history has no successful migrations")
     elif awk -v v="$flyway_version" -v m="$min" 'BEGIN{exit !(v < m)}'; then
       problems+=("flyway version ${flyway_version} is below the expected minimum ${min}")
     fi
-    failed_migrations="$(psql_t "SELECT count(*) FROM flyway_schema_history WHERE NOT success")"
+    failed_migrations="$(psql_t "SELECT count(*) FROM ${schema}.flyway_schema_history WHERE NOT success")"
     (( ${failed_migrations:-0} == 0 )) || problems+=("${failed_migrations} failed migration(s) recorded")
   else
     problems+=("flyway_schema_history table is missing")
   fi
 
   # Constraints and indexes are part of a working database, not decoration.
-  index_count="$(psql_t "SELECT count(*) FROM pg_indexes WHERE schemaname='public'")"
-  constraint_count="$(psql_t "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public'")"
+  index_count="$(psql_t "SELECT count(*) FROM pg_indexes WHERE schemaname='${schema}'")"
+  constraint_count="$(psql_t "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='${schema}'")"
   (( ${index_count:-0} > 0 )) || problems+=("no indexes restored")
 
-  # Total live rows across the public schema, plus the largest tables, so the
+  # Total live rows across the service schema, plus the largest tables, so the
   # record shows whether data actually arrived rather than just schema.
   total_rows="$(psql_t "
-    SELECT coalesce(sum(n_live_tup),0) FROM pg_stat_user_tables")"
+    SELECT coalesce(sum(n_live_tup),0) FROM pg_stat_user_tables WHERE schemaname='${schema}'")"
   total_rows="${total_rows:-0}"
   # pg_stat counters are populated by ANALYZE; force it so counts are truthful.
   psql --dbname="$TARGET_URL" -qc "ANALYZE" >/dev/null 2>&1 || true
-  total_rows="$(psql_t "SELECT coalesce(sum(n_live_tup),0) FROM pg_stat_user_tables")"
+  total_rows="$(psql_t "SELECT coalesce(sum(n_live_tup),0) FROM pg_stat_user_tables WHERE schemaname='${schema}'")"
   total_rows="${total_rows:-0}"
   (( total_rows > 0 )) || problems+=("restored database contains zero rows")
 
   top_tables="$(psql_t "
     SELECT string_agg(relname||'='||n_live_tup, ', ' ORDER BY n_live_tup DESC)
     FROM (SELECT relname, n_live_tup FROM pg_stat_user_tables
+          WHERE schemaname='${schema}'
           ORDER BY n_live_tup DESC LIMIT 5) t")"
 
   # Freshness: the newest timestamp anywhere is the real RPO evidence. Without
@@ -455,15 +484,15 @@ for db in "${DB_LIST[@]}"; do
   ts_col="$(psql_t "
     SELECT c.table_name||'.'||c.column_name
     FROM information_schema.columns c
-    JOIN pg_tables t ON t.tablename=c.table_name AND t.schemaname='public'
-    WHERE c.table_schema='public'
+    JOIN pg_tables t ON t.tablename=c.table_name AND t.schemaname='${schema}'
+    WHERE c.table_schema='${schema}'
       AND c.data_type IN ('timestamp with time zone','timestamp without time zone')
       AND c.column_name IN ('created_at','createdat','created_on','inserted_at','timestamp')
     ORDER BY 1 LIMIT 1")"
   if [[ -n "$ts_col" ]]; then
     tbl="${ts_col%%.*}"; col="${ts_col##*.}"
-    newest_row="$(psql_t "SELECT coalesce(max(\"${col}\")::text,'empty') FROM \"${tbl}\"")"
-    age_hours="$(psql_t "SELECT round(extract(epoch from (now() - max(\"${col}\")))/3600.0, 1) FROM \"${tbl}\"")"
+    newest_row="$(psql_t "SELECT coalesce(max(\"${col}\")::text,'empty') FROM \"${schema}\".\"${tbl}\"")"
+    age_hours="$(psql_t "SELECT round(extract(epoch from (now() - max(\"${col}\")))/3600.0, 1) FROM \"${schema}\".\"${tbl}\"")"
     if [[ -n "$age_hours" ]] && awk -v a="$age_hours" 'BEGIN{exit !(a > 48)}'; then
       problems+=("newest row in ${ts_col} is ${age_hours}h old, beyond the 24h RPO plus margin")
     fi
@@ -529,9 +558,11 @@ EOF
 
   # ── Leave the scratch database clean for the next database in the loop ──
   if [[ "$KEEP_SCRATCH" != true ]]; then
-    psql --dbname="$TARGET_URL" -qc "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" >/dev/null 2>&1 \
-      && log "Scratch schema reset" \
-      || warn "Could not reset scratch schema after the drill"
+    if reset_scratch_schemas; then
+      log "Scratch schemas reset"
+    else
+      warn "Could not reset scratch schemas after the drill"
+    fi
   fi
 done
 

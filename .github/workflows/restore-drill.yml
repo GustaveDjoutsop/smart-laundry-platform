@@ -194,14 +194,15 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               state: 'open',
-              labels: 'restore-drill-failure',
+              per_page: 100,
             });
+            const matching = existing.filter((issue) => issue.title === title);
 
-            if (existing.length > 0) {
+            if (matching.length > 0) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: existing[0].number,
+                issue_number: matching[0].number,
                 body: `Failed again: ${runUrl}`,
               });
             } else {
@@ -210,6 +211,6 @@ jobs:
                 repo: context.repo.repo,
                 title,
                 body,
-                labels: ['restore-drill-failure', 'ops'],
+                labels: ['bug'],
               });
             }
