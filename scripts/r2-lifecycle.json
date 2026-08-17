@@ -1,0 +1,60 @@
+{
+  "_comment": [
+    "Cloudflare R2 lifecycle rules for the smart-laundry-backups bucket.",
+    "",
+    "Implements grandfather-father-son retention by PREFIX rather than by",
+    "deleting objects from backup-databases.sh. Two reasons:",
+    "",
+    "  1. The CI token then needs write access only, never delete. A compromised",
+    "     GitHub Actions token cannot erase backup history, which is exactly the",
+    "     scenario backups exist to survive.",
+    "  2. Expiry keeps working even if the backup workflow is broken or disabled.",
+    "",
+    "Retention: 7 daily + 4 weekly + 3 monthly, matching roadmap item R2.",
+    "Weekly is 28 days rather than 4x7=28 exactly; monthly is 93 days to cover",
+    "three 31-day months without a fourth copy briefly overlapping.",
+    "",
+    "Apply with:",
+    "  AWS_ACCESS_KEY_ID=$R2_ACCESS_KEY_ID \\",
+    "  AWS_SECRET_ACCESS_KEY=$R2_SECRET_ACCESS_KEY \\",
+    "  AWS_DEFAULT_REGION=auto \\",
+    "  aws s3api put-bucket-lifecycle-configuration \\",
+    "    --endpoint-url https://$R2_ACCOUNT_ID.$R2_JURISDICTION.r2.cloudflarestorage.com \\",
+    "    --bucket smart-laundry-backups \\",
+    "    --lifecycle-configuration file://scripts/r2-lifecycle.json",
+    "",
+    "Note: aws s3api rejects unknown keys, so strip this _comment before applying",
+    "  jq 'del(._comment)' scripts/r2-lifecycle.json > /tmp/lifecycle.json",
+    "The apply-r2-lifecycle.sh helper does this for you."
+  ],
+  "Rules": [
+    {
+      "ID": "expire-daily-after-7-days",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "daily/" },
+      "Expiration": { "Days": 7 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    },
+    {
+      "ID": "expire-weekly-after-28-days",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "weekly/" },
+      "Expiration": { "Days": 28 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    },
+    {
+      "ID": "expire-monthly-after-93-days",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "monthly/" },
+      "Expiration": { "Days": 93 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    },
+    {
+      "ID": "expire-restore-drill-artifacts-after-3-days",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "restore-drill/" },
+      "Expiration": { "Days": 3 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    }
+  ]
+}

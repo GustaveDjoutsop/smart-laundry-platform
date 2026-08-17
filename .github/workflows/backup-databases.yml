@@ -1,0 +1,163 @@
+name: Nightly Database Backups
+
+# R2 in the architecture roadmap. Supabase point-in-time recovery needs the Pro
+# plan; this achieves a 24-hour RPO on free tiers only (GitHub Actions scheduled
+# runners + Cloudflare R2's 10 GB free storage).
+#
+# ── FAILURE IS LOUD ON PURPOSE ──────────────────────────────────────────────
+# A silently broken backup is worse than no backup, because it buys false
+# confidence. Three things make failure visible:
+#   1. The job fails the run (scripts/backup-databases.sh exits non-zero on any
+#      dump, integrity or upload error).
+#   2. A GitHub issue is opened/updated on failure, so it lands somewhere a solo
+#      maintainer will actually see it rather than only in the Actions tab.
+#   3. A heartbeat file is written to the bucket on success, giving the R3
+#      restore drill and any future BackupStale alert something to check.
+#
+# Restores are proven separately by the drill in R3 — this workflow only proves
+# that readable dumps are being produced and stored.
+
+on:
+  schedule:
+    # 02:30 UTC = 03:30 Europe/Berlin, 03:30 WAT (Cameroon). Chosen for low
+    # laundromat activity in Douala and Yaoundé. Note GitHub's scheduler is
+    # best-effort and can be delayed under load, so an occasional late run is
+    # normal; a MISSING run is not.
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dump and verify without uploading'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write   # required to raise the failure issue below
+
+concurrency:
+  group: database-backups
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Dump, verify and upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # pg_dump must be at least as new as the server it dumps. This repo runs a
+      # mix of Postgres 15, 16 and 17 locally and Supabase is newer again, so
+      # pin the newest client rather than relying on the runner's default 14/16.
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          pg_dump --version
+
+      - name: Run backup
+        env:
+          R2_ACCOUNT_ID:        ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET:            ${{ secrets.R2_BUCKET }}
+          # The bucket is in the EU jurisdiction, which has its own S3 host.
+          # Without this the uploads fail with NoSuchBucket. Stored as a variable
+          # rather than a secret because it is not sensitive.
+          R2_JURISDICTION:      ${{ vars.R2_JURISDICTION || 'eu' }}
+          DATABASE_URL_SMARTBOT:  ${{ secrets.DATABASE_URL_SMARTBOT }}
+          DATABASE_URL_MACHINEDB: ${{ secrets.DATABASE_URL_MACHINEDB }}
+          DATABASE_URL_PAYMENTDB: ${{ secrets.DATABASE_URL_PAYMENTDB }}
+        run: |
+          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            ./scripts/backup-databases.sh --dry-run
+          else
+            ./scripts/backup-databases.sh
+          fi
+
+      # Gives any monitoring a single object to check freshness against, which is
+      # cheaper and more reliable than listing dated prefixes.
+      - name: Write success heartbeat
+        if: success() && inputs.dry_run != true
+        env:
+          AWS_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          printf '{"last_success":"%s","run_id":"%s","run_url":"%s"}\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            "${{ github.run_id }}" \
+            "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            > heartbeat.json
+          # Must match the jurisdiction host used by the backup script above.
+          JURISDICTION="${{ vars.R2_JURISDICTION || 'eu' }}"
+          if [[ -n "$JURISDICTION" && "$JURISDICTION" != "default" ]]; then
+            ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.${JURISDICTION}.r2.cloudflarestorage.com"
+          else
+            ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          fi
+          aws s3api put-object \
+            --endpoint-url "$ENDPOINT" \
+            --bucket "${{ secrets.R2_BUCKET }}" \
+            --key "status/last-success.json" \
+            --body heartbeat.json \
+            --content-type application/json > /dev/null
+          echo "Heartbeat written to status/last-success.json"
+
+      - name: Raise an issue if the backup failed
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const title = 'Nightly database backup failed';
+            const body = [
+              `The scheduled database backup failed.`,
+              ``,
+              `Run: ${runUrl}`,
+              `Time: ${new Date().toISOString()}`,
+              ``,
+              `The most likely causes, in order:`,
+              `1. A \`DATABASE_URL_*\` secret is stale — check whether database`,
+              `   credentials were rotated recently (see docs/SECRET-ROTATION.md).`,
+              `2. The R2 API token expired or lost write permission.`,
+              `3. A dump failed its integrity check, which would indicate a real`,
+              `   problem with the database rather than with this workflow.`,
+              ``,
+              `Until this is green, the recovery point objective is not being met.`,
+              `See docs/BACKUP.md for how to run the backup manually.`,
+            ].join('\n');
+
+            // Reuse one issue rather than opening a new one every night.
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'backup-failure',
+            });
+
+            if (existing.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing[0].number,
+                body: `Failed again: ${runUrl}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['backup-failure', 'ops'],
+              });
+            }
