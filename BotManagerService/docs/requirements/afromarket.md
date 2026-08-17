@@ -85,6 +85,22 @@ returning customer - now takes a `reason` param from the caller.
 
 348/348 tests passing.
 
+**PR #105 Copilot review caught 2 more issues in `sendPromoTemplate.js`,
+same day, before merge**:
+- `main()` was called unconditionally at module load, contradicting the
+  file's own comment about being side-effect-free when required, and
+  unlike `submitCatalogBatch.js`'s guarded `if (require.main === module)`
+  pattern (the exact thing the dotenv guard right above it was already
+  matching). Now guarded the same way.
+- The usage text/example showed `<to-e164>` with a leading `"+"`
+  (`+491701234567`), but this codebase's actual convention (see
+  `submitCatalogBatch.js`'s `assertValidPhoneNumber`, and every inbound
+  `from`/`wa_id` in the bot layer) is digits-only E.164, no `"+"` - the
+  Cloud API's `to` field expects that same digits-only form, so the
+  documented example would likely have failed at send time. Now validates
+  `to` the same way `AFROMARKET_PHONE_NUMBER` is validated (8-15 digits,
+  no `"+"`) and the usage/example text is corrected.
+
 ## v2.26 (2026-08-16): manual promo-send trigger; native sale_price wired
 ## into the catalog sync
 

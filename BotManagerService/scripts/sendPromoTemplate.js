@@ -20,10 +20,17 @@
  * mistake.
  *
  * Usage:
- *   node scripts/sendPromoTemplate.js <phone-number-id> <to-e164> <product-id> <percent-off>
+ *   node scripts/sendPromoTemplate.js <phone-number-id> <to-e164-no-plus> <product-id> <percent-off>
+ *
+ * <to-e164-no-plus> is digits only, no leading "+" - matching the rest of
+ * this codebase's convention (see submitCatalogBatch.js's
+ * assertValidPhoneNumber and AfroMarketBot's inbound `from`/wa_id, both
+ * digits-only), not the "+"-prefixed form. Caught in review: the Cloud
+ * API's `to` field expects this same digits-only form, so a "+" here would
+ * likely be rejected outright by Meta at send time.
  *
  * Example (production, K-AfroMarket, sends from 1214372845096561):
- *   node scripts/sendPromoTemplate.js 1214372845096561 +491701234567 bouillie_jaune_500g 20
+ *   node scripts/sendPromoTemplate.js 1214372845096561 491701234567 bouillie_jaune_500g 20
  *
  * Requires WHATSAPP_ACCESS_TOKEN_AFROMARKET (env or .env).
  */
@@ -44,7 +51,18 @@ async function main() {
   const [phoneNumberId, to, productId, percentOffRaw] = process.argv.slice(2);
 
   if (!phoneNumberId || !to || !productId || !percentOffRaw) {
-    console.error('Usage: node scripts/sendPromoTemplate.js <phone-number-id> <to-e164> <product-id> <percent-off>');
+    console.error('Usage: node scripts/sendPromoTemplate.js <phone-number-id> <to-e164-no-plus> <product-id> <percent-off>');
+    process.exitCode = 1;
+    return;
+  }
+
+  // Same digits-only E.164 check as submitCatalogBatch.js's
+  // assertValidPhoneNumber - a "+"-prefixed number is a natural typo to
+  // make (WhatsApp UIs display numbers that way) but the Cloud API's `to`
+  // field expects digits only, so this would otherwise fail at send time
+  // with a real customer already dequeued for the promo. Caught in review.
+  if (!/^\d{8,15}$/.test(to)) {
+    console.error(`to must be 8-15 digits in E.164 form without "+" (got "${to}")`);
     process.exitCode = 1;
     return;
   }
@@ -94,7 +112,15 @@ async function main() {
   console.log(JSON.stringify(result, null, 2));
 }
 
-main().catch((err) => {
-  console.error(err.message);
-  process.exitCode = 1;
-});
+// Guarded like submitCatalogBatch.js's own main() invocation - without
+// this, require()'ing the file (e.g. from a future test) would run the CLI
+// unconditionally, contradicting this file's own dotenv-guard comment
+// above. Caught in review.
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err.message);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { main };
