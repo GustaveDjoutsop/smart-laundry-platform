@@ -15,9 +15,16 @@ const { messageStatusWaiter } = require('../../core/whatsapp/messageStatusWaiter
 // Sharing that variable would silently inherit whatever stale value dev
 // happens to have for a different feature, rather than this feature's own
 // considered default. Same 6000ms starting point flowEngine.js settled on,
-// same NaN-guard reasoning.
+// same NaN-guard reasoning - trims first, unlike that original (caught in
+// review): Number('   ') coerces to 0, not NaN, so an untrimmed
+// whitespace-only value would silently disable the very wait this guard
+// exists to bound, with no warning. flowEngine.js's own test suite
+// documents that exact coercion as an accepted "explicit disable" for
+// CAROUSEL_FOOTER_DELAY_MS - not changing that established, separately-
+// owned contract here, just not repeating it for this newer, independent
+// variable where the safer behavior is cheap to have from the start.
 function getPromoTemplateFooterDelayMs() {
-  const raw = process.env.PROMO_TEMPLATE_FOOTER_DELAY_MS;
+  const raw = String(process.env.PROMO_TEMPLATE_FOOTER_DELAY_MS || '').trim();
   if (!raw) return 6000;
 
   const parsed = Number(raw);

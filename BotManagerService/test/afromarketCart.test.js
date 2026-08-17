@@ -93,6 +93,17 @@ test('getPromoTemplateFooterDelayMs falls back to the default on a negative valu
   });
 });
 
+test('getPromoTemplateFooterDelayMs falls back to the default on a whitespace-only value', () => {
+  // Number('   ') coerces to 0, not NaN - a JS quirk that would otherwise
+  // silently disable the wait this function exists to bound (caught in
+  // review, on this variable specifically - see the function's own comment
+  // for why this diverges from getCarouselFooterDelayMs's accepted
+  // behavior for that same coercion).
+  withPromoTemplateFooterDelayMsEnv('   ', () => {
+    assert.equal(getPromoTemplateFooterDelayMs(), 6000);
+  });
+});
+
 test('findCurrentPromoProduct returns the product with a valid salePriceEur below priceEur', () => {
   const botConfig = {
     products: [
