@@ -1058,4 +1058,4 @@ class FlowEngine {
   }
 }
 
-module.exports = { FlowEngine, validateFlowConfig, getCarouselFooterDelayMs };
+module.exports = { FlowEngine, validateFlowConfig, getCarouselFooterDelayMs, extractMessageId };
