@@ -1,5 +1,152 @@
 # AfroMarket WhatsApp Bot
 
+## v2.27 (2026-08-17): "Show catalog" only worked on a customer's literal
+## first message; a subagent review also caught 3 issues in the same-day
+## v2.26 work before it shipped
+
+Business owner live-tested the "Show catalog" Ice Breaker (set live in
+v2.26/v2.21) past a customer's first message and got the catalog stacked
+with an unrelated flow-engine response - the exact duplicate-message
+pattern v2.24 already fixed once, but for a case v2.24 didn't cover: v2.24
+only made the customer's *literal first-ever message* catalog-only. Any
+later message - including "Show catalog" tapped again, or typed by hand -
+still fell through to the normal flow engine, which doesn't recognize that
+phrase as anything meaningful (same unpredictable-routing issue already
+flagged as a separate open item in v2.24 for "Hello again").
+
+**Fixed**: `catalogWelcome.body`/`footer`/`thumbnailProductRetailerId` in
+`afromarket.bot.json` gets a new sibling, `triggers: ["Show catalog"]` - an
+array of exact-match (case/whitespace-insensitive) phrases that ConfigBot
+now checks on every message, not just the first. A match always sends
+catalog-only, regardless of whether this is the customer's 1st message or
+50th - unlike the claim-based first-contact path, there's no "once"
+semantics here by design, matching what the business owner actually asked
+for ("always and only").
+
+**A real design flaw surfaced while building this**: the existing
+`hasPreStagedWork` safeguard (added in v2.24 specifically to stop a
+native-order checkout from being silently stranded) reads
+`Boolean(conversationState.currentFlowId)` - true not just for that narrow
+case, but for practically *every* returning customer, since the flow
+engine sets `currentFlowId` on every ordinary turn. Applying that same
+guard to the new explicit-trigger path would have made "Show catalog"
+correctly catalog-only for a customer's first message, then silently
+broken (catalog + stray flow-engine response again) for every message
+after - caught by the test suite itself before shipping, not by a second
+live incident. Fixed by scoping `hasPreStagedWork` to gate *only* the
+claim-based first-contact path, where it's actually a precise signal
+(true there only when another caller staged real work this exact turn,
+since no earlier turn could have written `conv:` state otherwise). The
+explicit-trigger path always skips the flow engine on a successful send -
+correctly safe to do, since a customer's existing state isn't lost by
+skipping, just paused, and resumes normally on their next ordinary
+message. Four new tests cover this directly (returning customer, case/
+whitespace insensitivity, fires every time not just once, plain text
+containing "catalog" as a substring does *not* false-positive).
+
+**Same-day subagent review also caught 3 issues in v2.26's own diff before
+it was committed** (that work was still unshipped when this fix started):
+- `submitCatalogBatch.js`'s `salePriceEur` validation only checked
+  `salePrice < priceEur`, so a negative value (e.g. a stray "-" typo) was
+  accepted - `-1 < 4.99` is true, and Meta would have received
+  `sale_price: "-1.00 EUR"` with no local validation catching it. Now also
+  rejects `salePrice <= 0`.
+- `sendPromoTemplate.js`'s percent-off argument silently truncated
+  decimals (`Math.trunc(20.9)` → `20`) instead of rejecting them, despite
+  the usage text saying "must be a whole number" - a fat-fingered decimal
+  would have quietly sent a different discount than typed. Now rejects
+  non-integers outright.
+- `sendPromoTemplate.js` called `dotenv.config()` unconditionally at
+  module load, unlike its sibling `submitCatalogBatch.js`, which guards it
+  behind `require.main === module` specifically so requiring the file as a
+  module doesn't trigger the side effect. Matched the existing pattern.
+
+**A second, more severe issue surfaced on a follow-up review of the
+"Show catalog" fix itself, before *that* shipped either**: making the
+explicit-trigger path "always send" also made it always send *unprotected*
+against Meta's documented at-least-once webhook redelivery - the exact
+duplicate-send failure mode this whole feature exists to prevent, just
+reintroduced via a different path. The claim-based first-contact path was
+already race-safe (an atomic `setnx` on a 90-day key), but the new
+explicit-trigger branch forced `shouldSend = true` unconditionally, with no
+Redis guard at all - two deliveries of the same "Show catalog" tap
+(concurrent or redelivered) would each independently decide to send,
+double-carding the customer. Fixed with a second, purpose-scoped dedup key,
+`catalog_trigger_msg:{botId}:{messageId}`, `setnx`'d on a 24-hour TTL
+(deliberately much shorter than the 90-day first-contact claim - it's
+guarding one event, not a customer relationship, and a genuinely new tap
+minutes later must still go through). Degrades to allow-send if
+`message.id` is ever absent, rather than silently blocking a real customer's
+request. Two new tests cover this directly (same message id delivered
+twice → one send; two distinct message ids → two sends). Also fixed in the
+same pass: `_sendCatalogWelcome`'s log line unconditionally said
+"(first message)" even when the send came from an explicit trigger on a
+returning customer - now takes a `reason` param from the caller.
+
+348/348 tests passing.
+
+## v2.26 (2026-08-16): manual promo-send trigger; native sale_price wired
+## into the catalog sync
+
+**Manual promo trigger, built and live-verified**: `scripts/
+sendPromoTemplate.js <phone-number-id> <to-e164> <product-id> <percent-off>`
+sends the approved `afromarket_promo_v1` template (Variant A, the one with
+a working receiving side) to a single customer. Takes phone-number-id as
+an explicit argument, same safety discipline as
+`setConversationalAutomation.js` - this is an outward-facing send, and
+sandbox-vs-production is not a "just retry" mistake to get wrong. Tested
+end to end on the sandbox number: template arrived with correct image/
+body/button, tapping "Shop Now" correctly added Bouillie Jaune at 20% off
+(€3.99) to the cart via the existing `payloadTriggers`/
+`products.addDiscounted` wiring - no new receiving-side code needed, it
+already worked. Deliberately does not support `afromarket_promo_code_v1`
+(Variant B) - that one ships with a dead-end placeholder link instead of
+routing back into the bot (see v2.17), so sending it for real would hand a
+customer a broken button.
+
+**Investigated whether a promotion can show up inside the catalog
+browsing view itself**, not just as a one-off message - prompted by a
+reference screenshot of a rich "Categories + Top Deals" storefront layout.
+Checked directly rather than assumed: that exact layout isn't a real,
+creatable AfroMarket template (checked WhatsApp Manager's actual Template
+Library - Utility/Authentication only - and the existing `catalog_prod_v1`
+template, which is a plain "View catalog" button, no rich preview). The
+reference screenshot showed "Jasper Market's" as the business name, which
+turned out to be Meta's own real, verified demo WhatsApp Business account
+(see below) - not a template feature AfroMarket can configure.
+
+What IS real, confirmed directly in Commerce Manager: every product has a
+native `sale_price` field (strikethrough discount pricing wherever the
+catalog is browsed) - present but "Missing" on all 5 AfroMarket products
+before this. **Wired into `submitCatalogBatch.js`**: an optional
+`salePriceEur` field per product in `bot.json`, mapped to Meta's
+`sale_price`, validated to be strictly less than `priceEur` (throws before
+sending anything otherwise - a silent Meta-side rejection would be much
+harder to debug). Set on Bouillie Jaune (€4.99 → €3.99, matching the promo
+tested above) and synced to the production catalog - **confirmed live in
+Commerce Manager**: the product now shows "€3.99 ~~€4.99~~" with real
+strikethrough pricing. Not yet independently confirmed how this renders on
+the customer-facing "View Catalog" screen specifically (hit repeated
+browser-navigation issues reaching it in the same session) - the
+Commerce-Manager-level confirmation is solid; the exact customer-facing
+render is still open.
+
+Commerce Manager's "Sets" feature (Meta's real name for catalog
+"Collections") currently has only one set, "All Products" - no
+category-based sets exist yet, so there's no "Categories" row in
+AfroMarket's native catalog browsing screen today either. Out of scope for
+this entry - a business-content decision (which categories, which products
+go in "Top Deals"), not a code change, same pattern as the empty Cooking
+Powder category noted back in v2.10.
+
+**"Jasper's Market" - real business, not a mockup.** While investigating
+the reference screenshot, ended up sending "Get started" to a genuine,
+Meta-verified WhatsApp Business account by that name - very likely Meta's
+own official demo/showcase business for the WhatsApp Business Platform,
+which would explain the resemblance. The send was unintentional (a stray
+click while searching WhatsApp Web, not deliberate). Flagged to the
+business owner rather than quietly continuing. 340/340 tests passing.
+
 ## v2.25 (2026-08-16): all 4 pending templates now APPROVED on both WABAs
 
 Checked via `scripts/checkTemplateStatus.js` against both WABAs (not

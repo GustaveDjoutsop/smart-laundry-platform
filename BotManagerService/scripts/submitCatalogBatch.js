@@ -8,6 +8,14 @@
  * allow_upsert=true, so re-running is safe - it updates existing retailer
  * IDs (the bot.json product "id") rather than duplicating them.
  *
+ * Per-product `salePriceEur` in bot.json (optional) maps to Meta's native
+ * `sale_price` field - set it on a product actively running a promotion to
+ * get strikethrough discount pricing wherever the catalog is browsed
+ * natively (confirmed present as a real Commerce Manager field via direct
+ * inspection, not assumed - see docs/requirements/afromarket.md v2.26).
+ * Must be strictly less than priceEur or the sync throws before sending
+ * anything. Leave it unset for products not currently on sale.
+ *
  * Usage:
  *   node scripts/submitCatalogBatch.js [path/to/bot.json]
  *
@@ -92,20 +100,43 @@ function toCatalogItem({ product, currency, phoneNumber }) {
     throw new Error(`product missing required field(s) for catalog sync: ${JSON.stringify(product)}`);
   }
 
-  return {
-    method: 'UPDATE',
-    data: {
-      id: product.id,
-      title: product.name,
-      description: product.description || product.name,
-      brand: BRAND,
-      price: `${price.toFixed(2)} ${currency}`,
-      availability: 'in stock',
-      condition: 'new',
-      link: buildProductLink(phoneNumber, product),
-      image_link: product.imageUrl
-    }
+  const data = {
+    id: product.id,
+    title: product.name,
+    description: product.description || product.name,
+    brand: BRAND,
+    price: `${price.toFixed(2)} ${currency}`,
+    availability: 'in stock',
+    condition: 'new',
+    link: buildProductLink(phoneNumber, product),
+    image_link: product.imageUrl
   };
+
+  // salePriceEur is optional - only set on a product actively running a
+  // promotion (see docs/requirements/afromarket.md v2.25/v2.26). Meta
+  // requires sale_price to be strictly less than price for it to render as
+  // a discount - validated here rather than letting a typo silently ship
+  // a "sale" that isn't one, or a Graph API error surface later with no
+  // indication of which product caused it.
+  if (product.salePriceEur != null) {
+    const salePrice = Number(product.salePriceEur);
+    if (!Number.isFinite(salePrice)) {
+      throw new Error(`product ${product.id}: salePriceEur is not a valid number (got "${product.salePriceEur}")`);
+    }
+    // salePrice < price alone lets a negative/zero typo (e.g. a stray "-"
+    // or a decimal-point slip) through silently, since -1 < any positive
+    // price - caught in review before this shipped. A sale price of zero
+    // or less isn't a discount, it's a data error.
+    if (salePrice <= 0) {
+      throw new Error(`product ${product.id}: salePriceEur (${salePrice}) must be greater than zero`);
+    }
+    if (salePrice >= price) {
+      throw new Error(`product ${product.id}: salePriceEur (${salePrice}) must be less than priceEur (${price})`);
+    }
+    data.sale_price = `${salePrice.toFixed(2)} ${currency}`;
+  }
+
+  return { method: 'UPDATE', data };
 }
 
 function buildBatchRequestBody({ botConfig, phoneNumber }) {
