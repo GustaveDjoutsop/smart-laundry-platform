@@ -13,6 +13,34 @@ const { logger } = require('../../utils/logger');
 // it again. 90 days behaves as "effectively once" without unbounded storage.
 const CATALOG_WELCOME_CLAIM_TTL_SECONDS = 60 * 60 * 24 * 90;
 
+// How long an explicit-trigger send (e.g. "Show catalog") is deduplicated
+// per WhatsApp message id - deliberately much shorter than the claim TTL
+// above, since (unlike the first-contact claim) this trigger is meant to
+// fire again on the customer's next distinct "Show catalog" message. This
+// window only needs to outlast Meta's documented at-least-once webhook
+// redelivery for the *same* event, not remember the customer long-term.
+const CATALOG_TRIGGER_DEDUP_TTL_SECONDS = 60 * 60 * 24;
+
+// Whether an incoming text message exactly matches one of catalogWelcome's
+// configured trigger phrases (e.g. the "Show catalog" Ice Breaker label) -
+// case/whitespace-insensitive, since a customer retyping it by hand won't
+// match the Ice Breaker's exact casing. Unlike the first-contact claim
+// below, this has no "once" semantics - it must fire the same way every
+// single time, whether this is the customer's first message or their
+// fiftieth (see afromarket.md v2.27 - a customer tapping "Show catalog"
+// later in the conversation got the catalog stacked with the unrelated
+// flow-engine welcome/menu response, since only the true first-contact
+// case was covered before this).
+function messageMatchesCatalogTrigger(catalogWelcome, message) {
+  const triggers = catalogWelcome && Array.isArray(catalogWelcome.triggers) ? catalogWelcome.triggers : [];
+  if (!triggers.length || message?.type !== 'text') return false;
+
+  const incoming = String(message.text?.body || '').trim().toLowerCase();
+  if (!incoming) return false;
+
+  return triggers.some((trigger) => String(trigger).trim().toLowerCase() === incoming);
+}
+
 // Generic configuration-driven bot: runs entirely off a .bot.json flow config.
 // Bots that need custom actions/integrations extend this class and pass a plugin.
 class ConfigBot extends BaseBot {
@@ -32,14 +60,19 @@ class ConfigBot extends BaseBot {
       ? JSON.parse(existingSerializedState)
       : { currentFlowId: null, currentStateId: null, context: {} };
 
-    // Whether another code path already staged real, meaningful work in
-    // conversationState before calling us - e.g. AfroMarketBot
-    // ._handleNativeOrder writes a `checkout_start` state (with the
-    // customer's submitted cart) before calling super.handleMessage(). If
-    // so, the flow engine below MUST still run this turn regardless of
-    // whether the catalog welcome also sends, or that staged work (a real
-    // order) would be silently lost - caught by a subagent review before
-    // this shipped; see afromarket.md v2.24's incident writeup.
+    // Whether conversationState already has a flow in progress. Meaningful
+    // in exactly one place below: gating the claim-based first-contact
+    // catalog send (not the explicit-trigger one - see that comment for
+    // why the distinction matters). True on a customer's literal first-ever
+    // message only when another code path staged something THIS turn
+    // before calling us - e.g. AfroMarketBot._handleNativeOrder writes a
+    // `checkout_start` state (the customer's submitted cart) before calling
+    // super.handleMessage() - since no earlier turn could have written
+    // conv: state otherwise. On any later message it's true for practically
+    // every returning customer (the flow engine sets currentFlowId on every
+    // ordinary turn), which is exactly why it must NOT gate the explicit
+    // trigger path - caught by a subagent review before this shipped; see
+    // afromarket.md v2.24/v2.27.
     const hasPreStagedWork = Boolean(conversationState.currentFlowId);
 
     // Meta removed the `request_welcome` webhook event and
@@ -85,17 +118,59 @@ class ConfigBot extends BaseBot {
         logger.warn(`${this.constructor.name}[${this.config.botId}] catalogWelcome configured but WhatsApp client isn't - skipping without claiming`);
       } else {
         const catalogWelcomeClaimKey = `catalog_welcome_sent:${this.config.botId}:${from}`;
-        const isFirstMessage = await redisManager.setnx(catalogWelcomeClaimKey, '1', CATALOG_WELCOME_CLAIM_TTL_SECONDS);
-        if (isFirstMessage) {
-          const sentOk = await this._sendCatalogWelcome({ from, phone });
-          // Only skip the flow engine when the catalog actually went out
-          // AND there's no pre-staged work waiting on it (see
-          // hasPreStagedWork above) - a failed send (already logged inside
-          // _sendCatalogWelcome) falls through to the normal flow below
-          // regardless, so the customer still gets *something* rather than
-          // silence on their first message.
-          if (sentOk && !hasPreStagedWork) {
-            logger.info(`${this.constructor.name}[${this.config.botId}] first contact from ${from} handled by catalog welcome only - flow engine skipped this turn`);
+        const matchesExplicitTrigger = messageMatchesCatalogTrigger(this.config.catalogWelcome, message);
+
+        let shouldSend;
+        if (matchesExplicitTrigger) {
+          // An explicit trigger always sends, on every distinct message it
+          // matches - not just the customer's first ever. But "always"
+          // still needs its own atomicity: Meta's documented at-least-once
+          // webhook redelivery means the SAME tap can arrive twice, and
+          // without a per-event guard both deliveries would independently
+          // decide to send - caught in review before this shipped (the
+          // exact stacked-message bug this fix exists to prevent, just via
+          // a different path). Deduped by message id, not customer, and on
+          // a short TTL, not the 90-day claim - a genuinely new "Show
+          // catalog" tap sent five minutes later must still go through.
+          // message.id may legitimately be absent (e.g. some test/local
+          // paths) - degrades to "treat as first delivery" rather than
+          // blocking a real customer's request when it is.
+          const messageId = message?.id ? String(message.id) : null;
+          shouldSend = messageId
+            ? await redisManager.setnx(`catalog_trigger_msg:${this.config.botId}:${messageId}`, '1', CATALOG_TRIGGER_DEDUP_TTL_SECONDS)
+            : true;
+          // Also mark the first-contact claim (best-effort, not gating
+          // anything here) so a customer whose actual first message
+          // happens to match the trigger doesn't leave the claim-based
+          // path to redundantly fire again on their very next message.
+          if (shouldSend) {
+            await redisManager.setnx(catalogWelcomeClaimKey, '1', CATALOG_WELCOME_CLAIM_TTL_SECONDS);
+          }
+        } else {
+          shouldSend = await redisManager.setnx(catalogWelcomeClaimKey, '1', CATALOG_WELCOME_CLAIM_TTL_SECONDS);
+        }
+
+        if (shouldSend) {
+          const sentOk = await this._sendCatalogWelcome({ from, phone, reason: matchesExplicitTrigger ? 'explicit trigger' : 'first contact' });
+          // hasPreStagedWork only guards the claim-based first-contact
+          // path, not an explicit trigger - and only makes sense there.
+          // hasPreStagedWork can ONLY be true on a customer's literal
+          // first-ever message if another caller (e.g. _handleNativeOrder)
+          // staged something THIS turn, since no earlier turn could have
+          // written conv: state otherwise - that's the one case skipping
+          // the flow engine would lose real, unrecoverable work. An
+          // explicit trigger, by contrast, can fire on a customer's 50th
+          // message just as easily as their 1st - hasPreStagedWork there
+          // just means "this customer has chatted before" (the flow engine
+          // sets currentFlowId on every ordinary turn), not "something is
+          // about to be lost". Skipping the flow engine for it doesn't
+          // lose anything - their state is merely paused, not discarded,
+          // and resumes normally on their next ordinary message. A failed
+          // send (already logged inside _sendCatalogWelcome) falls through
+          // to the normal flow below either way, so the customer still
+          // gets *something* rather than silence.
+          if (sentOk && (matchesExplicitTrigger || !hasPreStagedWork)) {
+            logger.info(`${this.constructor.name}[${this.config.botId}] message from ${from} handled by catalog welcome only (${matchesExplicitTrigger ? 'explicit trigger' : 'first contact'}) - flow engine skipped this turn`);
             return;
           }
         }
@@ -214,7 +289,7 @@ class ConfigBot extends BaseBot {
     logger.warn('Unsupported outbound intent', outboundIntent);
   }
 
-  async _sendCatalogWelcome({ from, phone }) {
+  async _sendCatalogWelcome({ from, phone, reason = 'first message' }) {
     const catalogWelcome = this.config.catalogWelcome;
     const templateContext = this.flowEngine.buildTemplateContext(from, phone);
     const body = renderTemplate(catalogWelcome.body || '', templateContext);
@@ -229,7 +304,7 @@ class ConfigBot extends BaseBot {
         thumbnailProductRetailerId: catalogWelcome.thumbnailProductRetailerId
       });
 
-      logger.info(`${this.constructor.name}[${this.config.botId}] sent catalog welcome to ${from} (first message)`);
+      logger.info(`${this.constructor.name}[${this.config.botId}] sent catalog welcome to ${from} (${reason})`);
       return true;
     } catch (err) {
       // Never let a failed catalog send (e.g. a transient Graph API error)

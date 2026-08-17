@@ -183,6 +183,95 @@ test('a customer whose conversation state already exists from another code path 
   assert.equal(JSON.parse(stored).currentStateId, 'checkout_address', 'conversation state should have advanced past checkout_start, not stayed stranded');
 });
 
+// Regression test for a real bug the business owner caught live: "Show
+// catalog" (the Ice Breaker label - see afromarket.md v2.27) only produced
+// catalog-only on a customer's genuine first message. Tapped again later
+// in the same conversation, it fell through to the normal flow engine and
+// stacked the catalog with an unrelated welcome/menu response. An explicit
+// catalogWelcome.triggers match must always be catalog-only, not just on
+// first contact.
+test('"Show catalog" always sends catalog-only, even for a returning customer past their first message', async (t) => {
+  const { bot, sent } = createAfroMarketBot(t);
+  const from = nextFrom();
+
+  // Establish this as a returning customer first.
+  await bot.handleMessage({ from, message: { type: 'text', text: { body: 'hi' } }, phone: from });
+  await bot.handleMessage({ from, message: { type: 'text', text: { body: 'hi again' } }, phone: from });
+  sent.length = 0;
+
+  await bot.handleMessage({ from, message: { type: 'text', text: { body: 'Show catalog' } }, phone: from });
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].type, 'catalog_message');
+});
+
+test('the "Show catalog" trigger match is case- and whitespace-insensitive', async (t) => {
+  const { bot, sent } = createAfroMarketBot(t);
+  const from = nextFrom();
+
+  await bot.handleMessage({ from, message: { type: 'text', text: { body: '  show CATALOG  ' } }, phone: from });
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].type, 'catalog_message');
+});
+
+test('"Show catalog" fires every time it\'s sent, not just once', async (t) => {
+  const { bot, sent } = createAfroMarketBot(t);
+  const from = nextFrom();
+
+  await bot.handleMessage({ from, message: { type: 'text', text: { body: 'Show catalog' } }, phone: from });
+  sent.length = 0;
+  await bot.handleMessage({ from, message: { type: 'text', text: { body: 'Show catalog' } }, phone: from });
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].type, 'catalog_message');
+});
+
+// Regression test for a real bug caught in review on the "always sends"
+// fix above: making the explicit trigger always send is not the same as
+// making it safe to always send. Meta documents at-least-once webhook
+// redelivery (see the concurrent-first-message test below for the same
+// concern on the claim-based path) - two deliveries of the SAME tap
+// (identical message.id) must still only produce one send. A genuinely
+// new tap (different message.id) sent later must still go through -
+// this is not the 90-day first-contact claim, it's a short-lived
+// per-message-event guard.
+test('two deliveries of the same "Show catalog" webhook event (same message id) only trigger one send', async (t) => {
+  const { bot, sent } = createAfroMarketBot(t);
+  const from = nextFrom();
+
+  await Promise.all([
+    bot.handleMessage({ from, message: { id: 'wamid.redelivered-1', type: 'text', text: { body: 'Show catalog' } }, phone: from }),
+    bot.handleMessage({ from, message: { id: 'wamid.redelivered-1', type: 'text', text: { body: 'Show catalog' } }, phone: from })
+  ]);
+
+  assert.equal(sent.filter((s) => s.type === 'catalog_message').length, 1);
+});
+
+test('a later "Show catalog" tap with a genuinely different message id still sends, even right after a redelivered one', async (t) => {
+  const { bot, sent } = createAfroMarketBot(t);
+  const from = nextFrom();
+
+  await bot.handleMessage({ from, message: { id: 'wamid.tap-1', type: 'text', text: { body: 'Show catalog' } }, phone: from });
+  sent.length = 0;
+
+  await bot.handleMessage({ from, message: { id: 'wamid.tap-2', type: 'text', text: { body: 'Show catalog' } }, phone: from });
+
+  assert.equal(sent.filter((s) => s.type === 'catalog_message').length, 1);
+});
+
+test('a plain message that happens to contain "catalog" as a substring does not match the trigger', async (t) => {
+  const { bot, sent } = createAfroMarketBot(t);
+  const from = nextFrom();
+
+  await bot.handleMessage({ from, message: { type: 'text', text: { body: 'hi' } }, phone: from });
+  sent.length = 0;
+
+  await bot.handleMessage({ from, message: { type: 'text', text: { body: 'can I see the catalog please' } }, phone: from });
+
+  assert.equal(sent.filter((s) => s.type === 'catalog_message').length, 0);
+});
+
 // Regression test for the duplicate-delivery race caught in review: Meta
 // documents at-least-once webhook redelivery, so two inbound events for the
 // same brand-new customer's first message could in principle be processed

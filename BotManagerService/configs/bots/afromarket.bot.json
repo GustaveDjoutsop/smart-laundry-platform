@@ -12,7 +12,7 @@
     { "id": "arachide_blanche_1kg", "name": "Arachide Blanche Dépulpée 1kg", "category": "beans_nuts", "priceEur": 7.99, "unit": "1 kg", "imageUrl": "https://legal.botmanagementservice.eu/products/afromarket-arachide-blanche-1kg.jpg", "description": "Peeled white peanuts selected for their mild taste and creamy texture. Particularly suitable for Ndolè, peanut sauces, and many traditional African recipes." },
     { "id": "ndole_250g", "name": "Ndolè Cameroun – Lavé et Séché 250g", "category": "leaves", "priceEur": 9.99, "unit": "250 g", "imageUrl": "https://legal.botmanagementservice.eu/products/afromarket-ndole-250g.jpg", "description": "Washed and dried Cameroonian Ndolè leaves, ready for the well-known traditional dish. One 250 g pack is approximately equivalent to 2 kg of wet Ndolè, or around 18 balls." },
     { "id": "okok_100g", "name": "Feuilles d'OKOK Séchées 100g", "category": "leaves", "priceEur": 4.99, "unit": "100 g", "imageUrl": "https://legal.botmanagementservice.eu/products/afromarket-okok-100g.jpg", "description": "Dried and finely cut OKOK leaves, ideal for traditional Cameroonian dishes. Easy to store and convenient to use in the kitchen." },
-    { "id": "bouillie_jaune_500g", "name": "Bouillie Jaune – Sèche 500g", "category": "snack_breakfast", "priceEur": 4.99, "unit": "500 g", "imageUrl": "https://legal.botmanagementservice.eu/products/afromarket-bouillie-jaune-500g.png", "description": "Yellow corn porridge, smooth and comforting, ideal for breakfast or a warm snack. Easy to prepare, with a creamy texture and a naturally pleasant taste. Directly imported from Cameroon." }
+    { "id": "bouillie_jaune_500g", "name": "Bouillie Jaune – Sèche 500g", "category": "snack_breakfast", "priceEur": 4.99, "salePriceEur": 3.99, "unit": "500 g", "imageUrl": "https://legal.botmanagementservice.eu/products/afromarket-bouillie-jaune-500g.png", "description": "Yellow corn porridge, smooth and comforting, ideal for breakfast or a warm snack. Easy to prepare, with a creamy texture and a naturally pleasant taste. Directly imported from Cameroon." }
   ],
 
   "recipeIngredients": {
@@ -22,7 +22,8 @@
   "catalogWelcome": {
     "body": "🌍 Welcome to K-AfroMarket's!\nYour one-stop shop for African groceries, delivered across Germany.\n\nTap View Catalog to browse everything we carry, by category.",
     "footer": "K-AfroMarket",
-    "thumbnailProductRetailerId": "bouillie_jaune_500g"
+    "thumbnailProductRetailerId": "bouillie_jaune_500g",
+    "triggers": ["Show catalog"]
   },
 
   "payloadTriggers": [

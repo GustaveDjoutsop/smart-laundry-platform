@@ -105,6 +105,71 @@ test('toCatalogItem throws when name is missing', () => {
   assert.throws(() => toCatalogItem({ product, currency: 'EUR', phoneNumber: '4915123456789' }), /missing required field/);
 });
 
+test('toCatalogItem includes sale_price when salePriceEur is set and lower than priceEur', () => {
+  // when
+  const item = toCatalogItem({
+    product: { id: 'p1', name: 'Item', priceEur: 4.99, salePriceEur: 3.99, imageUrl: 'https://example.com/p1.jpg' },
+    currency: 'EUR',
+    phoneNumber: '4915123456789'
+  });
+
+  // then
+  assert.equal(item.data.price, '4.99 EUR');
+  assert.equal(item.data.sale_price, '3.99 EUR');
+});
+
+test('toCatalogItem omits sale_price entirely when salePriceEur is not set', () => {
+  // when
+  const item = toCatalogItem({
+    product: { id: 'p1', name: 'Item', priceEur: 4.99, imageUrl: 'https://example.com/p1.jpg' },
+    currency: 'EUR',
+    phoneNumber: '4915123456789'
+  });
+
+  // then
+  assert.equal('sale_price' in item.data, false);
+});
+
+test('toCatalogItem throws when salePriceEur is not a valid number', () => {
+  // given
+  const product = { id: 'p1', name: 'Item', priceEur: 4.99, salePriceEur: 'cheap', imageUrl: 'https://example.com/p1.jpg' };
+
+  // when / then
+  assert.throws(() => toCatalogItem({ product, currency: 'EUR', phoneNumber: '4915123456789' }), /salePriceEur is not a valid number/);
+});
+
+test('toCatalogItem throws when salePriceEur is not lower than priceEur', () => {
+  // given
+  const product = { id: 'p1', name: 'Item', priceEur: 4.99, salePriceEur: 4.99, imageUrl: 'https://example.com/p1.jpg' };
+
+  // when / then
+  assert.throws(() => toCatalogItem({ product, currency: 'EUR', phoneNumber: '4915123456789' }), /must be less than priceEur/);
+});
+
+test('toCatalogItem throws when salePriceEur is negative', () => {
+  // given
+  const product = { id: 'p1', name: 'Item', priceEur: 4.99, salePriceEur: -1, imageUrl: 'https://example.com/p1.jpg' };
+
+  // when / then
+  assert.throws(() => toCatalogItem({ product, currency: 'EUR', phoneNumber: '4915123456789' }), /must be greater than zero/);
+});
+
+test('toCatalogItem throws when salePriceEur is zero', () => {
+  // given
+  const product = { id: 'p1', name: 'Item', priceEur: 4.99, salePriceEur: 0, imageUrl: 'https://example.com/p1.jpg' };
+
+  // when / then
+  assert.throws(() => toCatalogItem({ product, currency: 'EUR', phoneNumber: '4915123456789' }), /must be greater than zero/);
+});
+
+test('toCatalogItem throws when salePriceEur is higher than priceEur', () => {
+  // given
+  const product = { id: 'p1', name: 'Item', priceEur: 4.99, salePriceEur: 5.99, imageUrl: 'https://example.com/p1.jpg' };
+
+  // when / then
+  assert.throws(() => toCatalogItem({ product, currency: 'EUR', phoneNumber: '4915123456789' }), /must be less than priceEur/);
+});
+
 test('toCatalogItem throws when imageUrl is missing', () => {
   // given
   const product = { id: 'p1', name: 'Item', priceEur: 1.5 };
