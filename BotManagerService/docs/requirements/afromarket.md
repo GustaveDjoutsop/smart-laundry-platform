@@ -1,5 +1,61 @@
 # AfroMarket WhatsApp Bot
 
+## v2.29 (2026-08-17): "Current promo" still wasn't right after v2.28's fix -
+## business owner asked for the follow-up message removed entirely, plus a
+## real "Add to Cart" pricing bug
+
+v2.28 (below) fixed the send *order* between the promo template and its
+follow-up "What would you like to do next?" message by waiting for the
+template's delivery-status webhook. Live-tested again on dev per explicit
+instruction ("slowly test the flow from the current promo until the
+payment") and found two further problems, one a design objection and one a
+real pricing bug:
+
+**The follow-up message itself was unwanted, not just its timing.**
+Business owner: "we should not receive the message What would you like to
+do next? when selecting Current promo." Removed the follow-up message
+entirely rather than continuing to tune its delivery-status wait -
+`_handleSendCurrentPromo` now sends only the template (or its text
+fallback on send failure) and nothing else. This also *structurally*
+eliminates the whole class of race v2.28 was chasing: with no second
+message left to race against, there's nothing to wait for. Lands on a new
+`current_promo_landing` state using the exact armed/landing pattern already
+proven for `shop_entry`/`shop_landing` (see that pair's own long comments)
+- ends the turn silently right after the template, and correctly hands off
+a customer's next, unrelated message to the normal menu routing instead of
+either re-sending the promo or leaving them stuck. All of v2.28's
+delivery-status-wait machinery (`waitForPromoTemplateDelivery`,
+`getPromoTemplateFooterDelayMs`, `PROMO_TEMPLATE_FOOTER_DELAY_MS`, its
+telemetry) is now dead code and was removed along with it, not left
+behind unused.
+
+**"Add to Cart" after a discounted promo add silently charged full price -
+a real billing bug, not intentional design.** Tapping "Shop Now" on the
+promo template correctly charged the sale price (via `_handleAddDiscounted`,
+already fixed in v2.28), but tapping "Add to Cart" on the very next screen
+(`_handleProductAction`'s `cart_add` - the same button shown for any
+product, not promo-specific) always used `product.priceEur`, silently
+reverting to full price for that second unit. v2.28's own comment described
+this as intentional ("a distinct, explicit repeat add ... at full price") -
+business owner testing live corrected that assumption directly: "the price
+... which is going to be charged" was flagged as wrong, not accepted.
+Fixed: `cart_add` now charges the catalog's live `salePriceEur` whenever
+the product still has one, exactly like `_handleAddDiscounted` already
+does - both taps end up charging the same price and merge into one cart
+line, not two, and this now applies to *any* "Add to Cart" of a currently
+discounted product, not just ones reached via the promo tap.
+
+**Known limitation, not fixed here**: product detail pages (e.g.
+`product_detail_bouillie_jaune_500g`'s own caption) still show a hardcoded
+price string in `afromarket.bot.json`, unaware of `salePriceEur` - browsing
+to a discounted product normally (not via "Current promo") still shows the
+full price in the caption text, even though `cart_add` from that same
+screen now correctly charges the sale price. Out of scope for this fix
+(a much larger templating change touching every product's hardcoded
+caption); flagged here as a follow-up, not fixed.
+
+357/357 tests passing.
+
 ## v2.28 (2026-08-17): "Current promo" ignored the catalog's real sale price
 ## and raced its own follow-up message; the catalog itself was never synced
 
