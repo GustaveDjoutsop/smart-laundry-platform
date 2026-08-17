@@ -4,6 +4,13 @@
 // from eating that delay for real on every run. Set before requiring
 // flowEngine.js since the value is read fresh per call, not cached.
 process.env.CAROUSEL_FOOTER_DELAY_MS = '0';
+// Same reasoning, for afromarketFlowPlugin.js's own independent delay (see
+// getPromoTemplateFooterDelayMs) - without this, any test whose send stub
+// doesn't return a real WhatsApp message id (createStepper()'s does not)
+// falls into waitForPromoTemplateDelivery's no-messageId branch, a real
+// setTimeout for the full default 6000ms. Caught in review: a test hit this
+// exact case and silently added 6s of real wall-clock time to the suite.
+process.env.PROMO_TEMPLATE_FOOTER_DELAY_MS = '0';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -646,13 +653,18 @@ test('AfroMarket: current promo falls back to a text summary if the template sen
 // of firing immediately, by setting the fallback timeout absurdly high
 // (30s): if the wait still fell through to a fixed sleep instead of the
 // webhook, this test would hang for 30s instead of completing almost
-// instantly.
+// instantly. Uses PROMO_TEMPLATE_FOOTER_DELAY_MS, not
+// CAROUSEL_FOOTER_DELAY_MS - a second live-dev test after this fix first
+// shipped found dev's CAROUSEL_FOOTER_DELAY_MS still set to 2500, the exact
+// value flowEngine.js's own history already found insufficient for this
+// identical race, which would have silently undermined this feature too had
+// it shared that variable.
 test('AfroMarket: current promo waits for the template\'s delivery status before sending follow-up options, so they can\'t race ahead of it', async (t) => {
   const { messageStatusWaiter } = require('../src/core/whatsapp/messageStatusWaiter');
-  const previousDelay = process.env.CAROUSEL_FOOTER_DELAY_MS;
-  process.env.CAROUSEL_FOOTER_DELAY_MS = '30000';
+  const previousDelay = process.env.PROMO_TEMPLATE_FOOTER_DELAY_MS;
+  process.env.PROMO_TEMPLATE_FOOTER_DELAY_MS = '30000';
   t.after(() => {
-    process.env.CAROUSEL_FOOTER_DELAY_MS = previousDelay;
+    process.env.PROMO_TEMPLATE_FOOTER_DELAY_MS = previousDelay;
     messageStatusWaiter.reset();
   });
 

@@ -6,8 +6,24 @@ const {
   buildCartSummaryText,
   generateOrderNumber,
   findCurrentPromoProduct,
-  computePercentOff
+  computePercentOff,
+  getPromoTemplateFooterDelayMs
 } = require('../src/bots/afromarket/afromarketFlowPlugin');
+
+function withPromoTemplateFooterDelayMsEnv(rawValue, fn) {
+  const original = process.env.PROMO_TEMPLATE_FOOTER_DELAY_MS;
+  if (rawValue === undefined) delete process.env.PROMO_TEMPLATE_FOOTER_DELAY_MS;
+  else process.env.PROMO_TEMPLATE_FOOTER_DELAY_MS = rawValue;
+
+  try {
+    fn();
+  } finally {
+    // afromarketFlow.test.js relies on this staying '0' for speed (see its
+    // file-level comment) - always restore it, success or not.
+    if (original === undefined) delete process.env.PROMO_TEMPLATE_FOOTER_DELAY_MS;
+    else process.env.PROMO_TEMPLATE_FOOTER_DELAY_MS = original;
+  }
+}
 
 test('formatEuro formats amounts with two decimals and a euro sign', () => {
   assert.equal(formatEuro(3.5), '€3.50');
@@ -44,6 +60,37 @@ test('generateOrderNumber produces unique AM-prefixed codes', () => {
   assert.match(a, /^AM-[A-Z0-9]+$/);
   assert.match(b, /^AM-[A-Z0-9]+$/);
   assert.notEqual(a, b);
+});
+
+test('getPromoTemplateFooterDelayMs falls back to the 6000ms default when the env var is unset', () => {
+  withPromoTemplateFooterDelayMsEnv(undefined, () => {
+    assert.equal(getPromoTemplateFooterDelayMs(), 6000);
+  });
+});
+
+test('getPromoTemplateFooterDelayMs reads a valid numeric env var, including 0', () => {
+  withPromoTemplateFooterDelayMsEnv('1234', () => {
+    assert.equal(getPromoTemplateFooterDelayMs(), 1234);
+  });
+  withPromoTemplateFooterDelayMsEnv('0', () => {
+    assert.equal(getPromoTemplateFooterDelayMs(), 0);
+  });
+});
+
+test('getPromoTemplateFooterDelayMs falls back to the default on a malformed value instead of NaN', () => {
+  // Same guard as getCarouselFooterDelayMs, same reason: a malformed value
+  // must never reach setTimeout as NaN - setTimeout(fn, NaN) behaves like
+  // setTimeout(fn, 0), silently disabling the wait this function exists to
+  // bound.
+  withPromoTemplateFooterDelayMsEnv('6000ms', () => {
+    assert.equal(getPromoTemplateFooterDelayMs(), 6000);
+  });
+});
+
+test('getPromoTemplateFooterDelayMs falls back to the default on a negative value', () => {
+  withPromoTemplateFooterDelayMsEnv('-100', () => {
+    assert.equal(getPromoTemplateFooterDelayMs(), 6000);
+  });
 });
 
 test('findCurrentPromoProduct returns the product with a valid salePriceEur below priceEur', () => {

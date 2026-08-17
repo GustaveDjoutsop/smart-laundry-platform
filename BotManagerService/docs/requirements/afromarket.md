@@ -1,5 +1,63 @@
 # AfroMarket WhatsApp Bot
 
+## v2.28 (2026-08-17): "Current promo" ignored the catalog's real sale price
+## and raced its own follow-up message; the catalog itself was never synced
+
+Business owner live-tested "Current promo" (shipped same day, v2.28's own
+predecessor work) and reported three symptoms at once: (1) the follow-up
+"What would you like to do next?" buttons arrived before the actual promo
+template, (2) the template said "20% off" but the catalog itself still
+showed the full price with no discount, (3) tapping "Add to Cart" after the
+promo showed the full price again. Root-caused all three with direct
+evidence (Railway logs, the actual WhatsApp chat, and a direct Graph API
+query against the live catalog - not assumed) rather than guessing:
+
+**(2) was an operational gap, not a code bug**: `salePriceEur` was added to
+`afromarket.bot.json` in the same-day catalog-sale-price work, but nothing
+pushes that to Meta automatically - `submitCatalogBatch.js` has to be run
+manually, and it never was for dev after that work merged. Confirmed via a
+direct Graph API query: dev's live catalog had `price: €4.99` with no
+`sale_price` field at all. Ran the sync; dev's catalog now correctly shows
+both fields.
+
+**(3) is pre-existing, intentional behavior, not a bug**: a discounted
+"Shop Now" add and a subsequent explicit "Add to Cart" tap on the same
+product page are deliberately distinct - the promo applies once per tap,
+not to every future add of that product. Flagged to the business owner as
+a scope question (not touched, since it's a different, older code path
+than anything in this fix) rather than silently changed.
+
+**(1) needed two rounds to actually fix**: the follow-up buttons and the
+promo template are sent in the correct order server-side, within the same
+turn (confirmed via Railway logs: both complete within the same second) -
+but the template's header image goes through Meta's own async media
+upload + hydration, measurably slower than the plain buttons message sent
+right after it. Same race already solved elsewhere in this codebase for
+the Partner Stores carousel-then-footer send, via `waitForCarouselDelivery`
+(blocks on WhatsApp's delivery-status webhook for the earlier message, or
+a bounded timeout fallback). First fix reused that exact mechanism and
+`CAROUSEL_FOOTER_DELAY_MS` directly - but live-testing the fix itself
+turned up a second, unrelated bug: dev's `CAROUSEL_FOOTER_DELAY_MS` env var
+is stuck at `2500`, the exact value flowEngine.js's own code comment
+already documents as disproven for this identical race ("2500ms, then
+bumped to 6000ms after a live test... showed the footer still rendering
+before the carousel") - the code's default was corrected to 6000ms, but
+dev's Railway env var override never was. Sharing that variable meant the
+promo-template fix silently inherited the stale value. Fixed by decoupling:
+promo-template sends now use their own `PROMO_TEMPLATE_FOOTER_DELAY_MS`
+(default 6000ms), independent of whatever `CAROUSEL_FOOTER_DELAY_MS` is set
+to in any given environment. Also added success-path telemetry (elapsed ms
+logged whether the webhook arrived or the timeout fired) so this doesn't
+need a third guess if 6000ms ever turns out to be insufficient too.
+
+**Known follow-up, not yet actioned**: dev's `CAROUSEL_FOOTER_DELAY_MS=2500`
+is still live and likely still under-guarding the Partner Stores carousel
+send right now - the same disproven value, just for a different feature
+than the one just fixed. Not touched without explicit sign-off, since it's
+a shared Railway env var affecting a feature outside this fix's scope.
+
+361/361 tests passing.
+
 ## v2.27 (2026-08-17): "Show catalog" only worked on a customer's literal
 ## first message; a subagent review also caught 3 issues in the same-day
 ## v2.26 work before it shipped
