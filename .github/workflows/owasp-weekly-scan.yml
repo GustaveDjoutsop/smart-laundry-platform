@@ -97,7 +97,7 @@ jobs:
 
       - name: Raise an issue if the scan failed
         if: failure() && github.event_name == 'schedule'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const service = '${{ matrix.service }}';
