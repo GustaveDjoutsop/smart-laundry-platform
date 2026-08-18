@@ -73,7 +73,6 @@ whatsapp:
 campay:
   webhook-secret: ${CAMPAY_WEBHOOK_SECRET:}
 
-
 # ── Bot configuration directory ───────────────────────────────────────────────
 bot:
   config-directory: configs/bots

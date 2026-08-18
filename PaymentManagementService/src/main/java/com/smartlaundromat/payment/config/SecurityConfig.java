@@ -59,7 +59,11 @@ public class SecurityConfig {
     @Value("${auth0.audience}")
     private String audience;
 
-    @Value("${cors.allowed-origins:http://localhost:3000}")
+    // R6: kept in sync with application.yml's cors.allowed-origins default --
+    // this Java-level fallback only matters if the YAML property is somehow
+    // not resolved (e.g. a minimal test slice), but a stale value here would
+    // silently reintroduce the exact mismatch R6 fixed.
+    @Value("${cors.allowed-origins:http://localhost:3001}")
     private String allowedOrigins;
 
     @Bean
