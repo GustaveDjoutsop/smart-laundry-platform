@@ -122,7 +122,10 @@ auth0:
   audience: ${AUTH0_AUDIENCE:https://smartlaundry.api}
 
 cors:
-  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  # R6: dashboard dev server runs on 3001 (smart-laundry-dashboard/package.json
+  # `next dev -p 3001`), not 3000 -- 3000 is the legacy monolith/BotManagerService,
+  # neither of which is a browser client of this API.
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3001}
 
 # ── Resilience4j (P1 — inter-service hops) ───────────────────────────────────
 # payment -> machine: POST /api/machines/start-cycle (MachineStartService).

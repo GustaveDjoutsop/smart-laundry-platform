@@ -28,7 +28,10 @@ spring:
           globalcors:
             cors-configurations:
               '[/**]':
-                allowedOrigins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+                # R6: dashboard dev server runs on 3001 (smart-laundry-dashboard/
+                # package.json `next dev -p 3001`), not 3000 -- 3000 is the legacy
+                # monolith/BotManagerService, neither a browser client of this API.
+                allowedOrigins: ${CORS_ALLOWED_ORIGINS:http://localhost:3001}
                 allowedMethods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
                 allowedHeaders: '*'
                 allowCredentials: true

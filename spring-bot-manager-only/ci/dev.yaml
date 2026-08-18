@@ -73,11 +73,6 @@ whatsapp:
 campay:
   webhook-secret: ${CAMPAY_WEBHOOK_SECRET:}
 
-# ── MQTT (optional locally) ───────────────────────────────────────────────────
-mqtt:
-  url: ${MQTT_URL:}
-  username: ${MQTT_USERNAME:}
-  password: ${MQTT_PASSWORD:}
 
 # ── Bot configuration directory ───────────────────────────────────────────────
 bot:

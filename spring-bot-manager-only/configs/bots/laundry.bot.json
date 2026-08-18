@@ -3,9 +3,6 @@
   "botName": "Smart Laundry",
   "botType": "laundry",
   "phoneNumberId": "1089648187567384",
-  "mqtt": {
-    "topicPrefix": "laundry"
-  },
   "shortCycle": {
     "duration": 30,
     "price": 1000,

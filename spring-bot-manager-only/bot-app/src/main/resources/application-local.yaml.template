@@ -49,8 +49,3 @@ encryption:
 
 bot:
 	config-directory: configs/bots
-
-mqtt:
-	url: ""
-	username: ""
-	password: ""
