@@ -58,6 +58,9 @@ jobs:
   dependency-security:
     name: OWASP Dependency Check
     runs-on: ubuntu-latest
+    # NVD_API_KEY is an environment secret on "pr", not a repo secret --
+    # the job must opt into that environment to see it.
+    environment: pr
 
     steps:
       - uses: actions/checkout@v5
