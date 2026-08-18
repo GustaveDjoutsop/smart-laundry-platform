@@ -24,7 +24,7 @@
     "react-dom": "^18.3.0",
     "recharts": "^2.12.0",
     "socket.io-client": "^4.7.0",
-    "tailwind-merge": "^2.3.0"
+    "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^4.1.3",
