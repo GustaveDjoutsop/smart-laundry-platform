@@ -1,0 +1,124 @@
+version: 2
+
+# Dependabot *alerts* and automated security fixes were already on for this
+# repo before this file existed (confirmed via the GitHub API) and have been
+# opening security PRs since July — this file adds:
+#   1. Maven coverage. Dependabot alerts here only ever covered npm; nothing
+#      was watching PaymentManagementService, MachineStateService,
+#      spring-bot-manager-only, api-gateway or reporting-bff for known-
+#      vulnerable dependencies until now.
+#   2. github-actions coverage, so action versions (actions/checkout,
+#      actions/cache, etc.) get patched too.
+#   3. Grouped minor/patch updates, so routine bumps land as one PR per
+#      ecosystem per week instead of one PR per dependency — a solo
+#      maintainer can't realistically review 20+ individual bump PRs a week.
+#      Major version bumps are deliberately left ungrouped so they still get
+#      individual review.
+#
+# Note: this file's `open-pull-requests-limit` only governs the scheduled
+# *version*-update PRs below. It does not control the separate ceiling on
+# open *security*-update PRs (already enabled repo-wide). If new vulnerable
+# npm packages stop generating fix PRs, the likely cause is the existing
+# backlog of open Dependabot PRs sitting unmerged — clearing those is what
+# unblocks the next batch, not a setting in this file.
+
+updates:
+  # ── npm ──────────────────────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /BotManagerService
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /smart-laundry-dashboard
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /SmartLaundromatControlSystem
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  # ── Maven ────────────────────────────────────────────────────────────────
+  - package-ecosystem: maven
+    directory: /PaymentManagementService
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: maven
+    directory: /MachineStateService
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: maven
+    # Multi-module reactor: `directory` (singular) only reads the parent pom
+    # and would silently miss every child module's own dependencies.
+    # `directories` (plural) supports globbing -- the root covers the parent
+    # pom itself, "/*" covers bot-app/bot-core/bot-laundry/bot-payment/
+    # bot-pharmacy (and harmlessly no-ops on any non-Maven subdirectory).
+    directories:
+      - /spring-bot-manager-only
+      - /spring-bot-manager-only/*
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: maven
+    directory: /api-gateway
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: maven
+    directory: /reporting-bff
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  # ── GitHub Actions ───────────────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]

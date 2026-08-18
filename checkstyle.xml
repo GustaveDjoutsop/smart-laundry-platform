@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+    "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+    "https://checkstyle.org/dtds/configuration_1_3.dtd">
+
+<!--
+  Shared Checkstyle ruleset for the Java services in this repo
+  (PaymentManagementService, MachineStateService, spring-bot-manager-only).
+
+  R5 (Implementation Roadmap: 13 Audit Recommendations): the Maven
+  Checkstyle plugin's bundled default (sun_checks.xml) enforces conventions
+  this codebase never adopted (mandatory Javadoc on every method, an
+  80 character line limit, `final` on every parameter) and produced
+  1000+ violations per service that are unrelated to the project's actual
+  documented style (see CLAUDE.md "Coding Style & Testing"). This ruleset
+  instead enforces the small set of checks that catch real defects
+  (unused/redundant imports, silently swallowed exceptions, broken
+  equals/hashCode pairs, duplicate top-level classes) without relitigating
+  a formatting style nobody chose. Extend deliberately: the point is a
+  gate that blocks real problems, not one that's red by default.
+
+  Deliberately excluded: AvoidStarImport. This codebase wildcard-imports
+  freely (JPA/Lombok/Spring MVC/Mockito); that is the actual house style,
+  not a defect, so enforcing it would mean rewriting ~30 files for no
+  behavioral gain.
+-->
+<module name="Checker">
+    <property name="severity" value="error"/>
+    <property name="fileExtensions" value="java"/>
+
+    <module name="TreeWalker">
+        <!-- Imports -->
+        <module name="UnusedImports"/>
+        <module name="RedundantImport"/>
+
+        <!-- Blocks -->
+        <module name="EmptyBlock">
+            <property name="option" value="text"/>
+            <property name="tokens" value="LITERAL_CATCH"/>
+        </module>
+
+        <!-- Coding -->
+        <module name="EqualsHashCode"/>
+        <module name="OneTopLevelClass"/>
+        <module name="EqualsAvoidNull"/>
+    </module>
+</module>

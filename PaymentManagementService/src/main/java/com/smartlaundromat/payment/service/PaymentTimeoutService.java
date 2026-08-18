@@ -8,7 +8,6 @@ import com.smartlaundromat.payment.model.Transaction;
 import com.smartlaundromat.payment.model.enums.PaymentStatus;
 import com.smartlaundromat.payment.repository.PaymentEventRepository;
 import com.smartlaundromat.payment.repository.TransactionRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;

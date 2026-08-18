@@ -272,6 +272,7 @@ public class LaundryBot extends BaseBot implements ProactiveNotifier {
             try {
                 return Language.valueOf(langStr);
             } catch (IllegalArgumentException ignored) {
+                // Unrecognized language code in metadata — fall through to the default.
             }
         }
         return Language.EN;

@@ -1,0 +1,149 @@
+name: OWASP Dependency Check — Weekly
+
+# R5 follow-up (Implementation Roadmap — 13 Audit Recommendations): OWASP
+# dependency-check-maven was originally added as a per-PR blocking gate
+# (payment-management-service.yml / machine-state-service.yml /
+# spring-bot-manager.yml), but a cold NVD data pull routinely took 20-30+
+# minutes even with a valid API key — a bad fit for per-PR feedback. Moved
+# here to run weekly against master instead, same CVSS>=7 gate.
+#
+# This does NOT replace Dependabot: Dependabot alerts currently only cover
+# the npm ecosystem in this repo (BotManagerService, smart-laundry-dashboard,
+# SmartLaundromatControlSystem) — nothing watches the Maven/Java services
+# (PaymentManagementService, MachineStateService, spring-bot-manager-only)
+# for known-vulnerable dependencies except this workflow.
+#
+# ── FAILURE IS LOUD ON PURPOSE ────────────────────────────────────────────
+# Matches the pattern in "Nightly Database Backups": a failing scheduled
+# scan that only shows up in the Actions tab gets ignored by a solo
+# maintainer. A GitHub issue is opened/updated on failure so it lands
+# somewhere that's actually seen.
+
+on:
+  schedule:
+    # 06:00 UTC Monday = 07:00 Europe/Berlin, 07:00 WAT (Cameroon).
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write   # required to raise the failure issue below
+
+concurrency:
+  group: owasp-weekly-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    name: Scan ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # NVD_API_KEY currently lives on the "pr" environment's secrets, not as a
+    # plain repo secret. Reused here rather than duplicating the secret —
+    # rename/promote to a repo secret later if the "pr" name stops fitting.
+    environment: pr
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: PaymentManagementService
+            cache-glob: 'PaymentManagementService/pom.xml'
+            report-glob: 'PaymentManagementService/target/dependency-check-report.html'
+          - service: MachineStateService
+            cache-glob: 'MachineStateService/pom.xml'
+            report-glob: 'MachineStateService/target/dependency-check-report.html'
+          - service: spring-bot-manager-only
+            cache-glob: 'spring-bot-manager-only/**/pom.xml'
+            report-glob: 'spring-bot-manager-only/**/target/dependency-check-report.html'
+
+    defaults:
+      run:
+        working-directory: ${{ matrix.service }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: temurin
+          cache: maven
+
+      - name: Cache OWASP NVD database
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/owasp/dependency-check-data
+          key: ${{ runner.os }}-owasp-${{ hashFiles(matrix.cache-glob) }}
+          restore-keys: ${{ runner.os }}-owasp-
+
+      - name: Run OWASP Dependency Check
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          mvn org.owasp:dependency-check-maven:13.0.0:check -B \
+            -DfailBuildOnCVSS=7 \
+            -DnvdApiKey="${NVD_API_KEY}" \
+            -DsuppressionFile='${maven.multiModuleProjectDirectory}/../owasp-suppressions.xml'
+
+      - name: Upload OWASP report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-report-${{ matrix.service }}
+          path: ${{ matrix.report-glob }}
+          retention-days: 30
+
+      - name: Raise an issue if the scan failed
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const service = '${{ matrix.service }}';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const title = 'Weekly OWASP dependency scan failed';
+            const body = [
+              `The weekly OWASP dependency-check scan failed for **${service}**.`,
+              ``,
+              `Run: ${runUrl}`,
+              `Time: ${new Date().toISOString()}`,
+              ``,
+              `Most likely causes, in order:`,
+              `1. A real CVSS>=7 vulnerability was found in a dependency of ${service} —`,
+              `   check the uploaded "owasp-report-${service}" artifact on the run above.`,
+              `2. NVD_API_KEY expired or was revoked — dependency-check will fail to`,
+              `   update its CVE database before it can even run the analysis.`,
+              `3. NVD's API had a transient outage — re-run the workflow manually`,
+              `   (workflow_dispatch) before assuming a real finding.`,
+              ``,
+              `Until this is green, ${service}'s dependencies are not being checked`,
+              `against known vulnerabilities at all — this is currently the only scan`,
+              `covering the Maven/Java services (Dependabot alerts here only cover npm).`,
+            ].join('\n');
+
+            // Reuse one issue rather than opening a new one every week, but always
+            // leave a comment noting which service(s) failed on this run.
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'owasp-scan-failure',
+            });
+
+            if (existing.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing[0].number,
+                body: `Failed again for ${service}: ${runUrl}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['owasp-scan-failure', 'security', 'ops'],
+              });
+            }

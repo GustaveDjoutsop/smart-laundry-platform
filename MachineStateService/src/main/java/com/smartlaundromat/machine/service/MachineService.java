@@ -148,12 +148,16 @@ public class MachineService {
         if (telemetry.getStatus() != null) {
             try {
                 machine.setStatus(MachineStatus.valueOf(telemetry.getStatus().toUpperCase()));
-            } catch (IllegalArgumentException ignored) { }
+            } catch (IllegalArgumentException ignored) {
+                // Unrecognized status string from device telemetry — leave the field unchanged.
+            }
         }
         if (telemetry.getCycleType() != null) {
             try {
                 machine.setCurrentCycleType(CycleType.valueOf(telemetry.getCycleType().toUpperCase()));
-            } catch (IllegalArgumentException ignored) { }
+            } catch (IllegalArgumentException ignored) {
+                // Unrecognized cycle-type string from device telemetry — leave the field unchanged.
+            }
         }
         if (telemetry.getCycleProgress() != null)    machine.setCycleProgress(telemetry.getCycleProgress());
         if (telemetry.getTemperature() != null)       machine.setTemperature(telemetry.getTemperature());

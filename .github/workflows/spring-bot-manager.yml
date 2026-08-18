@@ -36,6 +36,30 @@ jobs:
       - name: Build and run unit tests
         run: mvn -B verify -DskipITs=true
 
+  # ── 2. Code style (Checkstyle) ────────────────────────────────────────────────
+  code-style:
+    name: Code Style (Checkstyle)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: temurin
+          cache: maven
+
+      - name: Run Checkstyle
+        run: mvn checkstyle:check -B
+
+  # OWASP Dependency Check moved to .github/workflows/owasp-weekly-scan.yml (R5
+  # follow-up): a cold NVD data pull routinely took 20-30+ minutes even with a
+  # valid API key, which made it a bad fit for per-PR blocking. It still fails
+  # the same CVSS>=7 gate, just on a weekly schedule against master instead of
+  # on every push.
+
   # Deployment to Railway (dev) is handled by Railway's native GitHub integration
   # (auto-deploys on push to master/develop). A previous custom "railway up" CLI
   # deploy step here was redundant with that integration — removed rather than
