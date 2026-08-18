@@ -2,10 +2,8 @@ package com.botmanager.core.bot;
 
 import com.botmanager.core.flow.ConversationState;
 import com.botmanager.core.payment.PaymentRecord;
-import com.botmanager.core.flow.FlowContext;
 import com.botmanager.core.flow.FlowEngine;
 import com.botmanager.core.flow.FlowPlugin;
-import com.botmanager.core.flow.MessageSender;
 import com.botmanager.core.queue.MessageJob;
 import com.botmanager.core.redis.RedisManager;
 import com.botmanager.core.whatsapp.WhatsAppClient;
@@ -13,8 +11,6 @@ import com.botmanager.core.whatsapp.WhatsAppClientFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-
-import java.util.Optional;
 
 @Slf4j
 public abstract class BaseBot {

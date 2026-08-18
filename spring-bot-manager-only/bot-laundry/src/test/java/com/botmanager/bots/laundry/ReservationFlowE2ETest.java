@@ -1,6 +1,5 @@
 package com.botmanager.bots.laundry;
 
-import com.botmanager.core.bot.BotConfig;
 import com.botmanager.core.flow.ConversationState;
 import com.botmanager.core.flow.FlowDefinition;
 import com.botmanager.core.flow.FlowEngine;
@@ -32,7 +31,6 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 /**
  * End-to-end reproduction of the "Reserve → language selection" bug.

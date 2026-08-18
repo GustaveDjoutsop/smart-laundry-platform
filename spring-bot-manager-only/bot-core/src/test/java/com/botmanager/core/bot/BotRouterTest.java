@@ -1,11 +1,6 @@
 package com.botmanager.core.bot;
 
 import com.botmanager.core.flow.*;
-import com.botmanager.core.queue.MessageJob;
-import com.botmanager.core.payment.PaymentRecord;
-import com.botmanager.core.redis.RedisManager;
-import com.botmanager.core.whatsapp.WhatsAppClientFactory;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

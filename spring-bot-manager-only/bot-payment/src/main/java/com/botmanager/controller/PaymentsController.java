@@ -3,7 +3,6 @@ package com.botmanager.controller;
 import com.botmanager.config.CamPayProperties;
 import com.botmanager.config.MicroserviceProperties;
 import com.botmanager.core.payment.PaymentGateway;
-import com.botmanager.core.payment.PaymentRecord;
 import com.botmanager.core.payment.PaymentResult;
 import com.botmanager.core.payment.PaymentStore;
 import com.botmanager.core.payment.WebhookSignatureVerifier;

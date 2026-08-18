@@ -1,18 +1,15 @@
 package com.botmanager.bots.laundry;
 
 import com.botmanager.core.flow.FlowEngine;
-import com.botmanager.core.i18n.Language;
 import com.botmanager.core.i18n.TranslationService;
 import com.botmanager.core.machine.MachineService;
 import com.botmanager.core.payment.PaymentGateway;
 import com.botmanager.core.payment.PaymentRecord;
-import com.botmanager.core.payment.PaymentStatus;
 import com.botmanager.core.redis.RedisManager;
 import com.botmanager.core.whatsapp.WhatsAppClient;
 import com.botmanager.core.whatsapp.WhatsAppClientFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
-import com.botmanager.bots.laundry.PricingClient;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

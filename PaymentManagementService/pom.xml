@@ -213,6 +213,18 @@
                     </excludes>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>3.6.0</version>
+                <configuration>
+                    <!-- R5: shared ruleset, not the plugin's bundled sun_checks.xml -->
+                    <configLocation>${maven.multiModuleProjectDirectory}/../checkstyle.xml</configLocation>
+                    <violationSeverity>error</violationSeverity>
+                    <failOnViolation>true</failOnViolation>
+                    <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>
