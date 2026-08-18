@@ -80,7 +80,7 @@ jobs:
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
-          mvn org.owasp:dependency-check-maven:check -B \
+          mvn org.owasp:dependency-check-maven:13.0.0:check -B \
             -DfailBuildOnCVSS=7 \
             -DnvdApiKey="${NVD_API_KEY}" \
             -DsuppressionFile='${maven.multiModuleProjectDirectory}/../owasp-suppressions.xml'
