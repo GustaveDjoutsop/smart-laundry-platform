@@ -114,6 +114,13 @@
             <version>8.0</version>
         </dependency>
 
+        <!-- Error tracking (R7) — DSN empty by default, SDK no-ops until set -->
+        <dependency>
+            <groupId>io.sentry</groupId>
+            <artifactId>sentry-spring-boot-starter-jakarta</artifactId>
+            <version>8.16.0</version>
+        </dependency>
+
         <!-- Loki log shipping (P7 — push logs to Grafana Cloud Loki) -->
         <dependency>
             <groupId>com.github.loki4j</groupId>

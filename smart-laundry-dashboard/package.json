@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.22.0",
+    "@sentry/nextjs": "^10.71.0",
     "axios": "^1.7.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
