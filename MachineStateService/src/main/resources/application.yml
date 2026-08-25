@@ -231,3 +231,15 @@ springdoc:
       client-id: ${SWAGGER_CLIENT_ID:}
       client-secret: ${SWAGGER_CLIENT_SECRET:}
   show-actuator: false
+
+# ── Error tracking (R7 — Sentry) ──────────────────────────────────────────────
+# Empty DSN is a documented Sentry SDK no-op, so local/CI boots stay silent
+# until SENTRY_DSN is set via Doppler. Correlation ID tagging happens in
+# SentryCorrelationIdEventProcessor, not here — it reads the same MDC key
+# CorrelationIdFilter already populates. No traces-sample-rate: this is error
+# capture only (per R7 scope), not full APM, to stay inside the free tier.
+sentry:
+  dsn: ${SENTRY_DSN:}
+  environment: ${SENTRY_ENVIRONMENT:development}
+  release: ${SENTRY_RELEASE:local-dev}
+  send-default-pii: false
