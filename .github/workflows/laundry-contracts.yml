@@ -1,0 +1,61 @@
+name: laundry-contracts — CI
+
+on:
+  push:
+    branches: [master, develop]
+    paths:
+      - 'laundry-contracts/**'
+      - '.github/workflows/laundry-contracts.yml'
+  pull_request:
+    branches: [master, develop]
+    paths:
+      - 'laundry-contracts/**'
+      - '.github/workflows/laundry-contracts.yml'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: laundry-contracts
+
+jobs:
+  # ── 1. Build & test ────────────────────────────────────────────────────────
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: temurin
+          cache: maven
+
+      - name: Build and run tests
+        run: mvn -B verify
+
+  # ── 2. Code style (Checkstyle) ────────────────────────────────────────────
+  code-style:
+    name: Code Style (Checkstyle)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: temurin
+          cache: maven
+
+      - name: Run Checkstyle
+        run: mvn checkstyle:check -B
+
+  # Publishing to GitHub Packages is a separate, tag-triggered workflow — see
+  # .github/workflows/laundry-contracts-publish.yml. A release version like
+  # 0.1.0 can only ever be published once; gating that on every push to
+  # laundry-contracts/** (as this workflow's build/test job is) would break CI
+  # on the first no-version-bump follow-up commit.

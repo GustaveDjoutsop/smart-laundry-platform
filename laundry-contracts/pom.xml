@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.smartlaundromat</groupId>
+    <artifactId>laundry-contracts</artifactId>
+    <version>0.1.0</version>
+    <packaging>jar</packaging>
+    <name>laundry-contracts</name>
+    <description>
+        Shared request/response DTOs for the machine-start, reservation, and payment
+        handshakes between PaymentManagementService, MachineStateService, and
+        spring-bot-manager-only (R8). Records only, dependency-free apart from Jakarta
+        Bean Validation annotations -- no Spring, no Jackson, no Lombok. Consume by
+        explicit version, never LATEST.
+    </description>
+
+    <properties>
+        <maven.compiler.release>25</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- Pinned to exactly what spring-boot-starter-parent:3.5.14 resolves
+             (verified against PaymentManagementService's dependency tree); every
+             intended consumer is on that same Spring Boot line, and matching it
+             exactly avoids Maven dependency-mediation surprises once a consumer
+             actually adds this module. Bump only in lockstep with a verified
+             consumer upgrade, not independently. -->
+        <jakarta.validation.version>3.0.2</jakarta.validation.version>
+    </properties>
+
+    <dependencies>
+        <!-- Only dependency by design (R8); annotations must be on the classpath
+             wherever a consumer's Bean Validation provider validates these records. -->
+        <dependency>
+            <groupId>jakarta.validation</groupId>
+            <artifactId>jakarta.validation-api</artifactId>
+            <version>${jakarta.validation.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.12.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>3.27.3</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Test-only: exercises the @NotBlank/@NotNull annotations against a real
+             validator, the same way each consuming Spring Boot service will. Same
+             version spring-boot-starter-parent:3.5.14 resolves, for the same reason
+             as jakarta.validation-api above. No EL implementation needed; these
+             messages are plain literals, not EL expressions, and PMS's own passing
+             test suite already proves that combination needs none. -->
+        <dependency>
+            <groupId>org.hibernate.validator</groupId>
+            <artifactId>hibernate-validator</artifactId>
+            <version>8.0.3.Final</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages -- smart-laundry-platform</name>
+            <url>https://maven.pkg.github.com/GustaveDjoutsop/smart-laundry-platform</url>
+        </repository>
+    </distributionManagement>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.14.1</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.5</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>3.6.0</version>
+                <configuration>
+                    <!-- R5's shared ruleset, one directory up from this standalone module. -->
+                    <configLocation>${project.basedir}/../checkstyle.xml</configLocation>
+                    <violationSeverity>error</violationSeverity>
+                    <failOnViolation>true</failOnViolation>
+                    <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
