@@ -1,0 +1,51 @@
+name: laundry-contracts — Publish
+
+# Deliberately separate from laundry-contracts.yml's build/test job (R8): GitHub
+# Packages rejects re-publishing an already-published version, so this only runs on
+# an explicit release tag or a manual dispatch — never on every push to master.
+on:
+  push:
+    tags:
+      - 'laundry-contracts-v*'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: laundry-contracts
+
+jobs:
+  publish:
+    name: Publish to GitHub Packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: temurin
+          cache: maven
+          # Wires ~/.m2/settings.xml with a <server id="github"> block that reads
+          # the token from the GITHUB_TOKEN env var below — matches the <id>github</id>
+          # in pom.xml's <distributionManagement>.
+          server-id: github
+
+      - name: Verify tag matches pom.xml version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#laundry-contracts-v}"
+          POM_VERSION=$(mvn -q -Dexpression=project.version -DforceStdout help:evaluate)
+          if [ "$TAG_VERSION" != "$POM_VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME (version $TAG_VERSION) does not match pom.xml version $POM_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Build, test, and publish
+        run: mvn -B deploy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
