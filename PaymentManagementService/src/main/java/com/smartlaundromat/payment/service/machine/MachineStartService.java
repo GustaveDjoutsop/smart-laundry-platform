@@ -2,6 +2,7 @@ package com.smartlaundromat.payment.service.machine;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartlaundromat.contracts.machine.MachineStartRequest;
 import com.smartlaundromat.payment.model.OutboxEvent;
 import io.github.resilience4j.bulkhead.Bulkhead;
 import io.github.resilience4j.bulkhead.BulkheadRegistry;
@@ -17,7 +18,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -73,21 +73,19 @@ public class MachineStartService implements MachineEventPublisher {
             return;
         }
 
-        Map<String, Object> body = new HashMap<>();
-        body.put("machineId", machineId);
-        body.put("cycleType", payload.getOrDefault("cycleType", "NORMAL"));
-        body.put("durationMinutes", payload.getOrDefault("durationMinutes", 30));
-        body.put("pulseCount", payload.getOrDefault("pulseCount", 1));
-        body.put("transactionReference", payload.getOrDefault("transactionReference", ""));
-        Object reservationCode = payload.get("reservationCode");
-        if (reservationCode != null) {
-            body.put("reservationCode", reservationCode);
-        }
+        MachineStartRequest body = new MachineStartRequest(
+                machineId,
+                (String) payload.getOrDefault("cycleType", "NORMAL"),
+                toInteger(payload.get("durationMinutes"), 30),
+                toInteger(payload.get("pulseCount"), 1),
+                (String) payload.getOrDefault("transactionReference", ""),
+                (String) payload.get("reservationCode"),
+                (String) payload.get("rfidCardUid"));
 
         String url = machineStateServiceUrl + "/api/machines/start-cycle";
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+        HttpEntity<MachineStartRequest> entity = new HttpEntity<>(body, headers);
 
         Supplier<ResponseEntity<Map>> call = () -> restTemplate.postForEntity(url, entity, Map.class);
         call = Bulkhead.decorateSupplier(bulkhead, call);
@@ -95,6 +93,23 @@ public class MachineStartService implements MachineEventPublisher {
         call.get();
 
         log.info("Machine start dispatched: machine={}, tx={}",
-                machineId, payload.get("transactionReference"));
+                machineId, body.transactionReference());
+    }
+
+    /**
+     * The outbox payload is read as an untyped {@code Map<String, Object>} (its own JSON
+     * envelope, not the cross-service wire contract), so a JSON number here could be
+     * deserialized as {@code Integer} or {@code Long} depending on Jackson's default
+     * numeric-type resolution — {@link MachineStartRequest}'s fields are strictly
+     * {@code Integer}, so this normalizes either into that. {@code value} may genuinely
+     * be {@code null} (key absent, or present with an explicit JSON {@code null}), in
+     * which case {@code defaultValue} applies — deliberately not left to a caller's
+     * {@code Map.getOrDefault}, which only covers the absent-key case.
+     */
+    private static Integer toInteger(Object value, int defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        return value instanceof Number number ? number.intValue() : Integer.valueOf(value.toString());
     }
 }
