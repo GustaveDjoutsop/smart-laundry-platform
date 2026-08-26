@@ -102,3 +102,19 @@ Maven both need a token with `read:packages` scope.
 4. **Local development:** add a `<server>` block to `~/.m2/settings.xml` with a personal
    access token (classic, `read:packages` scope) as the password — a one-time per-machine
    setup, same shape as any other private Maven registry.
+5. **Docker builds (Railway):** each service builds its own image via `mvn package` inside
+   its `Dockerfile` (Railway's native GitHub integration), which does **not** inherit
+   Railway's runtime environment variables the way a Railpack build would — Docker builds
+   need an explicit `ARG`. Add `GITHUB_PACKAGES_TOKEN` (a classic PAT, `read:packages`
+   scope) as a Railway service variable, then in the build stage:
+   ```dockerfile
+   ARG GITHUB_PACKAGES_TOKEN
+   RUN mkdir -p /root/.m2 && \
+       printf '<settings><servers><server><id>github</id><username>x-access-token</username><password>%s</password></server></servers></settings>' "$GITHUB_PACKAGES_TOKEN" > /root/.m2/settings.xml && \
+       mvn -B package -DskipTests && \
+       rm /root/.m2/settings.xml
+   ```
+   Write and remove `settings.xml` within a single `RUN` (keeps the token out of any
+   committed layer) and only in an early, discarded build stage — never `COPY` it or
+   promote it to `ENV`. See `PaymentManagementService/Dockerfile` for the reference
+   implementation.

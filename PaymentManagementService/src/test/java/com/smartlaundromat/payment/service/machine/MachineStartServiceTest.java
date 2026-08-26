@@ -1,6 +1,7 @@
 package com.smartlaundromat.payment.service.machine;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartlaundromat.contracts.machine.MachineStartRequest;
 import com.smartlaundromat.payment.model.OutboxEvent;
 import io.github.resilience4j.bulkhead.BulkheadRegistry;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
@@ -103,25 +104,71 @@ class MachineStartServiceTest {
                         + "\"reservationCode\":\"RES-ABC123\"}")
                 .build();
 
-        ArgumentCaptor<HttpEntity<Map<String, Object>>> captor = ArgumentCaptor.forClass(HttpEntity.class);
+        ArgumentCaptor<HttpEntity<MachineStartRequest>> captor = ArgumentCaptor.forClass(HttpEntity.class);
         when(restTemplate.postForEntity(anyString(), captor.capture(), eq(Map.class)))
                 .thenReturn(ResponseEntity.ok(Map.of("status", "ok")));
 
         machineStartService.publish(reservationEvent);
 
-        assertThat(captor.getValue().getBody()).containsEntry("reservationCode", "RES-ABC123");
+        assertThat(captor.getValue().getBody().reservationCode()).isEqualTo("RES-ABC123");
     }
 
     @SuppressWarnings("unchecked")
     @Test
     void shouldOmitReservationCodeWhenAbsentFromPayload() throws Exception {
-        ArgumentCaptor<HttpEntity<Map<String, Object>>> captor = ArgumentCaptor.forClass(HttpEntity.class);
+        ArgumentCaptor<HttpEntity<MachineStartRequest>> captor = ArgumentCaptor.forClass(HttpEntity.class);
         when(restTemplate.postForEntity(anyString(), captor.capture(), eq(Map.class)))
                 .thenReturn(ResponseEntity.ok(Map.of("status", "ok")));
 
         machineStartService.publish(validEvent);
 
-        assertThat(captor.getValue().getBody()).doesNotContainKey("reservationCode");
+        assertThat(captor.getValue().getBody().reservationCode()).isNull();
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void shouldMapPayloadFieldsOntoMachineStartRequest() throws Exception {
+        // given
+        ArgumentCaptor<HttpEntity<MachineStartRequest>> captor = ArgumentCaptor.forClass(HttpEntity.class);
+        when(restTemplate.postForEntity(anyString(), captor.capture(), eq(Map.class)))
+                .thenReturn(ResponseEntity.ok(Map.of("status", "ok")));
+
+        // when
+        machineStartService.publish(validEvent);
+
+        // then
+        MachineStartRequest body = captor.getValue().getBody();
+        assertThat(body.machineId()).isEqualTo("MACH-01");
+        assertThat(body.cycleType()).isEqualTo("NORMAL");
+        assertThat(body.durationMinutes()).isEqualTo(30);
+        assertThat(body.pulseCount()).isEqualTo(2);
+        assertThat(body.transactionReference()).isEqualTo("EXT-001");
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void shouldApplyDefaultsWhenCycleTypeDurationAndPulseCountMissingFromPayload() throws Exception {
+        // given
+        OutboxEvent minimalEvent = OutboxEvent.builder()
+                .id(5L)
+                .aggregateType("Transaction")
+                .aggregateId("EXT-005")
+                .eventType("PaymentSucceeded")
+                .payload("{\"machineId\":\"MACH-02\",\"transactionReference\":\"EXT-005\"}")
+                .build();
+
+        ArgumentCaptor<HttpEntity<MachineStartRequest>> captor = ArgumentCaptor.forClass(HttpEntity.class);
+        when(restTemplate.postForEntity(anyString(), captor.capture(), eq(Map.class)))
+                .thenReturn(ResponseEntity.ok(Map.of("status", "ok")));
+
+        // when
+        machineStartService.publish(minimalEvent);
+
+        // then
+        MachineStartRequest body = captor.getValue().getBody();
+        assertThat(body.cycleType()).isEqualTo("NORMAL");
+        assertThat(body.durationMinutes()).isEqualTo(30);
+        assertThat(body.pulseCount()).isEqualTo(1);
     }
 
     @Test
