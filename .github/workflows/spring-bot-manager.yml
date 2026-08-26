@@ -22,6 +22,9 @@ jobs:
   test:
     name: Build & Test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v5
@@ -32,14 +35,23 @@ jobs:
           java-version: '25'
           distribution: temurin
           cache: maven
+          # R8: laundry-contracts is resolved from GitHub Packages, which requires
+          # auth even for read-only downloads of a public-repo package. Wires
+          # ~/.m2/settings.xml to match the root pom.xml's <repository id="github">.
+          server-id: github
 
       - name: Build and run unit tests
         run: mvn -B verify -DskipITs=true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ── 2. Code style (Checkstyle) ────────────────────────────────────────────────
   code-style:
     name: Code Style (Checkstyle)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v5
@@ -50,9 +62,12 @@ jobs:
           java-version: '25'
           distribution: temurin
           cache: maven
+          server-id: github
 
       - name: Run Checkstyle
         run: mvn checkstyle:check -B
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # OWASP Dependency Check moved to .github/workflows/owasp-weekly-scan.yml (R5
   # follow-up): a cold NVD data pull routinely took 20-30+ minutes even with a

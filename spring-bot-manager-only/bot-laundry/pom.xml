@@ -19,6 +19,13 @@
             <groupId>com.botmanager</groupId>
             <artifactId>bot-core</artifactId>
         </dependency>
+
+        <!-- Shared machine-start/reservation DTOs (R8) — replaces the hand-built
+             Map<String,Object> payloads MachineService used to send/parse. -->
+        <dependency>
+            <groupId>com.smartlaundromat</groupId>
+            <artifactId>laundry-contracts</artifactId>
+        </dependency>
     </dependencies>
 
 </project>

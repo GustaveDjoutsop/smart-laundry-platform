@@ -37,8 +37,21 @@
         <testcontainers.version>1.20.4</testcontainers.version>
     </properties>
 
+    <repositories>
+        <!-- R8: laundry-contracts is published here, not to Maven Central. -->
+        <repository>
+            <id>github</id>
+            <url>https://maven.pkg.github.com/GustaveDjoutsop/smart-laundry-platform</url>
+        </repository>
+    </repositories>
+
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>com.smartlaundromat</groupId>
+                <artifactId>laundry-contracts</artifactId>
+                <version>0.1.0</version>
+            </dependency>
             <dependency>
                 <groupId>com.botmanager</groupId>
                 <artifactId>bot-core</artifactId>
