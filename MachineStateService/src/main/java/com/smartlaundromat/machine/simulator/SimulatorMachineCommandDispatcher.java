@@ -1,6 +1,6 @@
 package com.smartlaundromat.machine.simulator;
 
-import com.smartlaundromat.machine.dto.StartCycleRequest;
+import com.smartlaundromat.contracts.machine.MachineStartRequest;
 import com.smartlaundromat.machine.model.Machine;
 import com.smartlaundromat.machine.model.enums.CycleType;
 import lombok.extern.slf4j.Slf4j;
@@ -23,8 +23,8 @@ import org.springframework.stereotype.Component;
 public class SimulatorMachineCommandDispatcher implements MachineCommandDispatcher {
 
     @Override
-    public void dispatch(Machine machine, StartCycleRequest request, CycleType cycleType) {
+    public void dispatch(Machine machine, MachineStartRequest request, CycleType cycleType) {
         log.info("[SIMULATOR] Skipping hardware dispatch for machine={} cycleType={} duration={}min",
-                machine.getMachineId(), cycleType, request.getDurationMinutes());
+                machine.getMachineId(), cycleType, request.durationMinutes());
     }
 }

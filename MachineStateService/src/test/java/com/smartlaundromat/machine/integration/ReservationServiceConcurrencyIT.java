@@ -1,6 +1,6 @@
 package com.smartlaundromat.machine.integration;
 
-import com.smartlaundromat.machine.dto.CreateReservationRequest;
+import com.smartlaundromat.contracts.reservation.ReservationRequest;
 import com.smartlaundromat.machine.exception.ReservationException;
 import com.smartlaundromat.machine.model.Reservation;
 import com.smartlaundromat.machine.repository.ReservationRepository;
@@ -55,10 +55,8 @@ class ReservationServiceConcurrencyIT extends BaseIntegrationTest {
                 ready.countDown();
                 try {
                     start.await();
-                    CreateReservationRequest request = new CreateReservationRequest();
-                    request.setMachineId(machineId);
-                    request.setCustomerPhone("+237600000000");
-                    request.setSlotStart(slotStart);
+                    ReservationRequest request = new ReservationRequest(
+                            machineId, "+237600000000", slotStart);
                     reservationService.createReservation(request);
                     succeeded.incrementAndGet();
                 } catch (ReservationException e) {

@@ -3,12 +3,26 @@ FROM maven:3.9-eclipse-temurin-25 AS build
 
 WORKDIR /app
 
-# Copy pom first to cache dependency layer
+# R8: laundry-contracts is resolved from GitHub Packages, which requires auth even
+# for read-only downloads. GITHUB_PACKAGES_TOKEN must be set as a Railway service
+# variable (a classic GitHub PAT, read:packages scope) — see laundry-contracts/README.md.
+ARG GITHUB_PACKAGES_TOKEN
+
+# Copy pom first to cache dependency layer. settings.xml is written and removed
+# within each RUN that needs it (not just once at the top) so the token never lands
+# in a committed layer even with dependency resolution split across two RUNs for
+# Docker layer caching.
 COPY pom.xml .
-RUN mvn dependency:go-offline -q
+RUN mkdir -p /root/.m2 && \
+    printf '<settings><servers><server><id>github</id><username>x-access-token</username><password>%s</password></server></servers></settings>' "$GITHUB_PACKAGES_TOKEN" > /root/.m2/settings.xml && \
+    mvn dependency:go-offline -q && \
+    rm /root/.m2/settings.xml
 
 COPY src ./src
-RUN mvn package -DskipTests -q
+RUN mkdir -p /root/.m2 && \
+    printf '<settings><servers><server><id>github</id><username>x-access-token</username><password>%s</password></server></servers></settings>' "$GITHUB_PACKAGES_TOKEN" > /root/.m2/settings.xml && \
+    mvn package -DskipTests -q && \
+    rm /root/.m2/settings.xml
 
 # ── Stage 2: Run ──────────────────────────────────────────────────────────────
 FROM eclipse-temurin:25-jre

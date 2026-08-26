@@ -1,8 +1,8 @@
 package com.smartlaundromat.machine.controller;
 
+import com.smartlaundromat.contracts.machine.MachineStartRequest;
 import com.smartlaundromat.machine.dto.MachineSummaryResponse;
 import com.smartlaundromat.machine.dto.MachineStatusResponse;
-import com.smartlaundromat.machine.dto.StartCycleRequest;
 import com.smartlaundromat.machine.model.MachineCycle;
 import com.smartlaundromat.machine.model.MachineEvent;
 import com.smartlaundromat.machine.service.MachineService;
@@ -47,7 +47,7 @@ public class MachineController {
     }
 
     @PostMapping("/start-cycle")
-    public ResponseEntity<MachineCycle> startCycle(@Valid @RequestBody StartCycleRequest request) {
+    public ResponseEntity<MachineCycle> startCycle(@Valid @RequestBody MachineStartRequest request) {
         MachineCycle cycle = machineService.startCycle(request);
         return ResponseEntity.ok(cycle);
     }

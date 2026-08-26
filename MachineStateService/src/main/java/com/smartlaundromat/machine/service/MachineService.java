@@ -1,5 +1,6 @@
 package com.smartlaundromat.machine.service;
 
+import com.smartlaundromat.contracts.machine.MachineStartRequest;
 import com.smartlaundromat.machine.config.MachineConfig;
 import com.smartlaundromat.machine.dto.*;
 import com.smartlaundromat.machine.eqlink.EqLinkProperties;
@@ -185,17 +186,17 @@ public class MachineService {
     // ── Cycle management ──────────────────────────────────────────────────────
 
     @Transactional
-    public MachineCycle startCycle(StartCycleRequest request) {
+    public MachineCycle startCycle(MachineStartRequest request) {
         // Idempotency: the outbox relay may deliver the same PaymentSucceeded event
         // more than once. Return the existing cycle rather than double-starting.
-        if (StringUtils.hasText(request.getTransactionReference())) {
+        if (StringUtils.hasText(request.transactionReference())) {
             Optional<MachineCycle> existing =
-                    machineCycleRepository.findByTransactionReference(request.getTransactionReference());
+                    machineCycleRepository.findByTransactionReference(request.transactionReference());
             if (existing.isPresent()) {
                 log.info("Idempotent start — returning existing cycle for tx={}",
-                        request.getTransactionReference());
+                        request.transactionReference());
                 meterRegistry.counter("machine.cycle.idempotent.total",
-                        "machine_id", request.getMachineId()).increment();
+                        "machine_id", request.machineId()).increment();
                 return existing.get();
             }
         }
@@ -203,8 +204,8 @@ public class MachineService {
         // Locked fetch: holds the row for the rest of this transaction so the
         // active-cycle check below and the cycle/machine save are atomic against
         // a second concurrent startCycle call for the same machine.
-        Machine machine = machineRepository.findByMachineIdForUpdate(request.getMachineId())
-                .orElseThrow(() -> new MachineNotFoundException("Machine not found: " + request.getMachineId()));
+        Machine machine = machineRepository.findByMachineIdForUpdate(request.machineId())
+                .orElseThrow(() -> new MachineNotFoundException("Machine not found: " + request.machineId()));
 
         // Re-check idempotency now that the machine row is locked: the check above ran
         // before the lock, so two truly concurrent duplicate deliveries of the same
@@ -212,49 +213,49 @@ public class MachineService {
         // commits a cycle; the second, on unblocking, would otherwise see that cycle via
         // the "already has an active cycle" check below and be rejected instead of getting
         // the idempotent response this transactionReference is entitled to.
-        if (StringUtils.hasText(request.getTransactionReference())) {
+        if (StringUtils.hasText(request.transactionReference())) {
             Optional<MachineCycle> existingAfterLock =
-                    machineCycleRepository.findByTransactionReference(request.getTransactionReference());
+                    machineCycleRepository.findByTransactionReference(request.transactionReference());
             if (existingAfterLock.isPresent()) {
                 log.info("Idempotent start (post-lock) — returning existing cycle for tx={}",
-                        request.getTransactionReference());
+                        request.transactionReference());
                 meterRegistry.counter("machine.cycle.idempotent.total",
-                        "machine_id", request.getMachineId()).increment();
+                        "machine_id", request.machineId()).increment();
                 return existingAfterLock.get();
             }
         }
 
         if (!machine.isAvailable()) {
             throw new MachineNotAvailableException(
-                    "Machine " + request.getMachineId() + " is not available (status: " + machine.getStatus() + ")");
+                    "Machine " + request.machineId() + " is not available (status: " + machine.getStatus() + ")");
         }
 
-        machineCycleRepository.findByMachineIdAndStatus(request.getMachineId(), CycleStatus.IN_PROGRESS)
+        machineCycleRepository.findByMachineIdAndStatus(request.machineId(), CycleStatus.IN_PROGRESS)
                 .ifPresent(c -> {
                     throw new MachineNotAvailableException(
-                            "Machine " + request.getMachineId() + " already has an active cycle");
+                            "Machine " + request.machineId() + " already has an active cycle");
                 });
 
         LocalDateTime now = LocalDateTime.now();
-        LocalDateTime endsAt = now.plusMinutes(request.getDurationMinutes());
+        LocalDateTime endsAt = now.plusMinutes(request.durationMinutes());
 
         // ── Reservation gating ────────────────────────────────────────────────
         // If the feature is on and this machine is currently held by an active reservation,
         // the start request MUST carry the matching reservation code (checked by code + machine,
         // not by user). A valid code is consumed (marked USED) here.
         String consumedReservationCode = null;
-        Optional<Reservation> coveringNow = reservationService.activeReservationCovering(request.getMachineId());
+        Optional<Reservation> coveringNow = reservationService.activeReservationCovering(request.machineId());
         if (coveringNow.isPresent()) {
-            if (!StringUtils.hasText(request.getReservationCode())) {
+            if (!StringUtils.hasText(request.reservationCode())) {
                 throw new MachineNotAvailableException(
-                        "Machine " + request.getMachineId()
+                        "Machine " + request.machineId()
                                 + " is reserved right now — a reservation code is required to start it");
             }
             Reservation consumed = reservationService.validateAndConsume(
-                    request.getReservationCode().trim(), request.getMachineId());
+                    request.reservationCode().trim(), request.machineId());
             consumedReservationCode = consumed.getReservationCode();
             log.info("Reservation {} redeemed to start machine {}",
-                    consumedReservationCode, request.getMachineId());
+                    consumedReservationCode, request.machineId());
         }
 
         // Duration-aware lookahead: even if nothing covers "now", the requested cycle might run
@@ -262,32 +263,32 @@ public class MachineService {
         // reservation). Excluding the code just consumed above means a customer running late into
         // their OWN redeemed slot is still correctly blocked if their cycle would bleed into the
         // NEXT customer's reservation.
-        reservationService.findConflicting(request.getMachineId(), now, endsAt, consumedReservationCode)
+        reservationService.findConflicting(request.machineId(), now, endsAt, consumedReservationCode)
                 .ifPresent(conflict -> {
                     throw new MachineNotAvailableException(
-                            "Machine " + request.getMachineId() + " is reserved starting at " + conflict.getSlotStart()
-                                    + " — the requested " + request.getDurationMinutes()
+                            "Machine " + request.machineId() + " is reserved starting at " + conflict.getSlotStart()
+                                    + " — the requested " + request.durationMinutes()
                                     + "-minute cycle would run into that reservation");
                 });
 
         CycleType cycleType;
         try {
-            cycleType = CycleType.valueOf(request.getCycleType().toUpperCase());
+            cycleType = CycleType.valueOf(request.cycleType().toUpperCase());
         } catch (IllegalArgumentException e) {
             cycleType = CycleType.NORMAL;
         }
 
         // ── Persist cycle record ──────────────────────────────────────────────
         MachineCycle cycle = MachineCycle.builder()
-                .machineId(request.getMachineId())
+                .machineId(request.machineId())
                 .cycleType(cycleType)
                 .status(CycleStatus.IN_PROGRESS)
-                .durationMinutes(request.getDurationMinutes())
+                .durationMinutes(request.durationMinutes())
                 .startedAt(now)
                 .endsAt(endsAt)
-                .rfidCardUid(request.getRfidCardUid())
-                .transactionReference(request.getTransactionReference())
-                .pulseCount(request.getPulseCount())
+                .rfidCardUid(request.rfidCardUid())
+                .transactionReference(request.transactionReference())
+                .pulseCount(request.pulseCount())
                 .build();
         try {
             machineCycleRepository.save(cycle);
@@ -298,7 +299,7 @@ public class MachineService {
             // WHERE status='IN_PROGRESS' is the last line of defense.
             if (cause.contains("idx_machine_cycles_machine_in_progress")) {
                 throw new MachineNotAvailableException(
-                        "Machine " + request.getMachineId() + " already has an active cycle");
+                        "Machine " + request.machineId() + " already has an active cycle");
             }
             // Backstop for the post-lock idempotency re-check above: only reachable when
             // two racing calls for the same transactionReference target DIFFERENT
@@ -313,18 +314,18 @@ public class MachineService {
             // correctly returns the existing cycle.
             if (cause.contains("idx_machine_cycles_tx_ref")) {
                 throw new MachineNotAvailableException(
-                        "Duplicate start request for transaction " + request.getTransactionReference());
+                        "Duplicate start request for transaction " + request.transactionReference());
             }
             throw exception;
         }
         meterRegistry.counter("machine.cycle.started.total",
-                "machine_id", request.getMachineId(),
+                "machine_id", request.machineId(),
                 "cycle_type", cycleType.name()).increment();
 
         machine.setStatus(MachineStatus.RUNNING);
         machine.setCurrentCycleType(cycleType);
         machine.setCycleStartedAt(now);
-        machine.setCycleDurationMinutes(request.getDurationMinutes());
+        machine.setCycleDurationMinutes(request.durationMinutes());
         machine.setCycleEndsAt(endsAt);
         machine.setCycleProgress(0);
         machine.setDoorLocked(true);
@@ -333,13 +334,13 @@ public class MachineService {
         // ── Command dispatch: routes to real hardware or simulator no-op ─────
         commandDispatcher.dispatch(machine, request, cycleType);
 
-        recordEvent(request.getMachineId(), "CYCLE_STARTED",
+        recordEvent(request.machineId(), "CYCLE_STARTED",
                 MachineStatus.IDLE.name(), MachineStatus.RUNNING.name(),
-                "Cycle: " + cycleType + ", Duration: " + request.getDurationMinutes() + "min",
-                request.getRfidCardUid(), request.getTransactionReference());
+                "Cycle: " + cycleType + ", Duration: " + request.durationMinutes() + "min",
+                request.rfidCardUid(), request.transactionReference());
 
         log.info("Cycle started: machine={}, type={}, duration={}min, endsAt={}",
-                request.getMachineId(), cycleType, request.getDurationMinutes(), endsAt);
+                request.machineId(), cycleType, request.durationMinutes(), endsAt);
 
         return cycle;
     }

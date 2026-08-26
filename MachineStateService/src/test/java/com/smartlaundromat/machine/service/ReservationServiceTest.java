@@ -1,10 +1,10 @@
 package com.smartlaundromat.machine.service;
 
+import com.smartlaundromat.contracts.reservation.ReservationRequest;
+import com.smartlaundromat.contracts.reservation.ReservationResponse;
 import com.smartlaundromat.machine.client.PricingClient;
 import com.smartlaundromat.machine.config.FeatureProperties;
 import com.smartlaundromat.machine.config.ReservationProperties;
-import com.smartlaundromat.machine.dto.CreateReservationRequest;
-import com.smartlaundromat.machine.dto.ReservationResponse;
 import com.smartlaundromat.machine.dto.ValidateReservationResponse;
 import com.smartlaundromat.machine.exception.MachineNotFoundException;
 import com.smartlaundromat.machine.exception.ReservationException;
@@ -107,9 +107,8 @@ class ReservationServiceTest {
         void shouldThrowWhenFeatureDisabled() {
             // given
             when(featureProperties.isReservationEnabled()).thenReturn(false);
-            CreateReservationRequest request = new CreateReservationRequest();
-            request.setMachineId("washer_01");
-            request.setSlotStart(LocalDateTime.now().plusHours(1));
+            ReservationRequest request = new ReservationRequest(
+                    "washer_01", null, LocalDateTime.now().plusHours(1));
 
             // when / then
             assertThatThrownBy(() -> reservationService.createReservation(request))
@@ -123,9 +122,8 @@ class ReservationServiceTest {
             when(featureProperties.isReservationEnabled()).thenReturn(true);
             when(machineRepository.findByMachineIdForUpdate("washer_99")).thenReturn(Optional.empty());
 
-            CreateReservationRequest request = new CreateReservationRequest();
-            request.setMachineId("washer_99");
-            request.setSlotStart(LocalDateTime.now().plusHours(1));
+            ReservationRequest request = new ReservationRequest(
+                    "washer_99", null, LocalDateTime.now().plusHours(1));
 
             // when / then
             assertThatThrownBy(() -> reservationService.createReservation(request))
@@ -138,9 +136,7 @@ class ReservationServiceTest {
             when(featureProperties.isReservationEnabled()).thenReturn(true);
             when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(testMachine));
 
-            CreateReservationRequest request = new CreateReservationRequest();
-            request.setMachineId("washer_01");
-            request.setSlotStart(null);
+            ReservationRequest request = new ReservationRequest("washer_01", null, null);
 
             // when / then
             assertThatThrownBy(() -> reservationService.createReservation(request))
@@ -154,9 +150,8 @@ class ReservationServiceTest {
             when(featureProperties.isReservationEnabled()).thenReturn(true);
             when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(testMachine));
 
-            CreateReservationRequest request = new CreateReservationRequest();
-            request.setMachineId("washer_01");
-            request.setSlotStart(LocalDateTime.now().minusHours(1));
+            ReservationRequest request = new ReservationRequest(
+                    "washer_01", null, LocalDateTime.now().minusHours(1));
 
             // when / then
             assertThatThrownBy(() -> reservationService.createReservation(request))
@@ -172,9 +167,8 @@ class ReservationServiceTest {
             when(reservationRepository.findOverlapping(eq("washer_01"), any(), any()))
                     .thenReturn(List.of(new Reservation()));
 
-            CreateReservationRequest request = new CreateReservationRequest();
-            request.setMachineId("washer_01");
-            request.setSlotStart(LocalDateTime.now().plusHours(1));
+            ReservationRequest request = new ReservationRequest(
+                    "washer_01", null, LocalDateTime.now().plusHours(1));
 
             // when / then
             assertThatThrownBy(() -> reservationService.createReservation(request))
@@ -199,9 +193,7 @@ class ReservationServiceTest {
             when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
                     .thenReturn(Optional.of(runningCycle));
 
-            CreateReservationRequest request = new CreateReservationRequest();
-            request.setMachineId("washer_01");
-            request.setSlotStart(slotStart);
+            ReservationRequest request = new ReservationRequest("washer_01", null, slotStart);
 
             // when / then
             assertThatThrownBy(() -> reservationService.createReservation(request))
@@ -233,9 +225,7 @@ class ReservationServiceTest {
             when(reservationProperties.getCurrency()).thenReturn("XAF");
             when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            CreateReservationRequest request = new CreateReservationRequest();
-            request.setMachineId("washer_01");
-            request.setSlotStart(slotStart);
+            ReservationRequest request = new ReservationRequest("washer_01", null, slotStart);
 
             // when / then — no exception
             ReservationResponse response = reservationService.createReservation(request);
@@ -256,22 +246,20 @@ class ReservationServiceTest {
             when(reservationProperties.getCurrency()).thenReturn("XAF");
             when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            CreateReservationRequest request = new CreateReservationRequest();
-            request.setMachineId("washer_01");
-            request.setCustomerPhone("+237612345678");
-            request.setSlotStart(LocalDateTime.now().plusHours(1));
+            ReservationRequest request = new ReservationRequest(
+                    "washer_01", "+237612345678", LocalDateTime.now().plusHours(1));
 
             // when
             ReservationResponse response = reservationService.createReservation(request);
 
             // then
             assertThat(response).isNotNull();
-            assertThat(response.getMachineId()).isEqualTo("washer_01");
-            assertThat(response.getReservationCode()).startsWith("RES-");
-            assertThat(response.getStatus()).isEqualTo(ReservationStatus.PENDING_PAYMENT);
-            assertThat(response.getFeeAmount()).isEqualTo(1500);
-            assertThat(response.getCurrency()).isEqualTo("XAF");
-            assertThat(response.getSlotEnd()).isEqualTo(response.getSlotStart().plusMinutes(60));
+            assertThat(response.machineId()).isEqualTo("washer_01");
+            assertThat(response.reservationCode()).startsWith("RES-");
+            assertThat(response.status().name()).isEqualTo(ReservationStatus.PENDING_PAYMENT.name());
+            assertThat(response.feeAmount()).isEqualTo(1500);
+            assertThat(response.currency()).isEqualTo("XAF");
+            assertThat(response.slotEnd()).isEqualTo(response.slotStart().plusMinutes(60));
             verify(reservationRepository).save(any(Reservation.class));
         }
 
@@ -286,9 +274,8 @@ class ReservationServiceTest {
             when(reservationProperties.getCodePrefix()).thenReturn("RES-");
             when(reservationProperties.getCodeLength()).thenReturn(6);
 
-            CreateReservationRequest request = new CreateReservationRequest();
-            request.setMachineId("washer_01");
-            request.setSlotStart(LocalDateTime.now().plusHours(1));
+            ReservationRequest request = new ReservationRequest(
+                    "washer_01", null, LocalDateTime.now().plusHours(1));
 
             // when / then
             assertThatThrownBy(() -> reservationService.createReservation(request))
@@ -347,7 +334,7 @@ class ReservationServiceTest {
             ReservationResponse response = reservationService.activateByReference("REF-123");
 
             // then
-            assertThat(response.getStatus()).isEqualTo(ReservationStatus.ACTIVE);
+            assertThat(response.status().name()).isEqualTo(ReservationStatus.ACTIVE.name());
             verify(reservationRepository, never()).save(any());
         }
 
@@ -418,7 +405,7 @@ class ReservationServiceTest {
             ReservationResponse response = reservationService.activateByReference("REF-123");
 
             // then
-            assertThat(response.getStatus()).isEqualTo(ReservationStatus.ACTIVE);
+            assertThat(response.status().name()).isEqualTo(ReservationStatus.ACTIVE.name());
             assertThat(reservation.getActivatedAt()).isNotNull();
             verify(reservationRepository).save(reservation);
         }
@@ -460,7 +447,7 @@ class ReservationServiceTest {
             ReservationResponse response = reservationService.cancel("REF-123");
 
             // then
-            assertThat(response.getStatus()).isEqualTo(ReservationStatus.CANCELLED);
+            assertThat(response.status().name()).isEqualTo(ReservationStatus.CANCELLED.name());
             verify(reservationRepository, never()).save(any());
         }
 
@@ -502,7 +489,7 @@ class ReservationServiceTest {
             ReservationResponse response = reservationService.cancel("REF-123");
 
             // then
-            assertThat(response.getStatus()).isEqualTo(ReservationStatus.CANCELLED);
+            assertThat(response.status().name()).isEqualTo(ReservationStatus.CANCELLED.name());
             verify(reservationRepository).save(reservation);
         }
     }
@@ -871,7 +858,7 @@ class ReservationServiceTest {
         ReservationResponse response = reservationService.getByCode("RES-ABC");
 
         // then
-        assertThat(response.getReservationCode()).isEqualTo("RES-ABC");
+        assertThat(response.reservationCode()).isEqualTo("RES-ABC");
     }
 
     @Test
@@ -1013,12 +1000,16 @@ class ReservationServiceTest {
                 .build();
         when(reservationRepository.findHeldByCustomerPhone("237612345678"))
                 .thenReturn(List.of(held));
+        when(machineRepository.findByMachineId("washer_02")).thenReturn(Optional.empty());
 
         // when
-        List<Reservation> result = reservationService.listHeldForCustomer("237612345678");
+        List<ReservationResponse> result = reservationService.listHeldForCustomer("237612345678");
 
-        // then
-        assertThat(result).containsExactly(held);
+        // then — returns the shared ReservationResponse contract type (R8), not the entity
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).reservationCode()).isEqualTo("RES-ABC123");
+        assertThat(result.get(0).machineId()).isEqualTo("washer_02");
+        assertThat(result.get(0).customerPhone()).isEqualTo("237612345678");
     }
 
     @Test
@@ -1027,7 +1018,7 @@ class ReservationServiceTest {
         when(featureProperties.isReservationEnabled()).thenReturn(false);
 
         // when
-        List<Reservation> result = reservationService.listHeldForCustomer("237612345678");
+        List<ReservationResponse> result = reservationService.listHeldForCustomer("237612345678");
 
         // then
         assertThat(result).isEmpty();

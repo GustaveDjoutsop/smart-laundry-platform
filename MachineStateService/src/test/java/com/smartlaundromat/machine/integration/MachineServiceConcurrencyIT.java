@@ -1,6 +1,6 @@
 package com.smartlaundromat.machine.integration;
 
-import com.smartlaundromat.machine.dto.StartCycleRequest;
+import com.smartlaundromat.contracts.machine.MachineStartRequest;
 import com.smartlaundromat.machine.exception.MachineNotAvailableException;
 import com.smartlaundromat.machine.model.enums.CycleStatus;
 import com.smartlaundromat.machine.repository.MachineCycleRepository;
@@ -54,11 +54,8 @@ class MachineServiceConcurrencyIT extends BaseIntegrationTest {
                 ready.countDown();
                 try {
                     start.await();
-                    StartCycleRequest request = new StartCycleRequest();
-                    request.setMachineId(machineId);
-                    request.setCycleType("NORMAL");
-                    request.setDurationMinutes(30);
-                    request.setPulseCount(1);
+                    MachineStartRequest request = new MachineStartRequest(
+                            machineId, "NORMAL", 30, 1, null, null, null);
                     machineService.startCycle(request);
                     succeeded.incrementAndGet();
                 } catch (MachineNotAvailableException e) {

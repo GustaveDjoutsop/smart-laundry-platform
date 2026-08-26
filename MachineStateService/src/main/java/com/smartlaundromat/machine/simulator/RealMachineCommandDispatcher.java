@@ -1,6 +1,6 @@
 package com.smartlaundromat.machine.simulator;
 
-import com.smartlaundromat.machine.dto.StartCycleRequest;
+import com.smartlaundromat.contracts.machine.MachineStartRequest;
 import com.smartlaundromat.machine.eqlink.EqLinkClient;
 import com.smartlaundromat.machine.eqlink.EqLinkProperties;
 import com.smartlaundromat.machine.model.Machine;
@@ -38,24 +38,24 @@ public class RealMachineCommandDispatcher implements MachineCommandDispatcher {
     private final MqttService mqttService;
 
     @Override
-    public void dispatch(Machine machine, StartCycleRequest request, CycleType cycleType) {
+    public void dispatch(Machine machine, MachineStartRequest request, CycleType cycleType) {
         // ── Modbus RTU machines ───────────────────────────────────────────────
         if (machine.getCommProtocol() == CommProtocol.MODBUS && modbusProperties.isEnabled()) {
             int program = modbusProgramFor(cycleType);
-            boolean acked = modbusClient.startMachine(request.getMachineId(), request.getPulseCount(), program);
+            boolean acked = modbusClient.startMachine(request.machineId(), request.pulseCount(), program);
             if (!acked) {
-                log.warn("Modbus start did not ack for {} — MQTT is the fallback", request.getMachineId());
+                log.warn("Modbus start did not ack for {} — MQTT is the fallback", request.machineId());
             }
-            mqttService.sendCommand(request.getMachineId(), "pulse", request.getPulseCount());
+            mqttService.sendCommand(request.machineId(), "pulse", request.pulseCount());
             log.debug("Command dispatch: machine={}, modbus={}, mqtt=sent",
-                    request.getMachineId(), acked ? "sent" : "skipped");
+                    request.machineId(), acked ? "sent" : "skipped");
             return;
         }
 
         // ── EQLink machines ───────────────────────────────────────────────────
         boolean eqLinkDispatched = false;
         if (machine.getCommProtocol() == CommProtocol.EQLINK && eqLinkProperties.isEnabled()) {
-            eqLinkDispatched = eqLinkProperties.resolveDeviceName(request.getMachineId())
+            eqLinkDispatched = eqLinkProperties.resolveDeviceName(request.machineId())
                     .map(devicename -> {
                         int vendPrice = eqLinkProperties.getDefaultVendPrice();
                         var statusResp = eqLinkClient.checkDeviceStatus(devicename);
@@ -66,30 +66,30 @@ public class RealMachineCommandDispatcher implements MachineCommandDispatcher {
                             vendPrice = statusResp.getDeviceStatus().getVendPrice();
                         }
 
-                        var startResp = eqLinkClient.startDeviceIot(devicename, request.getPulseCount(), vendPrice);
+                        var startResp = eqLinkClient.startDeviceIot(devicename, request.pulseCount(), vendPrice);
                         if (startResp == null) {
                             log.warn("EQLink IoT start returned null for {} — MQTT will handle it",
-                                    request.getMachineId());
+                                    request.machineId());
                             return false;
                         }
                         if (startResp.isIotTimeout()) {
                             log.warn("EQLink IoT timeout (406) for {} — MQTT is the fallback",
-                                    request.getMachineId());
+                                    request.machineId());
                             return false;
                         }
                         return startResp.isSuccess();
                     })
                     .orElseGet(() -> {
                         log.warn("EQLink enabled but no devicename mapping for {} — using MQTT only",
-                                request.getMachineId());
+                                request.machineId());
                         return false;
                     });
         }
 
         // MQTT: sole trigger when EQLink is disabled; safety net + fallback when EQLink fails/times out
-        mqttService.sendCommand(request.getMachineId(), "pulse", request.getPulseCount());
+        mqttService.sendCommand(request.machineId(), "pulse", request.pulseCount());
         log.debug("Command dispatch: machine={}, eqlink={}, mqtt=sent",
-                request.getMachineId(), eqLinkDispatched ? "sent" : "skipped");
+                request.machineId(), eqLinkDispatched ? "sent" : "skipped");
     }
 
     /**
