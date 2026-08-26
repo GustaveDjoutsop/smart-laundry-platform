@@ -14,6 +14,7 @@ import com.botmanager.core.machine.MachineType;
 import com.botmanager.core.payment.PaymentGateway;
 import com.botmanager.core.payment.PaymentRequest;
 import com.botmanager.core.payment.PaymentResult;
+import com.smartlaundromat.contracts.reservation.ReservationResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -410,13 +411,13 @@ public class LaundryFlowPlugin extends FlowPlugin {
             return;
         }
 
-        Optional<Map<String, Object>> reservationOpt = machineService.getReservationByCode(code);
+        Optional<ReservationResponse> reservationOpt = machineService.getReservationByCode(code);
         if (reservationOpt.isEmpty()) {
             showRedeemRetry(context, t("redeem_code_not_found", context));
             return;
         }
 
-        String machineId = (String) reservationOpt.get().get("machineId");
+        String machineId = reservationOpt.get().machineId();
         if (machineId == null || machineId.isBlank()) {
             log.warn("Reservation lookup for code {} returned no machineId — treating as not found", code);
             showRedeemRetry(context, t("redeem_code_not_found", context));
@@ -432,8 +433,9 @@ public class LaundryFlowPlugin extends FlowPlugin {
             return;
         }
 
-        String machineName = (String) reservationOpt.get().getOrDefault("machineName", machineId);
-        String slotEndStr = formatSlotEnd(reservationOpt.get().get("slotEnd"));
+        String machineNameFromResponse = reservationOpt.get().machineName();
+        String machineName = machineNameFromResponse != null ? machineNameFromResponse : machineId;
+        String slotEndStr = formatSlotEnd(reservationOpt.get().slotEnd());
 
         log.info("Reservation code {} validated for machine {}, customerPhone={}",
                 code, machineId, context.getString("customerPhone"));
@@ -468,15 +470,8 @@ public class LaundryFlowPlugin extends FlowPlugin {
         };
     }
 
-    private String formatSlotEnd(Object slotEndRaw) {
-        if (!(slotEndRaw instanceof String slotEndStr) || slotEndStr.isBlank()) {
-            return "";
-        }
-        try {
-            return LocalDateTime.parse(slotEndStr).format(DateTimeFormatter.ofPattern("HH:mm"));
-        } catch (Exception e) {
-            return slotEndStr;
-        }
+    private String formatSlotEnd(LocalDateTime slotEnd) {
+        return slotEnd != null ? slotEnd.format(DateTimeFormatter.ofPattern("HH:mm")) : "";
     }
 
     private void handleShowDateSelection(FlowContext context) {
@@ -651,7 +646,7 @@ public class LaundryFlowPlugin extends FlowPlugin {
 
         // Create the hold FIRST — if the slot is already taken, we reject here and
         // never touch payment, instead of charging the customer and finding out later.
-        Map<String, Object> reservationResponse;
+        ReservationResponse reservationResponse;
         try {
             reservationResponse = machineService.createReservation(machineId, customerPhone, slotStartIso);
         } catch (MachineServiceUnavailableException e) {
@@ -670,8 +665,8 @@ public class LaundryFlowPlugin extends FlowPlugin {
             return;
         }
 
-        String reservationCode = (String) reservationResponse.get("reservationCode");
-        String reservationTransactionReference = (String) reservationResponse.get("transactionReference");
+        String reservationCode = reservationResponse.reservationCode();
+        String reservationTransactionReference = reservationResponse.transactionReference();
 
         String reference = laundryConfig.getBotId() + "-res-" + machineId + "-" + System.currentTimeMillis();
 

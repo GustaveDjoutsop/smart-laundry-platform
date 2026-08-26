@@ -16,6 +16,7 @@ import com.botmanager.core.redis.RedisManager;
 import com.botmanager.core.whatsapp.WhatsAppClient;
 import com.botmanager.core.whatsapp.WhatsAppClientFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartlaundromat.contracts.reservation.ReservationResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -29,6 +30,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -1555,9 +1557,8 @@ class LaundryFlowPluginTest {
             context.set("reservationDate", "2026-06-11");
             context.set("reservationTime", "10:00");
 
-            Map<String, Object> reservationResponse = new HashMap<>();
-            reservationResponse.put("reservationCode", "RES-ABC123");
-            reservationResponse.put("transactionReference", "res-ref-1");
+            ReservationResponse reservationResponse = new ReservationResponse(
+                    "RES-ABC123", null, null, null, null, null, null, null, null, "res-ref-1", null);
             when(machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00"))
                     .thenReturn(reservationResponse);
 
@@ -1639,9 +1640,8 @@ class LaundryFlowPluginTest {
             context.set("reservationDate", "2026-06-11");
             context.set("reservationTime", "10:00");
 
-            Map<String, Object> reservationResponse = new HashMap<>();
-            reservationResponse.put("reservationCode", "RES-ABC123");
-            reservationResponse.put("transactionReference", "res-ref-1");
+            ReservationResponse reservationResponse = new ReservationResponse(
+                    "RES-ABC123", null, null, null, null, null, null, null, null, "res-ref-1", null);
             when(machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00"))
                     .thenReturn(reservationResponse);
 
@@ -1777,8 +1777,8 @@ class LaundryFlowPluginTest {
             FlowContext context = createContext();
             context.set("userInput", "RES-ABC123");
 
-            Map<String, Object> reservation = new HashMap<>();
-            reservation.put("machineName", "Washer 1");
+            ReservationResponse reservation = new ReservationResponse(
+                    null, null, "Washer 1", null, null, null, null, null, null, null, null);
             when(machineService.getReservationByCode("RES-ABC123")).thenReturn(Optional.of(reservation));
 
             // when
@@ -1798,9 +1798,8 @@ class LaundryFlowPluginTest {
             FlowContext context = createContext();
             context.set("userInput", "RES-ABC123");
 
-            Map<String, Object> reservation = new HashMap<>();
-            reservation.put("machineId", "w1");
-            reservation.put("machineName", "Washer 1");
+            ReservationResponse reservation = new ReservationResponse(
+                    null, "w1", "Washer 1", null, null, null, null, null, null, null, null);
             when(machineService.getReservationByCode("RES-ABC123")).thenReturn(Optional.of(reservation));
 
             Map<String, Object> validation = new HashMap<>();
@@ -1824,9 +1823,8 @@ class LaundryFlowPluginTest {
             FlowContext context = createContext();
             context.set("userInput", "RES-ABC123");
 
-            Map<String, Object> reservation = new HashMap<>();
-            reservation.put("machineId", "w1");
-            reservation.put("machineName", "Washer 1");
+            ReservationResponse reservation = new ReservationResponse(
+                    null, "w1", "Washer 1", null, null, null, null, null, null, null, null);
             when(machineService.getReservationByCode("RES-ABC123")).thenReturn(Optional.of(reservation));
             when(machineService.validateReservation("RES-ABC123", "w1")).thenReturn(Optional.empty());
 
@@ -1844,10 +1842,9 @@ class LaundryFlowPluginTest {
             FlowContext context = createContext();
             context.set("userInput", "res-abc123");
 
-            Map<String, Object> reservation = new HashMap<>();
-            reservation.put("machineId", "w1");
-            reservation.put("machineName", "Washer 1");
-            reservation.put("slotEnd", "2026-06-11T11:00:00");
+            ReservationResponse reservation = new ReservationResponse(
+                    null, "w1", "Washer 1", null, null,
+                    LocalDateTime.parse("2026-06-11T11:00:00"), null, null, null, null, null);
             when(machineService.getReservationByCode("RES-ABC123")).thenReturn(Optional.of(reservation));
 
             Map<String, Object> validation = new HashMap<>();
