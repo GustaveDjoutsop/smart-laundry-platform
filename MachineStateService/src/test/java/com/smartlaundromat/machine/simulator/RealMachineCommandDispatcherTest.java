@@ -1,6 +1,6 @@
 package com.smartlaundromat.machine.simulator;
 
-import com.smartlaundromat.machine.dto.StartCycleRequest;
+import com.smartlaundromat.contracts.machine.MachineStartRequest;
 import com.smartlaundromat.machine.eqlink.EqLinkClient;
 import com.smartlaundromat.machine.eqlink.EqLinkProperties;
 import com.smartlaundromat.machine.eqlink.dto.EqCheckStatusResponse;
@@ -44,7 +44,7 @@ class RealMachineCommandDispatcherTest {
     private Machine modbusMachine;
     private Machine eqLinkMachine;
     private Machine mqttMachine;
-    private StartCycleRequest request;
+    private MachineStartRequest request;
 
     @BeforeEach
     void setUp() {
@@ -58,11 +58,7 @@ class RealMachineCommandDispatcherTest {
                 .machineId("washer_10").type(MachineType.WASHER)
                 .status(MachineStatus.IDLE).commProtocol(CommProtocol.MQTT).build();
 
-        request = new StartCycleRequest();
-        request.setMachineId("washer_01");
-        request.setCycleType("NORMAL");
-        request.setDurationMinutes(30);
-        request.setPulseCount(2);
+        request = new MachineStartRequest("washer_01", "NORMAL", 30, 2, null, null, null);
     }
 
     // ── Modbus ─────────────────────────────────────────────────────────────────
@@ -111,7 +107,9 @@ class RealMachineCommandDispatcherTest {
 
         @BeforeEach
         void setUp() {
-            request.setMachineId("washer_07");
+            request = new MachineStartRequest(
+                    "washer_07", request.cycleType(), request.durationMinutes(), request.pulseCount(),
+                    request.transactionReference(), request.reservationCode(), request.rfidCardUid());
             lenient().when(modbusProperties.isEnabled()).thenReturn(false);
         }
 
@@ -186,7 +184,9 @@ class RealMachineCommandDispatcherTest {
     void shouldDispatchViaMqttOnlyForMqttMachine() {
         lenient().when(modbusProperties.isEnabled()).thenReturn(false);
         lenient().when(eqLinkProperties.isEnabled()).thenReturn(false);
-        request.setMachineId("washer_10");
+        request = new MachineStartRequest(
+                "washer_10", request.cycleType(), request.durationMinutes(), request.pulseCount(),
+                request.transactionReference(), request.reservationCode(), request.rfidCardUid());
 
         dispatcher.dispatch(mqttMachine, request, CycleType.NORMAL);
 

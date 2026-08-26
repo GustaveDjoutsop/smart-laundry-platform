@@ -1,9 +1,9 @@
 package com.smartlaundromat.machine.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartlaundromat.contracts.machine.MachineStartRequest;
 import com.smartlaundromat.machine.dto.MachineStatusResponse;
 import com.smartlaundromat.machine.dto.MachineSummaryResponse;
-import com.smartlaundromat.machine.dto.StartCycleRequest;
 import com.smartlaundromat.machine.exception.GlobalExceptionHandler;
 import com.smartlaundromat.machine.exception.MachineNotAvailableException;
 import com.smartlaundromat.machine.exception.MachineNotFoundException;
@@ -152,13 +152,10 @@ class MachineControllerTest {
                 .durationMinutes(30)
                 .startedAt(LocalDateTime.now())
                 .build();
-        when(machineService.startCycle(any(StartCycleRequest.class))).thenReturn(cycle);
+        when(machineService.startCycle(any(MachineStartRequest.class))).thenReturn(cycle);
 
-        StartCycleRequest request = new StartCycleRequest();
-        request.setMachineId("washer_01");
-        request.setCycleType("NORMAL");
-        request.setDurationMinutes(30);
-        request.setPulseCount(2);
+        MachineStartRequest request = new MachineStartRequest(
+                "washer_01", "NORMAL", 30, 2, null, null, null);
 
         // when / then
         mockMvc.perform(post("/api/machines/start-cycle")
@@ -176,11 +173,8 @@ class MachineControllerTest {
         when(machineService.startCycle(any()))
                 .thenThrow(new MachineNotAvailableException("Machine not available"));
 
-        StartCycleRequest request = new StartCycleRequest();
-        request.setMachineId("washer_01");
-        request.setCycleType("NORMAL");
-        request.setDurationMinutes(30);
-        request.setPulseCount(2);
+        MachineStartRequest request = new MachineStartRequest(
+                "washer_01", "NORMAL", 30, 2, null, null, null);
 
         // when / then
         mockMvc.perform(post("/api/machines/start-cycle")
@@ -216,7 +210,8 @@ class MachineControllerTest {
     @WithMockUser(authorities = "SCOPE_sls-machine-start")
     void shouldReturn400WhenValidationFails() throws Exception {
         // given - missing required fields
-        StartCycleRequest request = new StartCycleRequest();
+        MachineStartRequest request = new MachineStartRequest(
+                null, null, null, null, null, null, null);
 
         // when / then
         mockMvc.perform(post("/api/machines/start-cycle")

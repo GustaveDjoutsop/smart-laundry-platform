@@ -22,7 +22,25 @@
         <lombok.version>1.18.46</lombok.version>
     </properties>
 
+    <repositories>
+        <!-- R8: laundry-contracts is published here, not to Maven Central. -->
+        <repository>
+            <id>github</id>
+            <url>https://maven.pkg.github.com/GustaveDjoutsop/smart-laundry-platform</url>
+        </repository>
+    </repositories>
+
     <dependencies>
+        <!-- Shared machine-start/reservation DTOs (R8) — replaces the untyped
+             StartCycleRequest/CreateReservationRequest/ReservationResponse DTOs this
+             service used to hand-roll (and PMS/bot-laundry already independently
+             mirrored by hand before R8). -->
+        <dependency>
+            <groupId>com.smartlaundromat</groupId>
+            <artifactId>laundry-contracts</artifactId>
+            <version>0.1.0</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>

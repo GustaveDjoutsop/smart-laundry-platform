@@ -1,5 +1,7 @@
 package com.smartlaundromat.machine.service;
 
+import com.smartlaundromat.contracts.reservation.ReservationRequest;
+import com.smartlaundromat.contracts.reservation.ReservationResponse;
 import com.smartlaundromat.machine.client.PricingClient;
 import com.smartlaundromat.machine.config.FeatureProperties;
 import com.smartlaundromat.machine.config.ReservationProperties;
@@ -73,17 +75,17 @@ public class ReservationService {
      * Rejects overlapping reservations on the same machine.
      */
     @Transactional
-    public ReservationResponse createReservation(CreateReservationRequest request) {
+    public ReservationResponse createReservation(ReservationRequest request) {
         requireEnabled();
 
         // Locked fetch: holds the machine row for the rest of this transaction so
         // the overlap check below and the reservation save are atomic against a
         // second concurrent createReservation call for the same machine/slot.
-        Machine machine = machineRepository.findByMachineIdForUpdate(request.getMachineId())
+        Machine machine = machineRepository.findByMachineIdForUpdate(request.machineId())
                 .orElseThrow(() -> new MachineNotFoundException(
-                        "Machine not found: " + request.getMachineId()));
+                        "Machine not found: " + request.machineId()));
 
-        LocalDateTime start = request.getSlotStart();
+        LocalDateTime start = request.slotStart();
         if (start == null) {
             throw new ReservationException("Slot start is required");
         }
@@ -94,31 +96,31 @@ public class ReservationService {
         LocalDateTime end = start.plusMinutes(ReservationProperties.SLOT_MINUTES);
 
         List<Reservation> overlapping = reservationRepository.findOverlapping(
-                request.getMachineId(), start, end);
+                request.machineId(), start, end);
         if (!overlapping.isEmpty()) {
             throw new ReservationException(
-                    "Machine " + request.getMachineId() + " is already reserved for that time slot");
+                    "Machine " + request.machineId() + " is already reserved for that time slot");
         }
 
         // Mirror image of the overlap check above: a machine currently mid-cycle (started by a
         // walk-in) must not be reservable for a slot it will still be physically running in.
         // A running cycle's startedAt is always <= now <= start (slotStart can't be in the past,
         // checked above), so full interval overlap reduces to this one condition: endsAt > start.
-        machineCycleRepository.findByMachineIdAndStatus(request.getMachineId(), CycleStatus.IN_PROGRESS)
+        machineCycleRepository.findByMachineIdAndStatus(request.machineId(), CycleStatus.IN_PROGRESS)
                 .filter(cycle -> cycle.getEndsAt() != null && cycle.getEndsAt().isAfter(start))
                 .ifPresent(cycle -> {
                     throw new ReservationException(
-                            "Machine " + request.getMachineId() + " is currently running a cycle until "
+                            "Machine " + request.machineId() + " is currently running a cycle until "
                                     + cycle.getEndsAt() + " — choose a later slot");
                 });
 
         String code = generateUniqueCode();
-        String reference = "RESV-" + request.getMachineId() + "-" + System.currentTimeMillis();
+        String reference = "RESV-" + request.machineId() + "-" + System.currentTimeMillis();
 
         Reservation reservation = Reservation.builder()
                 .reservationCode(code)
-                .machineId(request.getMachineId())
-                .customerPhone(request.getCustomerPhone())
+                .machineId(request.machineId())
+                .customerPhone(request.customerPhone())
                 .slotStart(start)
                 .slotEnd(end)
                 .status(ReservationStatus.PENDING_PAYMENT)
@@ -129,10 +131,10 @@ public class ReservationService {
         reservationRepository.save(reservation);
 
         log.info("Reservation created: code={} machine={} slot={}..{} fee={} {} ref={}",
-                code, request.getMachineId(), start, end,
+                code, request.machineId(), start, end,
                 reservation.getFeeAmount(), reservation.getCurrency(), reference);
 
-        return ReservationResponse.from(reservation, machine.getDisplayName(),
+        return buildResponse(reservation, machine.getDisplayName(),
                 "Reservation created. Pay the reservation fee to activate it, then send the code to run the machine.");
     }
 
@@ -316,11 +318,23 @@ public class ReservationService {
      * A customer's currently-held reservations (PENDING_PAYMENT or ACTIVE), soonest
      * first — feature-flagged like everything else here, so a disabled feature
      * reports no held reservations rather than stale ones.
+     *
+     * <p>Returns the shared {@code ReservationResponse} contract type, not the raw entity
+     * (R8) — the untyped-Map-based bot-laundry client this feeds was, until R8, forced to
+     * parse whatever shape this returned; that only worked by coincidence because the two
+     * happened to share several field names.
+     *
+     * <p>{@code toResponse} does one {@code machineRepository} lookup per reservation
+     * (N+1) rather than batching — acceptable here because "currently held" is bounded to
+     * a handful of rows per customer, and every other caller of {@code toResponse}
+     * (activate/cancel/getByCode) already has this same one-lookup shape.
      */
     @Transactional(readOnly = true)
-    public List<Reservation> listHeldForCustomer(String customerPhone) {
+    public List<ReservationResponse> listHeldForCustomer(String customerPhone) {
         if (!isEnabled()) return List.of();
-        return reservationRepository.findHeldByCustomerPhone(customerPhone);
+        return reservationRepository.findHeldByCustomerPhone(customerPhone).stream()
+                .map(r -> toResponse(r, null))
+                .toList();
     }
 
     // ── Scheduled expiry ──────────────────────────────────────────────────────────
@@ -371,7 +385,26 @@ public class ReservationService {
     private ReservationResponse toResponse(Reservation r, String message) {
         String name = machineRepository.findByMachineId(r.getMachineId())
                 .map(Machine::getDisplayName).orElse(r.getMachineId());
-        return ReservationResponse.from(r, name, message);
+        return buildResponse(r, name, message);
+    }
+
+    // com.smartlaundromat.contracts.reservation.ReservationStatus is qualified inline rather
+    // than imported (R8): its simple name collides with this file's own
+    // com.smartlaundromat.machine.model.enums.ReservationStatus, which every other method
+    // here uses far more often — only this one conversion point needs the wire enum.
+    private ReservationResponse buildResponse(Reservation r, String machineName, String message) {
+        return new ReservationResponse(
+                r.getReservationCode(),
+                r.getMachineId(),
+                machineName,
+                r.getCustomerPhone(),
+                r.getSlotStart(),
+                r.getSlotEnd(),
+                com.smartlaundromat.contracts.reservation.ReservationStatus.valueOf(r.getStatus().name()),
+                r.getFeeAmount(),
+                r.getCurrency(),
+                r.getTransactionReference(),
+                message);
     }
 
     private String generateUniqueCode() {
