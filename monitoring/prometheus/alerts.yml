@@ -14,6 +14,23 @@ groups:
           summary: "Service {{ $labels.service }} is DOWN"
           description: "Prometheus cannot scrape {{ $labels.service }} ({{ $labels.instance }}). Has been down for > 2 minutes."
 
+      # R12: distinct from ServiceDown above (which also matches this target) —
+      # every other service's loss is a partial degradation; the gateway fronts
+      # all of them (bot/payment/machine/reporting routes), so its loss is a
+      # total platform outage. Shorter `for` than ServiceDown for faster
+      # detection of the higher-severity case. Deliberately doesn't narrow
+      # ServiceDown's own expr to exclude the gateway — the two alerts
+      # overlapping on a real gateway outage is fine; that's belt-and-braces,
+      # not noise.
+      - alert: GatewayDown
+        expr: up{job="api-gateway"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API Gateway is DOWN — total platform outage"
+          description: "Prometheus cannot scrape api-gateway ({{ $labels.instance }}) for > 1 minute. Every backend service is fronted by this gateway, so its loss means the whole platform is unreachable, not one service degrading."
+
       # ── Gateway / API latency ───────────────────────────────────────────────
 
       - alert: GatewayLatencyHigh
