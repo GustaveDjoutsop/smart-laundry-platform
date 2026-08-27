@@ -195,14 +195,15 @@
                                         <limit>
                                             <counter>LINE</counter>
                                             <value>COVEREDRATIO</value>
-                                            <!-- R9 added real unit tests for the new cache layer
+                                            <!-- R9 added real unit tests for the cache layer
                                                  (ResilientCache, RevenueService's closed-day/today
-                                                 routing, CacheAdminController); measured line coverage
-                                                 is now ~0.063. Floor set just under that, same pattern as
+                                                 routing, CacheAdminController); R10 added tests for the
+                                                 admin no-store/ETag filters. Measured line coverage is now
+                                                 ~0.08. Floor set just under that, same pattern as
                                                  api-gateway's. Still far from "adequately tested" for the
                                                  rest of this service; raise it further as more unit tests
                                                  land. -->
-                                            <minimum>0.05</minimum>
+                                            <minimum>0.07</minimum>
                                         </limit>
                                     </limits>
                                 </rule>
