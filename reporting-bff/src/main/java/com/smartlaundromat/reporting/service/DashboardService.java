@@ -1,6 +1,8 @@
 package com.smartlaundromat.reporting.service;
 
+import com.smartlaundromat.reporting.config.CacheNames;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -14,6 +16,11 @@ public class DashboardService {
 
     private final NamedParameterJdbcTemplate jdbc;
 
+    /**
+     * R9 — cached 60 s ({@link CacheNames#DASHBOARD_SUMMARY}). Five queries per call,
+     * hit on every dashboard load — the single most expensive read path in this service.
+     */
+    @Cacheable(CacheNames.DASHBOARD_SUMMARY)
     public Map<String, Object> summary() {
         Map<String, Object> todayRev = jdbc.queryForMap("""
             SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*)::int AS count

@@ -48,6 +48,17 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+
+        <!-- Cache layer (R9) — reuses the Redis instance already running for gateway
+             rate limiting and bot conversation state; no new infra. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
@@ -184,11 +195,14 @@
                                         <limit>
                                             <counter>LINE</counter>
                                             <value>COVEREDRATIO</value>
-                                            <!-- Actual measured line coverage today is 0.00: the one
-                                                 existing test class only asserts the Spring context loads.
-                                                 This floor cannot regress further; it does not represent
-                                                 "adequately tested". Raise it as real unit tests land. -->
-                                            <minimum>0.00</minimum>
+                                            <!-- R9 added real unit tests for the new cache layer
+                                                 (ResilientCache, RevenueService's closed-day/today
+                                                 routing, CacheAdminController); measured line coverage
+                                                 is now ~0.063. Floor set just under that, same pattern as
+                                                 api-gateway's. Still far from "adequately tested" for the
+                                                 rest of this service; raise it further as more unit tests
+                                                 land. -->
+                                            <minimum>0.05</minimum>
                                         </limit>
                                     </limits>
                                 </rule>
