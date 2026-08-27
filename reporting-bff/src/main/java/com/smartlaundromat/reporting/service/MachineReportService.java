@@ -1,6 +1,8 @@
 package com.smartlaundromat.reporting.service;
 
+import com.smartlaundromat.reporting.config.CacheNames;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -13,6 +15,10 @@ public class MachineReportService {
 
     private final NamedParameterJdbcTemplate jdbc;
 
+    /** R9 — cached 5 min ({@link CacheNames#MACHINE_REPORT}). Per-machine utilisation
+     * changes slowly enough that a 5-minute-stale view is never actually wrong in
+     * practice, and this joins across three tables on every call. */
+    @Cacheable(CacheNames.MACHINE_REPORT)
     public List<Map<String, Object>> listMachines() {
         return jdbc.queryForList("""
             SELECT
