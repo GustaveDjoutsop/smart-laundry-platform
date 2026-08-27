@@ -1,0 +1,12 @@
+{
+  // Minimal Cloudflare Worker so the "smart-laundry-platform" Workers Build
+  // Git integration (configured in the Cloudflare dashboard, root directory
+  // "/", deploy command "npx wrangler versions upload") has an entry point to
+  // build. Free-tier Workers plan — no paid features used. Not wired to any
+  // route/domain, so this doesn't front any production traffic; it exists
+  // purely so the CI build integration succeeds until a real Worker use case
+  // (e.g. an R10 CDN/edge task) is defined.
+  "name": "smart-laundry-platform",
+  "compatibility_date": "2026-08-27",
+  "main": "src/index.ts"
+}
