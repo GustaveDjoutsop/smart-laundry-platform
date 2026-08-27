@@ -41,10 +41,10 @@ spring:
                 - Path=/bot/**
               filters:
                 - StripPrefix=1
-                - name: RequestRateLimiter
+                - name: TenantRateLimiter
                   args:
-                    redis-rate-limiter.replenishRate: 2
-                    redis-rate-limiter.burstCapacity: 120
+                    replenishRate: 2
+                    burstCapacity: 120
 
             - id: payment-service
               uri: ${PAYMENT_SERVICE_URL:http://localhost:8081}
@@ -52,10 +52,10 @@ spring:
                 - Path=/payments/**
               filters:
                 - StripPrefix=1
-                - name: RequestRateLimiter
+                - name: TenantRateLimiter
                   args:
-                    redis-rate-limiter.replenishRate: 2
-                    redis-rate-limiter.burstCapacity: 120
+                    replenishRate: 2
+                    burstCapacity: 120
 
             - id: machine-service
               uri: ${MACHINE_SERVICE_URL:http://localhost:8082}
@@ -63,10 +63,10 @@ spring:
                 - Path=/machines/**
               filters:
                 - StripPrefix=1
-                - name: RequestRateLimiter
+                - name: TenantRateLimiter
                   args:
-                    redis-rate-limiter.replenishRate: 2
-                    redis-rate-limiter.burstCapacity: 120
+                    replenishRate: 2
+                    burstCapacity: 120
 
             - id: reporting-bff
               uri: ${REPORTING_BFF_URL:http://localhost:8083}
@@ -74,10 +74,10 @@ spring:
                 - Path=/reports/**
               filters:
                 - StripPrefix=1
-                - name: RequestRateLimiter
+                - name: TenantRateLimiter
                   args:
-                    redis-rate-limiter.replenishRate: 5
-                    redis-rate-limiter.burstCapacity: 200
+                    replenishRate: 5
+                    burstCapacity: 200
 
 management:
   endpoints:

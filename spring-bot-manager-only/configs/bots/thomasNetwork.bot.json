@@ -3,6 +3,10 @@
   "botName": "Thomas Network Access",
   "botType": "thomas_network",
   "phoneNumberId": "1030993210090797",
+  "rateLimit": {
+    "whatsapp": { "windowMs": 60000, "maxRequests": 120 },
+    "payments": { "windowMs": 60000, "maxRequests": 120 }
+  },
   "defaultFlowId": "main_menu",
   "flows": {
     "main_menu": {

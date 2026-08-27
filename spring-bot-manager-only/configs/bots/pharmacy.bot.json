@@ -3,6 +3,10 @@
   "botName": "Smart Pharmacy",
   "botType": "pharmacy",
   "phoneNumberId": "PLACEHOLDER_PHONE_NUMBER_ID",
+  "rateLimit": {
+    "whatsapp": { "windowMs": 60000, "maxRequests": 120 },
+    "payments": { "windowMs": 60000, "maxRequests": 120 }
+  },
   "pharmacyName": "Smart Pharmacy",
   "currency": "XAF",
   "businessHours": {
