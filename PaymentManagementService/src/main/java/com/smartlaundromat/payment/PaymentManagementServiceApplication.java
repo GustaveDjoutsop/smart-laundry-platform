@@ -9,6 +9,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 public class PaymentManagementServiceApplication {
 
     public static void main(String[] args) {
+        // No-op touch to trigger a production redeploy (R8's laundry-contracts
+        // migration was merged but never promoted past dev) -- see docs/INFRASTRUCTURE.md.
         SpringApplication.run(PaymentManagementServiceApplication.class, args);
     }
 }
