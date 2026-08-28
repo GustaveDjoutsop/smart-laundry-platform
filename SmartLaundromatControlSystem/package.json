@@ -52,29 +52,29 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "axios": "^1.16.0",
+    "axios": "^1.19.0",
     "bcryptjs": "^3.0.3",
-    "body-parser": "^2.2.1",
-    "cors": "^2.8.5",
-    "dotenv": "^17.2.3",
+    "body-parser": "^2.3.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-rate-limit": "^7.5.1",
     "helmet": "^7.2.0",
     "ioredis": "^5.9.2",
     "js-yaml": "^4.2.0",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.0.1",
-    "mqtt": "^5.14.1",
+    "mongoose": "^9.9.2",
+    "mqtt": "^5.15.2",
     "uuid": "^9.0.1",
     "winston": "^3.19.0"
   },
   "devDependencies": {
-    "@types/jest": "^29.5.14",
-    "jest": "^30.2.0",
+    "@types/jest": "^30.0.0",
+    "jest": "^30.4.2",
     "mongodb-memory-server": "^9.5.0",
     "nock": "^13.5.6",
-    "nodemon": "^3.1.11",
-    "sinon": "^22.0.0",
-    "supertest": "^7.1.4"
+    "nodemon": "^3.1.14",
+    "sinon": "^22.1.0",
+    "supertest": "^7.2.2"
   }
 }

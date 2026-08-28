@@ -3,6 +3,10 @@
   "botName": "Smart Laundry",
   "botType": "laundry",
   "phoneNumberId": "1089648187567384",
+  "rateLimit": {
+    "whatsapp": { "windowMs": 60000, "maxRequests": 120 },
+    "payments": { "windowMs": 60000, "maxRequests": 120 }
+  },
   "shortCycle": {
     "duration": 30,
     "price": 1000,

@@ -1,9 +1,9 @@
 package com.smartlaundromat.machine.service;
 
 import com.smartlaundromat.machine.config.MachineConfig;
+import com.smartlaundromat.contracts.machine.MachineStartRequest;
 import com.smartlaundromat.machine.dto.MachineStatusResponse;
 import com.smartlaundromat.machine.dto.MachineSummaryResponse;
-import com.smartlaundromat.machine.dto.StartCycleRequest;
 import com.smartlaundromat.machine.dto.TelemetryPayload;
 import com.smartlaundromat.machine.eqlink.EqLinkProperties;
 import com.smartlaundromat.machine.exception.MachineNotAvailableException;
@@ -276,21 +276,19 @@ class MachineServiceTest {
     @Nested
     class StartCycle {
 
-        private StartCycleRequest buildRequest() {
-            StartCycleRequest request = new StartCycleRequest();
-            request.setMachineId("washer_01");
-            request.setCycleType("NORMAL");
-            request.setDurationMinutes(30);
-            request.setPulseCount(2);
-            request.setRfidCardUid("RFID-001");
-            request.setTransactionReference("TXN-001");
-            return request;
+        private MachineStartRequest buildRequest() {
+            return buildRequest("NORMAL", 30, null);
+        }
+
+        private MachineStartRequest buildRequest(String cycleType, int durationMinutes, String reservationCode) {
+            return new MachineStartRequest(
+                    "washer_01", cycleType, durationMinutes, 2, "TXN-001", reservationCode, "RFID-001");
         }
 
         @Test
         void shouldThrowWhenMachineNotFound() {
             // given
-            StartCycleRequest request = buildRequest();
+            MachineStartRequest request = buildRequest();
             when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.empty());
 
             // when / then
@@ -303,7 +301,7 @@ class MachineServiceTest {
             // given
             idleMachine.setStatus(MachineStatus.RUNNING);
             when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
-            StartCycleRequest request = buildRequest();
+            MachineStartRequest request = buildRequest();
 
             // when / then
             assertThatThrownBy(() -> machineService.startCycle(request))
@@ -317,7 +315,7 @@ class MachineServiceTest {
             when(machineRepository.findByMachineIdForUpdate("washer_01")).thenReturn(Optional.of(idleMachine));
             when(machineCycleRepository.findByMachineIdAndStatus("washer_01", CycleStatus.IN_PROGRESS))
                     .thenReturn(Optional.of(new MachineCycle()));
-            StartCycleRequest request = buildRequest();
+            MachineStartRequest request = buildRequest();
 
             // when / then
             assertThatThrownBy(() -> machineService.startCycle(request))
@@ -335,7 +333,7 @@ class MachineServiceTest {
             when(machineCycleRepository.save(any(MachineCycle.class))).thenAnswer(inv -> inv.getArgument(0));
             when(machineRepository.save(any(Machine.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            StartCycleRequest request = buildRequest();
+            MachineStartRequest request = buildRequest();
 
             // when
             MachineCycle cycle = machineService.startCycle(request);
@@ -361,8 +359,7 @@ class MachineServiceTest {
             when(machineCycleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(machineRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-            StartCycleRequest request = buildRequest();
-            request.setCycleType("INVALID_TYPE");
+            MachineStartRequest request = buildRequest("INVALID_TYPE", 30, null);
 
             // when
             MachineCycle cycle = machineService.startCycle(request);
@@ -387,8 +384,7 @@ class MachineServiceTest {
             when(reservationService.activeReservationCovering("washer_01"))
                     .thenReturn(Optional.of(reservation));
 
-            StartCycleRequest request = buildRequest();
-            request.setReservationCode(null);
+            MachineStartRequest request = buildRequest();
 
             // when / then
             assertThatThrownBy(() -> machineService.startCycle(request))
@@ -415,8 +411,7 @@ class MachineServiceTest {
             when(machineCycleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(machineRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-            StartCycleRequest request = buildRequest();
-            request.setReservationCode("RES-ABC");
+            MachineStartRequest request = buildRequest("NORMAL", 30, "RES-ABC");
 
             // when
             MachineCycle cycle = machineService.startCycle(request);
@@ -445,8 +440,7 @@ class MachineServiceTest {
             when(reservationService.findConflicting(eq("washer_01"), any(), any(), isNull()))
                     .thenReturn(Optional.of(upcoming));
 
-            StartCycleRequest request = buildRequest();
-            request.setDurationMinutes(60);
+            MachineStartRequest request = buildRequest("NORMAL", 60, null);
 
             // when / then
             assertThatThrownBy(() -> machineService.startCycle(request))
@@ -467,7 +461,7 @@ class MachineServiceTest {
             when(machineCycleRepository.save(any(MachineCycle.class))).thenAnswer(inv -> inv.getArgument(0));
             when(machineRepository.save(any(Machine.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            StartCycleRequest request = buildRequest();
+            MachineStartRequest request = buildRequest();
 
             // when
             MachineCycle cycle = machineService.startCycle(request);
@@ -506,9 +500,7 @@ class MachineServiceTest {
             when(reservationService.findConflicting(eq("washer_01"), any(), any(), eq("RES-OWN")))
                     .thenReturn(Optional.of(nextReservation));
 
-            StartCycleRequest request = buildRequest();
-            request.setReservationCode("RES-OWN");
-            request.setDurationMinutes(60);
+            MachineStartRequest request = buildRequest("NORMAL", 60, "RES-OWN");
 
             // when / then
             assertThatThrownBy(() -> machineService.startCycle(request))
@@ -529,7 +521,7 @@ class MachineServiceTest {
                             "duplicate key value violates unique constraint idx_machine_cycles_machine_in_progress",
                             new RuntimeException("duplicate key value violates unique constraint \"idx_machine_cycles_machine_in_progress\"")));
 
-            StartCycleRequest request = buildRequest();
+            MachineStartRequest request = buildRequest();
 
             // when / then
             assertThatThrownBy(() -> machineService.startCycle(request))
@@ -550,7 +542,7 @@ class MachineServiceTest {
                             "value too long",
                             new RuntimeException("value too long")));
 
-            StartCycleRequest request = buildRequest();
+            MachineStartRequest request = buildRequest();
 
             // when / then
             assertThatThrownBy(() -> machineService.startCycle(request))
@@ -577,7 +569,7 @@ class MachineServiceTest {
                     .thenReturn(Optional.empty())   // pre-lock check: nothing yet
                     .thenReturn(Optional.of(winnerCycle));  // post-lock re-check: other caller won
 
-            StartCycleRequest request = buildRequest();
+            MachineStartRequest request = buildRequest();
 
             // when
             MachineCycle result = machineService.startCycle(request);
@@ -610,7 +602,7 @@ class MachineServiceTest {
                             "duplicate key value violates unique constraint idx_machine_cycles_tx_ref",
                             new RuntimeException("duplicate key value violates unique constraint \"idx_machine_cycles_tx_ref\"")));
 
-            StartCycleRequest request = buildRequest();
+            MachineStartRequest request = buildRequest();
 
             // when / then
             assertThatThrownBy(() -> machineService.startCycle(request))
@@ -765,11 +757,8 @@ class MachineServiceTest {
         when(machineCycleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(machineRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        StartCycleRequest request = new StartCycleRequest();
-        request.setMachineId("washer_01");
-        request.setCycleType(cycleType);
-        request.setDurationMinutes(duration);
-        request.setPulseCount(pulseCount);
+        MachineStartRequest request = new MachineStartRequest(
+                "washer_01", cycleType, duration, pulseCount, null, null, null);
 
         // when
         MachineCycle cycle = machineService.startCycle(request);

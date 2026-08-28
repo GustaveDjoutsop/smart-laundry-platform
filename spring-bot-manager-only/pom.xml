@@ -32,12 +32,25 @@
         <maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <mustache.version>0.9.13</mustache.version>
+        <mustache.version>0.9.14</mustache.version>
         <testcontainers.version>1.20.4</testcontainers.version>
     </properties>
 
+    <repositories>
+        <!-- R8: laundry-contracts is published here, not to Maven Central. -->
+        <repository>
+            <id>github</id>
+            <url>https://maven.pkg.github.com/GustaveDjoutsop/smart-laundry-platform</url>
+        </repository>
+    </repositories>
+
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>com.smartlaundromat</groupId>
+                <artifactId>laundry-contracts</artifactId>
+                <version>0.1.0</version>
+            </dependency>
             <dependency>
                 <groupId>com.botmanager</groupId>
                 <artifactId>bot-core</artifactId>
@@ -123,7 +136,7 @@
                 <plugin>
                     <groupId>org.jacoco</groupId>
                     <artifactId>jacoco-maven-plugin</artifactId>
-                    <version>0.8.12</version>
+                    <version>0.8.15</version>
                     <executions>
                         <execution>
                             <id>prepare-agent</id>
@@ -143,7 +156,7 @@
                 <plugin>
                     <groupId>org.sonarsource.scanner.maven</groupId>
                     <artifactId>sonar-maven-plugin</artifactId>
-                    <version>4.0.0.4121</version>
+                    <version>5.7.0.6970</version>
                 </plugin>
             </plugins>
         </pluginManagement>

@@ -1,5 +1,7 @@
 package com.smartlaundromat.machine.controller;
 
+import com.smartlaundromat.contracts.reservation.ReservationRequest;
+import com.smartlaundromat.contracts.reservation.ReservationResponse;
 import com.smartlaundromat.machine.dto.*;
 import com.smartlaundromat.machine.model.Reservation;
 import com.smartlaundromat.machine.service.ReservationService;
@@ -37,9 +39,9 @@ public class ReservationController {
     private final ReservationService reservationService;
 
     @PostMapping
-    public ResponseEntity<ReservationResponse> create(@Valid @RequestBody CreateReservationRequest request) {
+    public ResponseEntity<ReservationResponse> create(@Valid @RequestBody ReservationRequest request) {
         log.info("Received request to create reservation for machineId={}, slotStart={}",
-                request.getMachineId(), request.getSlotStart());
+                request.machineId(), request.slotStart());
         return ResponseEntity.ok(reservationService.createReservation(request));
     }
 
@@ -97,7 +99,7 @@ public class ReservationController {
     }
 
     @GetMapping("/customer/{phone}")
-    public ResponseEntity<List<Reservation>> listHeldForCustomer(@PathVariable String phone) {
+    public ResponseEntity<List<ReservationResponse>> listHeldForCustomer(@PathVariable String phone) {
         log.info("Received request to list held reservations for customerPhone={}", phone);
         return ResponseEntity.ok(reservationService.listHeldForCustomer(phone));
     }

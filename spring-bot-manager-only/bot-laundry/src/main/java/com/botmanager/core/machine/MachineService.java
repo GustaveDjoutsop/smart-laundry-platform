@@ -4,6 +4,9 @@ import com.botmanager.bots.laundry.LaundryBotConfig;
 import com.botmanager.core.payment.PaymentEventPublisher;
 import com.botmanager.core.payment.PaymentRecord;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartlaundromat.contracts.machine.MachineStartRequest;
+import com.smartlaundromat.contracts.reservation.ReservationRequest;
+import com.smartlaundromat.contracts.reservation.ReservationResponse;
 import io.github.resilience4j.bulkhead.Bulkhead;
 import io.github.resilience4j.bulkhead.BulkheadRegistry;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
@@ -23,6 +26,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
@@ -131,15 +135,14 @@ public class MachineService {
     public void startMachine(String botId, String machineId, String program, String transactionId,
                               String reservationCode) {
         try {
-            Map<String, Object> body = new HashMap<>();
-            body.put("machineId", machineId);
-            body.put("cycleType", program != null ? program : "NORMAL");
-            body.put("durationMinutes", resolveDuration(botId, program));
-            body.put("pulseCount", resolvePulseCount(botId, program));
-            body.put("transactionReference", transactionId);
-            if (reservationCode != null) {
-                body.put("reservationCode", reservationCode);
-            }
+            MachineStartRequest body = new MachineStartRequest(
+                    machineId,
+                    program != null ? program : "NORMAL",
+                    resolveDuration(botId, program),
+                    resolvePulseCount(botId, program),
+                    transactionId,
+                    reservationCode,
+                    null);
 
             callMachineService(() -> webClient.post()
                     .uri(machineStateServiceUrl + "/api/machines/start-cycle")
@@ -184,28 +187,26 @@ public class MachineService {
      * Creates a reservation via MachineStateService and returns the response containing
      * the reservation code and details.
      *
-     * @return the reservation response map, or null if the slot is genuinely already taken
+     * @return the reservation response, or null if the slot is genuinely already taken
      *         (MachineStateService returns 409 Conflict for this)
      * @throws MachineServiceUnavailableException on any other failure (auth, 5xx, timeout,
      *         connection refused, ...) — these are not slot conflicts and must not be reported
      *         to the customer as "someone else took your slot"
      */
-    public Map<String, Object> createReservation(String machineId, String customerPhone,
+    public ReservationResponse createReservation(String machineId, String customerPhone,
                                                   String slotStart) {
         try {
-            Map<String, Object> body = new HashMap<>();
-            body.put("machineId", machineId);
-            body.put("customerPhone", customerPhone);
-            body.put("slotStart", slotStart);
+            ReservationRequest body = new ReservationRequest(
+                    machineId, customerPhone, LocalDateTime.parse(slotStart));
 
             log.info("Creating reservation via MachineStateService: machineId={}, slotStart={}", machineId, slotStart);
 
-            Map<String, Object> response = callMachineService(() -> webClient.post()
+            ReservationResponse response = callMachineService(() -> webClient.post()
                     .uri(machineStateServiceUrl + "/api/reservations")
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(body)
                     .retrieve()
-                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                    .bodyToMono(new ParameterizedTypeReference<ReservationResponse>() {})
                     .block());
 
             if (response == null) {
@@ -291,17 +292,17 @@ public class MachineService {
      * code → machine without already knowing the machine, so it's the first call in the
      * bot's "I have a reservation code" redemption flow.
      *
-     * @return the reservation response map (including {@code machineId}/{@code machineName}/
-     *         {@code slotEnd}), or empty if the code doesn't exist / the service is unreachable.
+     * @return the reservation response, or empty if the code doesn't exist / the service is
+     *         unreachable.
      */
-    public Optional<Map<String, Object>> getReservationByCode(String code) {
+    public Optional<ReservationResponse> getReservationByCode(String code) {
         try {
             // URI template variable (not string concatenation) so WebClient percent-encodes the
             // code — this method is public and must not assume callers have already sanitized it.
-            Map<String, Object> response = callMachineServiceRead(() -> webClient.get()
+            ReservationResponse response = callMachineServiceRead(() -> webClient.get()
                     .uri(machineStateServiceUrl + "/api/reservations/{code}", code)
                     .retrieve()
-                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                    .bodyToMono(new ParameterizedTypeReference<ReservationResponse>() {})
                     .block());
 
             return Optional.ofNullable(response);

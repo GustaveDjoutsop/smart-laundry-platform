@@ -1,6 +1,6 @@
 package com.smartlaundromat.machine.simulator;
 
-import com.smartlaundromat.machine.dto.StartCycleRequest;
+import com.smartlaundromat.contracts.machine.MachineStartRequest;
 import com.smartlaundromat.machine.model.Machine;
 import com.smartlaundromat.machine.model.enums.CommProtocol;
 import com.smartlaundromat.machine.model.enums.CycleType;
@@ -23,11 +23,8 @@ class SimulatorMachineCommandDispatcherTest {
                 .commProtocol(CommProtocol.MODBUS)
                 .build();
 
-        StartCycleRequest request = new StartCycleRequest();
-        request.setMachineId("washer_01");
-        request.setCycleType("NORMAL");
-        request.setDurationMinutes(30);
-        request.setPulseCount(2);
+        MachineStartRequest request = new MachineStartRequest(
+                "washer_01", "NORMAL", 30, 2, null, null, null);
 
         assertThatCode(() -> dispatcher.dispatch(machine, request, CycleType.NORMAL))
                 .doesNotThrowAnyException();

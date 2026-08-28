@@ -28,6 +28,7 @@ on:
 permissions:
   contents: read
   issues: write   # required to raise the failure issue below
+  packages: read  # R8: PaymentManagementService now depends on GitHub-Packages-hosted laundry-contracts
 
 concurrency:
   group: owasp-weekly-scan
@@ -70,9 +71,14 @@ jobs:
           java-version: '25'
           distribution: temurin
           cache: maven
+          # R8: only PaymentManagementService currently needs this (laundry-contracts
+          # is resolved from GitHub Packages), but wiring it for the whole matrix is
+          # harmless for the other two legs and one less thing to remember when they
+          # migrate too.
+          server-id: github
 
       - name: Cache OWASP NVD database
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.m2/repository/org/owasp/dependency-check-data
           key: ${{ runner.os }}-owasp-${{ hashFiles(matrix.cache-glob) }}
@@ -81,6 +87,7 @@ jobs:
       - name: Run OWASP Dependency Check
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mvn org.owasp:dependency-check-maven:13.0.0:check -B \
             -DfailBuildOnCVSS=7 \

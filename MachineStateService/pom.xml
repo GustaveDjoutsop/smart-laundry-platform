@@ -22,7 +22,25 @@
         <lombok.version>1.18.46</lombok.version>
     </properties>
 
+    <repositories>
+        <!-- R8: laundry-contracts is published here, not to Maven Central. -->
+        <repository>
+            <id>github</id>
+            <url>https://maven.pkg.github.com/GustaveDjoutsop/smart-laundry-platform</url>
+        </repository>
+    </repositories>
+
     <dependencies>
+        <!-- Shared machine-start/reservation DTOs (R8) — replaces the untyped
+             StartCycleRequest/CreateReservationRequest/ReservationResponse DTOs this
+             service used to hand-roll (and PMS/bot-laundry already independently
+             mirrored by hand before R8). -->
+        <dependency>
+            <groupId>com.smartlaundromat</groupId>
+            <artifactId>laundry-contracts</artifactId>
+            <version>0.1.0</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
@@ -102,7 +120,7 @@
         <dependency>
             <groupId>io.github.resilience4j</groupId>
             <artifactId>resilience4j-spring-boot3</artifactId>
-            <version>2.3.0</version>
+            <version>2.4.0</version>
         </dependency>
 
         <!-- API Documentation — SpringDoc OpenAPI / Swagger UI -->
@@ -145,14 +163,21 @@
         <dependency>
             <groupId>net.logstash.logback</groupId>
             <artifactId>logstash-logback-encoder</artifactId>
-            <version>8.0</version>
+            <version>9.0</version>
+        </dependency>
+
+        <!-- Error tracking (R7) — DSN empty by default, SDK no-ops until set -->
+        <dependency>
+            <groupId>io.sentry</groupId>
+            <artifactId>sentry-spring-boot-starter-jakarta</artifactId>
+            <version>8.16.0</version>
         </dependency>
 
         <!-- Loki log shipping (P7 — push logs to Grafana Cloud Loki) -->
         <dependency>
             <groupId>com.github.loki4j</groupId>
             <artifactId>loki-logback-appender</artifactId>
-            <version>1.5.2</version>
+            <version>2.1.0</version>
         </dependency>
 
         <!-- Required for logback <if> conditional configuration in logback-spring.xml -->

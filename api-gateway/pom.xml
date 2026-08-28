@@ -74,14 +74,14 @@
         <dependency>
             <groupId>net.logstash.logback</groupId>
             <artifactId>logstash-logback-encoder</artifactId>
-            <version>8.0</version>
+            <version>9.0</version>
         </dependency>
 
         <!-- Loki log shipping (P7 — push logs to Grafana Cloud Loki) -->
         <dependency>
             <groupId>com.github.loki4j</groupId>
             <artifactId>loki-logback-appender</artifactId>
-            <version>1.5.2</version>
+            <version>2.1.0</version>
         </dependency>
 
         <!-- Required for logback <if> conditional configuration in logback-spring.xml -->

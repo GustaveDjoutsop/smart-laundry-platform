@@ -15,6 +15,16 @@ spring:
       pool-name: ReportingBffPool
       connection-timeout: 20000
 
+  # ── Cache layer (R9) — same Redis instance as gateway rate limiting / bot
+  # conversation state, same fallback convention: avoid an empty-string URL. Per-cache
+  # TTLs are set explicitly in CacheConfig, not here.
+  data:
+    redis:
+      url: ${REDIS_URL:${REDISCLOUD_URL:redis://localhost:6379}}
+      timeout: 5000ms
+  cache:
+    type: redis
+
   flyway:
     enabled: true
     schemas: ops
@@ -41,6 +51,12 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+  health:
+    redis:
+      # R9: a Redis outage must degrade caching (see ResilientCache /
+      # LoggingCacheErrorHandler), not flip this service's overall health to DOWN and
+      # take it out of rotation — that would be the exact outage R9 exists to avoid.
+      enabled: false
   tracing:
     sampling:
       probability: ${TRACING_SAMPLING_PROBABILITY:1.0}

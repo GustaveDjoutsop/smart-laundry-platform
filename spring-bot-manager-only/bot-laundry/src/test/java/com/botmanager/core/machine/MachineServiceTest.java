@@ -5,6 +5,8 @@ import com.botmanager.bots.laundry.LaundryBotConfig;
 import com.botmanager.core.payment.PaymentEventPublisher;
 import com.botmanager.core.payment.PaymentRecord;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartlaundromat.contracts.machine.MachineStartRequest;
+import com.smartlaundromat.contracts.reservation.ReservationResponse;
 import io.github.resilience4j.bulkhead.BulkheadRegistry;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.github.resilience4j.retry.RetryRegistry;
@@ -20,6 +22,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -516,7 +519,6 @@ class MachineServiceTest {
             verify(webClient, never()).post();
         }
 
-        @SuppressWarnings("unchecked")
         @Test
         void shouldForwardReservationCodeWhenPresentInMetadata() {
             // given
@@ -534,7 +536,7 @@ class MachineServiceTest {
             when(webClient.post()).thenReturn(requestBodyUriSpec);
             when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
             when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
-            ArgumentCaptor<Map> bodyCaptor = ArgumentCaptor.forClass(Map.class);
+            ArgumentCaptor<MachineStartRequest> bodyCaptor = ArgumentCaptor.forClass(MachineStartRequest.class);
             when(requestBodySpec.bodyValue(bodyCaptor.capture())).thenReturn(requestHeadersSpec);
             when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
             when(responseSpec.toBodilessEntity()).thenReturn(Mono.empty());
@@ -546,10 +548,9 @@ class MachineServiceTest {
             machineService.onPaymentCompleted(event);
 
             // then
-            assertThat(bodyCaptor.getValue()).containsEntry("reservationCode", "RES-ABC123");
+            assertThat(bodyCaptor.getValue().reservationCode()).isEqualTo("RES-ABC123");
         }
 
-        @SuppressWarnings("unchecked")
         @Test
         void shouldOmitReservationCodeWhenAbsentFromMetadata() {
             // given
@@ -566,7 +567,7 @@ class MachineServiceTest {
             when(webClient.post()).thenReturn(requestBodyUriSpec);
             when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
             when(requestBodySpec.contentType(any())).thenReturn(requestBodySpec);
-            ArgumentCaptor<Map> bodyCaptor = ArgumentCaptor.forClass(Map.class);
+            ArgumentCaptor<MachineStartRequest> bodyCaptor = ArgumentCaptor.forClass(MachineStartRequest.class);
             when(requestBodySpec.bodyValue(bodyCaptor.capture())).thenReturn(requestHeadersSpec);
             when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
             when(responseSpec.toBodilessEntity()).thenReturn(Mono.empty());
@@ -578,7 +579,7 @@ class MachineServiceTest {
             machineService.onPaymentCompleted(event);
 
             // then
-            assertThat(bodyCaptor.getValue()).doesNotContainKey("reservationCode");
+            assertThat(bodyCaptor.getValue().reservationCode()).isNull();
         }
     }
 
@@ -589,10 +590,9 @@ class MachineServiceTest {
         @Test
         void shouldReturnReservationOnSuccess() {
             // given
-            Map<String, Object> response = new HashMap<>();
-            response.put("machineId", "w1");
-            response.put("machineName", "Washer 1");
-            response.put("slotEnd", "2026-06-11T11:00:00");
+            ReservationResponse response = new ReservationResponse(
+                    null, "w1", "Washer 1", null, null,
+                    LocalDateTime.parse("2026-06-11T11:00:00"), null, null, null, null, null);
 
             when(webClient.get()).thenReturn(requestHeadersUriSpec);
             when(requestHeadersUriSpec.uri(anyString(), any(Object.class))).thenReturn(requestHeadersSpec);
@@ -601,7 +601,7 @@ class MachineServiceTest {
                     .thenReturn(Mono.just(response));
 
             // when
-            Optional<Map<String, Object>> result = machineService.getReservationByCode("RES-ABC123");
+            Optional<ReservationResponse> result = machineService.getReservationByCode("RES-ABC123");
 
             // then
             assertThat(result).contains(response);
@@ -619,7 +619,7 @@ class MachineServiceTest {
                     .thenReturn(Mono.error(new RuntimeException("404 Not Found")));
 
             // when
-            Optional<Map<String, Object>> result = machineService.getReservationByCode("RES-UNKNOWN");
+            Optional<ReservationResponse> result = machineService.getReservationByCode("RES-UNKNOWN");
 
             // then
             assertThat(result).isEmpty();
@@ -769,8 +769,8 @@ class MachineServiceTest {
         @Test
         void shouldReturnResponseOnSuccessfulCreate() {
             // given
-            Map<String, Object> response = new HashMap<>();
-            response.put("reservationCode", "RES-ABC123");
+            ReservationResponse response = new ReservationResponse(
+                    "RES-ABC123", null, null, null, null, null, null, null, null, null, null);
 
             when(webClient.post()).thenReturn(requestBodyUriSpec);
             when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
@@ -781,7 +781,7 @@ class MachineServiceTest {
                     .thenReturn(Mono.just(response));
 
             // when
-            Map<String, Object> result = machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00");
+            ReservationResponse result = machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00");
 
             // then
             assertThat(result).isEqualTo(response);
@@ -821,7 +821,7 @@ class MachineServiceTest {
                             409, "Conflict", org.springframework.http.HttpHeaders.EMPTY, new byte[0], null)));
 
             // when
-            Map<String, Object> result = machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00");
+            ReservationResponse result = machineService.createReservation("w1", "+237690000000", "2026-06-11T10:00:00");
 
             // then
             assertThat(result).isNull();

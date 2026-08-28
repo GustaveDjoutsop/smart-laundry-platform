@@ -1,6 +1,8 @@
 package com.smartlaundromat.machine.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartlaundromat.contracts.reservation.ReservationRequest;
+import com.smartlaundromat.contracts.reservation.ReservationResponse;
 import com.smartlaundromat.machine.dto.*;
 import com.smartlaundromat.machine.exception.GlobalExceptionHandler;
 import com.smartlaundromat.machine.exception.ReservationException;
@@ -49,23 +51,16 @@ class ReservationControllerTest {
     @WithMockUser(authorities = "SCOPE_sls-reservation-write")
     void shouldCreateReservation() throws Exception {
         // given
-        ReservationResponse response = ReservationResponse.builder()
-                .reservationCode("RES-ABC123")
-                .machineId("washer_01")
-                .machineName("Washer 1")
-                .status(ReservationStatus.PENDING_PAYMENT)
-                .slotStart(LocalDateTime.now().plusHours(1))
-                .slotEnd(LocalDateTime.now().plusHours(2))
-                .feeAmount(1500)
-                .currency("XAF")
-                .message("Reservation created")
-                .build();
-        when(reservationService.createReservation(any(CreateReservationRequest.class)))
+        ReservationResponse response = new ReservationResponse(
+                "RES-ABC123", "washer_01", "Washer 1", null,
+                LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2),
+                com.smartlaundromat.contracts.reservation.ReservationStatus.PENDING_PAYMENT,
+                1500, "XAF", null, "Reservation created");
+        when(reservationService.createReservation(any(ReservationRequest.class)))
                 .thenReturn(response);
 
-        CreateReservationRequest request = new CreateReservationRequest();
-        request.setMachineId("washer_01");
-        request.setSlotStart(LocalDateTime.now().plusHours(1));
+        ReservationRequest request = new ReservationRequest(
+                "washer_01", null, LocalDateTime.now().plusHours(1));
 
         // when / then
         mockMvc.perform(post("/api/reservations")
@@ -84,9 +79,8 @@ class ReservationControllerTest {
         when(reservationService.createReservation(any()))
                 .thenThrow(new ReservationException("Machine washer_01 is already reserved"));
 
-        CreateReservationRequest request = new CreateReservationRequest();
-        request.setMachineId("washer_01");
-        request.setSlotStart(LocalDateTime.now().plusHours(1));
+        ReservationRequest request = new ReservationRequest(
+                "washer_01", null, LocalDateTime.now().plusHours(1));
 
         // when / then
         mockMvc.perform(post("/api/reservations")
@@ -101,14 +95,10 @@ class ReservationControllerTest {
     @WithMockUser(authorities = "SCOPE_sls-reservation-write")
     void shouldActivateReservation() throws Exception {
         // given
-        ReservationResponse response = ReservationResponse.builder()
-                .reservationCode("RES-ABC123")
-                .machineId("washer_01")
-                .status(ReservationStatus.ACTIVE)
-                .feeAmount(1500)
-                .currency("XAF")
-                .message("Reservation is now active")
-                .build();
+        ReservationResponse response = new ReservationResponse(
+                "RES-ABC123", "washer_01", null, null, null, null,
+                com.smartlaundromat.contracts.reservation.ReservationStatus.ACTIVE,
+                1500, "XAF", null, "Reservation is now active");
         when(reservationService.activateByReference("REF-123")).thenReturn(response);
 
         ActivateReservationRequest request = new ActivateReservationRequest();
@@ -152,13 +142,10 @@ class ReservationControllerTest {
     @WithMockUser(authorities = "SCOPE_sls-reservation-read")
     void shouldGetReservationByCode() throws Exception {
         // given
-        ReservationResponse response = ReservationResponse.builder()
-                .reservationCode("RES-ABC123")
-                .machineId("washer_01")
-                .status(ReservationStatus.ACTIVE)
-                .feeAmount(1500)
-                .currency("XAF")
-                .build();
+        ReservationResponse response = new ReservationResponse(
+                "RES-ABC123", "washer_01", null, null, null, null,
+                com.smartlaundromat.contracts.reservation.ReservationStatus.ACTIVE,
+                1500, "XAF", null, null);
         when(reservationService.getByCode("RES-ABC123")).thenReturn(response);
 
         // when / then
@@ -258,16 +245,11 @@ class ReservationControllerTest {
     @WithMockUser(authorities = "SCOPE_sls-reservation-read")
     void shouldListHeldReservationsForCustomer() throws Exception {
         // given
-        Reservation reservation = Reservation.builder()
-                .reservationCode("RES-ABC")
-                .machineId("washer_02")
-                .customerPhone("237612345678")
-                .status(ReservationStatus.ACTIVE)
-                .slotStart(LocalDateTime.now())
-                .slotEnd(LocalDateTime.now().plusHours(1))
-                .feeAmount(1500)
-                .currency("XAF")
-                .build();
+        ReservationResponse reservation = new ReservationResponse(
+                "RES-ABC", "washer_02", null, "237612345678",
+                LocalDateTime.now(), LocalDateTime.now().plusHours(1),
+                com.smartlaundromat.contracts.reservation.ReservationStatus.ACTIVE,
+                1500, "XAF", null, null);
         when(reservationService.listHeldForCustomer("237612345678")).thenReturn(List.of(reservation));
 
         // when / then
@@ -287,8 +269,8 @@ class ReservationControllerTest {
     @WithMockUser(authorities = "SCOPE_sls-reservation-write")
     void shouldReturn400WhenMachineIdMissing() throws Exception {
         // given
-        CreateReservationRequest request = new CreateReservationRequest();
-        request.setSlotStart(LocalDateTime.now().plusHours(1));
+        ReservationRequest request = new ReservationRequest(
+                null, null, LocalDateTime.now().plusHours(1));
         // machineId is missing
 
         // when / then

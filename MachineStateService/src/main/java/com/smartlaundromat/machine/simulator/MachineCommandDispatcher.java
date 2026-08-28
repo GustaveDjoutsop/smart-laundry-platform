@@ -1,6 +1,6 @@
 package com.smartlaundromat.machine.simulator;
 
-import com.smartlaundromat.machine.dto.StartCycleRequest;
+import com.smartlaundromat.contracts.machine.MachineStartRequest;
 import com.smartlaundromat.machine.model.Machine;
 import com.smartlaundromat.machine.model.enums.CycleType;
 
@@ -13,5 +13,5 @@ import com.smartlaundromat.machine.model.enums.CycleType;
  */
 public interface MachineCommandDispatcher {
 
-    void dispatch(Machine machine, StartCycleRequest request, CycleType cycleType);
+    void dispatch(Machine machine, MachineStartRequest request, CycleType cycleType);
 }
