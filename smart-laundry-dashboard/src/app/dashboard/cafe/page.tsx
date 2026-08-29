@@ -193,7 +193,7 @@ export default function CafePage() {
                         border: '1px solid #e5e7eb',
                         borderRadius: '8px',
                       }}
-                      formatter={(value: number) => [formatCurrency(value), 'Sales']}
+                      formatter={(value) => [formatCurrency(Number(value ?? 0)), 'Sales']}
                     />
                     <Bar dataKey="sales" fill="#f59e0b" radius={[4, 4, 0, 0]} />
                   </BarChart>
