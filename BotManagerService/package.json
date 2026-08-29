@@ -11,14 +11,14 @@
     "lint": "node -e \"console.log('lint not configured yet')\""
   },
   "dependencies": {
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "helmet": "^7.1.0",
-    "js-yaml": "^4.2.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "helmet": "^8.3.0",
+    "js-yaml": "^5.4.0",
     "morgan": "^1.11.0",
     "mqtt": "^5.15.2",
     "mustache": "^4.2.0",
     "pg": "^8.23.0",
-    "redis": "^4.7.0"
+    "redis": "^6.2.1"
   }
 }
