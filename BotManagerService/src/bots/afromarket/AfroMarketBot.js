@@ -311,12 +311,16 @@ class AfroMarketBot extends ConfigBot {
 
     await this._recordOrder({ botId, transactionId, payment, metadata, customerPhone });
 
+    // Same PayPal-over-chat preference as _recordOrder - the customer should
+    // see the address their order is actually shipping to, not a stale
+    // chat-entered one PayPal's own data has since superseded.
     const confirmationText = buildOrderConfirmationText({
       orderNumber: metadata.orderNumber,
       cart: metadata.cart || [],
-      name: metadata.name,
-      address: metadata.address,
-      phone: metadata.phone
+      name: metadata.paypalPayerName || metadata.name,
+      address: metadata.paypalShippingAddress || metadata.address,
+      phone: metadata.phone,
+      shippingFeeEur: metadata.shippingFeeEur
     });
 
     if (!this.whatsapp.isConfigured()) {
@@ -338,14 +342,22 @@ class AfroMarketBot extends ConfigBot {
   // upserts customer_profile. Best-effort: a bookkeeping/profile write
   // failure must not block the customer's order confirmation from sending.
   async _recordOrder({ botId, transactionId, payment, metadata, customerPhone }) {
+    // PayPal only learns the shipping address and payer name once the buyer
+    // has already paid (its checkout page is PayPal-hosted - see
+    // recordPaypalCapture in routes/payments.js) - when present, that's more
+    // trustworthy than whatever was typed in chat before payment, since it
+    // came straight from the buyer's PayPal account rather than free text.
+    const buyerName = metadata.paypalPayerName || metadata.name || null;
+    const buyerAddress = metadata.paypalShippingAddress || metadata.address || null;
+
     try {
       await withRetries(() =>
         this.invoiceRecordStore.insert({
           botId,
           transactionId,
           provider: (payment && payment.provider) || 'unknown',
-          buyerName: metadata.name || null,
-          buyerAddress: metadata.address || null,
+          buyerName,
+          buyerAddress,
           buyerPhone: customerPhone,
           lineItems: metadata.cart || [],
           amount: payment && payment.amount,
@@ -386,19 +398,20 @@ class AfroMarketBot extends ConfigBot {
       // file rather than clearing it - a "skip" only ever means "not
       // required for this specific order" here, never "forget the email I
       // gave you before" (there's no code path today for the latter).
-      // Reviewed and confirmed unreachable on the actual paying-customer
-      // path anyway: _handleCheckout forces checkout_email_required
-      // whenever Stripe is configured and email is still empty, so a real
-      // email always exists by the time this upsert runs for any order that
-      // actually completes payment. This only matters at all in the
-      // no-payment-provider-configured dev/test path, which doesn't call
-      // _recordOrder in the first place (see _handleCheckout's early
-      // `!paymentsConfigured` branch).
+      // Reviewed and confirmed unreachable on the Stripe-active path: when
+      // Stripe is the active provider, _handleCheckout forces
+      // checkout_email_required whenever email is still empty, so a real
+      // email always exists there by the time this upsert runs. Not true on
+      // the PayPal-active path (the default) - PayPal never requires an
+      // email upfront, so metadata.email can genuinely be null/empty for a
+      // completed PayPal order, and this upsert correctly leaves any
+      // existing profile email untouched via COALESCE rather than clearing
+      // it.
       await this.customerProfileStore.upsert({
         botId,
         whatsappId: customerPhone,
-        name: metadata.name || null,
-        deliveryAddress: metadata.address || null,
+        name: buyerName,
+        deliveryAddress: buyerAddress,
         email: metadata.email || null,
         customerId
       });

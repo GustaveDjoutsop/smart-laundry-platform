@@ -271,6 +271,65 @@ regardless of what the flag itself says.
 
 ---
 
+## 5a. AfroMarket PayPal migration (env-var-flag rollout, not flow-level)
+
+See `BotManagerService/afromarket-paypal-migration-and-shipping-todo.md` for the full
+design; PR #199 (`feature/afromarket-paypal-migration`) is the implementation. Unlike
+§5's not-yet-enforced flow-level `enabled` convention, this feature's staged rollout is
+a genuinely wired, tested env-var flag — a concrete example to follow next time §5's
+pattern is actually needed.
+
+**`AFROMARKET_PAYMENT_PROVIDER`** (`"stripe"` | `"paypal"`, defaults to `"paypal"`) —
+the single switch between Stripe and PayPal checkout. Both providers can be registered
+at once; this flag picks which one `_handleCheckout` actually calls.
+`afromarketFlowPlugin.js::_handleCheckout` refuses checkout (not a silent
+free-instant-confirmation) if the selected provider has no credentials configured
+**while another provider does** — so leaving this unset/misconfigured on an
+environment that has Stripe wired up but not PayPal makes checkout unavailable, not
+free. Set explicitly on every environment rather than relying on the default.
+
+**`AFROMARKET_SHIPPING_ENABLED`** (`"true"` | unset, defaults to off) — tiered
+shipping (Workstream 4). Every `shippingTiers.priceEur` in `afromarket.bot.json` is
+still a `null` placeholder pending real Packlink rates; flipping this on before they're
+filled in fails checkout loudly (by design) rather than charging 0€. Leave unset until
+`afromarket.bot.json`'s `shippingTiers` has real prices.
+
+### PayPal sandbox setup (2026-08-30, both `dev` and `production` on sandbox credentials)
+
+No production (live) PayPal credentials exist yet - both Railway environments run
+against **PayPal's sandbox**, using the same sandbox app's Client ID/Secret. Two
+separate webhook subscriptions were registered in that one sandbox app (PayPal allows
+up to 10 per app), one per environment's own domain - each webhook subscription gets
+its own distinct `webhook_id`:
+
+| | `dev` | `production` |
+|---|---|---|
+| Webhook URL | `https://botmanagerservice-dev-7fcf.up.railway.app/api/payments/webhooks/paypal/afromarket` | `https://bot.botmanagementservice.eu/api/payments/webhooks/paypal/afromarket` |
+| Subscribed events | `CHECKOUT.ORDER.APPROVED`, `PAYMENT.CAPTURE.COMPLETED`, `PAYMENT.CAPTURE.DECLINED`, `PAYMENT.CAPTURE.PENDING` | same |
+| `SANDBOX_PAYPAL_CLIENT_ID` | same sandbox app | same sandbox app |
+| `SANDBOX_PAYPAL_CLIENT_SECRET` | same sandbox app | same sandbox app |
+| `SANDBOX_PAYPAL_WEBHOOK_ID` | this env's own webhook subscription's ID | this env's own webhook subscription's ID (**not** the same value as `dev`'s) |
+| `PAYPAL_RETURN_URL` | `https://botmanagerservice-dev-7fcf.up.railway.app/payment-return` | `https://bot.botmanagementservice.eu/payment-return` |
+| `PAYPAL_CANCEL_URL` | optional, defaults to `PAYPAL_RETURN_URL` | optional, defaults to `PAYPAL_RETURN_URL` |
+
+**`SANDBOX_` in the credential env var names is the credential naming, not an
+environment toggle** - both `dev` and `production` read `SANDBOX_PAYPAL_CLIENT_ID`
+today because both are genuinely on sandbox. When real (live) PayPal credentials exist,
+`paypalProvider.js`/`paymentService.js` need new env vars (e.g. `PAYPAL_CLIENT_ID`,
+`PAYPAL_BASE_URL=https://api-m.paypal.com`) added alongside the sandbox ones, not a
+find-and-replace of `SANDBOX_` - `production` should get the live credentials while
+`dev` likely keeps testing against sandbox.
+
+Do not confuse `SANDBOX_PAYPAL_CLIENT_ID`/`SECRET` with the billing system's own,
+unrelated `SANDBOX_SECRET_KEY` (Stripe) - see the todo doc's scope-boundary section.
+
+**Cannot be verified or set by Claude directly** - no Railway MCP/CLI access exists in
+this environment. Confirm all five vars are actually set correctly on both
+environments in the Railway dashboard before flipping `AFROMARKET_PAYMENT_PROVIDER` to
+`paypal` anywhere it isn't already the effective default.
+
+---
+
 ## 6. Release checklist
 
 Before merging a `feature/*` or `bugfix/*` PR into `master`:
@@ -283,6 +342,10 @@ Before merging a `feature/*` or `bugfix/*` PR into `master`:
       way during the product-catalog migration)
 - [ ] New/risky flows default to `"enabled": false` unless explicitly ready for all
       tenants (see §5 — opt-in convention, not yet enforced by code)
+- [ ] If touching AfroMarket payments/shipping: `AFROMARKET_PAYMENT_PROVIDER` and
+      `AFROMARKET_SHIPPING_ENABLED` are set correctly on the target environment before
+      relying on their defaults (see §5a) — Claude cannot verify or set these directly,
+      no Railway access
 
 After merge:
 

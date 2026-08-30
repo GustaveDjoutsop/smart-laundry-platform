@@ -3,6 +3,13 @@
 process.env.STRIPE_SECRET_KEY = 'sk_test';
 process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
 process.env.STRIPE_SUCCESS_URL = 'https://afromarket.example.com/payment-return';
+// This file specifically exercises the Stripe path (real HTTP request shape,
+// customer_email requirement, etc.) - the provider selector defaults to
+// paypal, so pin it explicitly rather than let these tests silently start
+// hitting the (here unconfigured) paypal branch instead. See
+// afromarketPaymentProviderSelector.test.js for the selector itself and
+// afromarketPaypalCheckout.test.js for the paypal-path equivalents of these.
+process.env.AFROMARKET_PAYMENT_PROVIDER = 'stripe';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -45,6 +52,13 @@ async function driveToCheckoutReview(step) {
   await step('shop_online');
   await step('cat_beans_nuts');
   await step('product_haricot_rouge_1kg');
+  // 4x clears the 24.99€ minimum order value (4 * 7.99 = 31.96) - repeat
+  // cart_add on the same product increments qty on one line rather than
+  // pushing a new one, so cart.length-based assertions elsewhere are
+  // unaffected.
+  await step('cart_add');
+  await step('cart_add');
+  await step('cart_add');
   await step('cart_add');
   await step('view_cart');
   await step('start_checkout');
@@ -130,6 +144,9 @@ test('AfroMarket checkout: omitting the optional email is asked for specifically
   await step('cat_beans_nuts');
   await step('product_haricot_rouge_1kg');
   await step('cart_add');
+  await step('cart_add');
+  await step('cart_add');
+  await step('cart_add');
   await step('view_cart');
   await step('start_checkout');
   await step('Jane Doe');
@@ -196,6 +213,9 @@ test('AfroMarket checkout: a saved profile\'s prefilled email actually reaches t
   await step('cat_beans_nuts');
   await step('product_haricot_rouge_1kg');
   await step('cart_add');
+  await step('cart_add');
+  await step('cart_add');
+  await step('cart_add');
   await step('view_cart');
   await step('start_checkout');
 
@@ -255,4 +275,36 @@ test('AfroMarket checkout: a double-tap on Confirm Order reuses the same idempot
 
   assert.equal(callCount, 1, 'Stripe must only be called once across both taps');
   assert.equal(secondTap[0].url, 'https://checkout.stripe.com/c/pay/cs_test_once');
+});
+
+test('AfroMarket checkout: a misconfigured active provider (paypal selected but not configured) refuses checkout instead of silently confirming an unpaid order, when Stripe IS configured in this environment', async () => {
+  // The exact deploy-sequencing footgun this must guard against: Stripe is
+  // configured (STRIPE_SECRET_KEY set at the top of this file), but the
+  // active-provider flag now selects paypal (unconfigured here - no
+  // SANDBOX_PAYPAL_CLIENT_ID in this file) - e.g. AFROMARKET_PAYMENT_PROVIDER
+  // left unset/defaulted in an environment that only has Stripe wired up so
+  // far. Falling through to the "no provider configured at all" legacy
+  // instant-confirmation branch here would give the order away for free.
+  const previousProvider = process.env.AFROMARKET_PAYMENT_PROVIDER;
+  process.env.AFROMARKET_PAYMENT_PROVIDER = 'paypal';
+
+  try {
+    currentFetchImpl = async () => {
+      throw new Error('no payment provider API call should happen - checkout must be refused before reaching one');
+    };
+
+    const step = createStepper();
+    await driveToCheckoutReview(step);
+
+    const result = await step('confirm_order');
+
+    assert.equal(result.outboundIntents[0].type, 'text');
+    assert.match(result.outboundIntents[0].body, /temporarily unavailable/);
+    assert.doesNotMatch(result.outboundIntents[0].body, /Order confirmed/);
+
+    // Cart survives - the order must not be confirmed/fulfilled unpaid.
+    assert.equal(result.conversationState.context.cart.length, 1);
+  } finally {
+    process.env.AFROMARKET_PAYMENT_PROVIDER = previousProvider;
+  }
 });

@@ -100,6 +100,19 @@ function toCatalogItem({ product, currency, phoneNumber }) {
     throw new Error(`product missing required field(s) for catalog sync: ${JSON.stringify(product)}`);
   }
 
+  // weightGrams isn't a Meta catalog field at all (not sent in `data` below)
+  // - it feeds afromarketFlowPlugin.js's basketWeightGrams/shippingFeeFor
+  // tiered-shipping lookup instead (see afromarket-paypal-migration-and-
+  // shipping-todo.md Workstream 4). Enforced here anyway, not just in a
+  // comment: this script is the one place every new product already has to
+  // pass through, so it's the natural gate against a product silently
+  // missing weight data and shipping being computed as free/undercharged
+  // for it. Must be a positive number, not just present, since a stray "0"
+  // would silently make that product free to ship.
+  if (!(Number(product.weightGrams) > 0)) {
+    throw new Error(`product ${product.id}: weightGrams must be a positive number (got "${product.weightGrams}")`);
+  }
+
   const data = {
     id: product.id,
     title: product.name,

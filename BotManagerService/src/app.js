@@ -69,16 +69,19 @@ function createApp({ redisManager, mqttManager } = {}) {
   app.use('/api/billing', billingRouter({ adminAuthMiddleware: billingAdminAuth, adminRateLimiter: billingAdminRateLimiter }));
   app.use('/api/whatsapp/webhook', whatsappRateLimiter, whatsappRouter());
 
-  // Stripe Checkout's success_url (STRIPE_SUCCESS_URL) lands the customer's
-  // browser here right after paying. Purely cosmetic - the actual order
-  // confirmation is driven by the Stripe webhook (see routes/payments.js)
-  // and delivered back in WhatsApp, independent of whether this page loads.
-  // Without it, the customer's browser tab shows a bare "Cannot GET" error
-  // after a successful payment.
+  // Shared by both payment providers (STRIPE_SUCCESS_URL and PAYPAL_RETURN_URL
+  // point here): Stripe Checkout's success_url and PayPal's
+  // experience_context.return_url both land the customer's browser here right
+  // after paying. Purely cosmetic - the actual order confirmation is driven by
+  // the provider's webhook (see routes/payments.js) and delivered back in
+  // WhatsApp, independent of whether this page loads. Without it, the
+  // customer's browser tab shows a bare "Cannot GET" error after a successful
+  // payment.
   app.get('/payment-return', (req, res) => {
-    // Stripe's success_url is commonly hit with a `?session_id=...` query
-    // param - no-store/noindex keeps that out of shared caches and search
-    // indexes even though this page doesn't itself read or reflect it.
+    // Commonly hit with a query param identifying the payment (Stripe:
+    // `?session_id=...`; PayPal: `?token=<order_id>&PayerID=...`) -
+    // no-store/noindex keeps that out of shared caches and search indexes
+    // even though this page doesn't itself read or reflect it.
     res.set('Cache-Control', 'no-store');
     res.set('X-Robots-Tag', 'noindex');
     res.status(200).type('html').send(`<!doctype html>
