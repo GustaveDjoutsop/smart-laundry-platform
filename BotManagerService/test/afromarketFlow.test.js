@@ -233,6 +233,10 @@ test('AfroMarket: a saved profile with an email on file prefills it too, instead
   await step('shop_online');
   await step('cat_beans_nuts');
   await step('product_haricot_rouge_1kg');
+  // 4x clears the 24.99€ minimum order value (4 * 7.99 = 31.96).
+  await step('cart_add');
+  await step('cart_add');
+  await step('cart_add');
   await step('cart_add');
   await step('view_cart');
 
@@ -269,6 +273,10 @@ test('AfroMarket: "Start Over" on a reused saved address falls back to the seque
   await step('shop_online');
   await step('cat_beans_nuts');
   await step('product_haricot_rouge_1kg');
+  // 4x clears the 24.99€ minimum order value (4 * 7.99 = 31.96).
+  await step('cart_add');
+  await step('cart_add');
+  await step('cart_add');
   await step('cart_add');
   await step('view_cart');
   await step('start_checkout');
@@ -315,6 +323,10 @@ test('AfroMarket: a saved-profile lookup failure falls back to the sequential ch
   await step('shop_online');
   await step('cat_beans_nuts');
   await step('product_haricot_rouge_1kg');
+  // 4x clears the 24.99€ minimum order value (4 * 7.99 = 31.96).
+  await step('cart_add');
+  await step('cart_add');
+  await step('cart_add');
   await step('cart_add');
   await step('view_cart');
 
@@ -424,6 +436,10 @@ test('AfroMarket: free-text replies to checkout_name/checkout_address are accept
   await step('shop_online');
   await step('cat_beans_nuts');
   await step('product_haricot_rouge_1kg');
+  // 4x clears the 24.99€ minimum order value (4 * 7.99 = 31.96).
+  await step('cart_add');
+  await step('cart_add');
+  await step('cart_add');
   await step('cart_add');
   await step('view_cart');
   await step('start_checkout');
@@ -445,7 +461,7 @@ test('AfroMarket: free-text replies to checkout_name/checkout_address are accept
 
   const result = await step('cancel_checkout');
   assert.match(result.outboundIntents[0].body, /Your Cart/);
-  assert.match(result.outboundIntents[0].body, /1x Haricot Rouge – Meringué 1kg/);
+  assert.match(result.outboundIntents[0].body, /4x Haricot Rouge – Meringué 1kg/);
   assert.equal(result.conversationState.context.cart.length, 1);
 });
 

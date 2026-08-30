@@ -286,9 +286,13 @@ test('AfroMarket native order: recomputes price from bot.json, ignoring a tamper
   const { bot, sent } = createBot(t);
   const from = nextFrom();
 
+  // quantity: 4 (not 1) clears the 24.99€ minimum order value
+  // (4 * 7.99 = 31.96, ignoring the tampered price) - a 1x/€7.99 cart would
+  // correctly get redirected to cart_view by the minimum-order gate before
+  // ever reaching checkout_name, which isn't what this test is about.
   const handled = await bot._handleNativeOrder({
     from,
-    message: orderMessage({ items: [{ product_retailer_id: 'haricot_rouge_1kg', quantity: 1, item_price: 0.01, currency: 'EUR' }] })
+    message: orderMessage({ items: [{ product_retailer_id: 'haricot_rouge_1kg', quantity: 4, item_price: 0.01, currency: 'EUR' }] })
   });
 
   assert.equal(handled, true);
@@ -303,7 +307,7 @@ test('AfroMarket native order: recomputes price from bot.json, ignoring a tamper
   const raw = await redisManagerModule.redisManager.get(`conv:afromarket:${from}`);
   const state = JSON.parse(raw);
 
-  assert.deepEqual(state.context.cart, [{ productId: 'haricot_rouge_1kg', name: 'Haricot Rouge – Meringué 1kg', unitPrice: 7.99, unit: '1 kg', qty: 1 }]);
+  assert.deepEqual(state.context.cart, [{ productId: 'haricot_rouge_1kg', name: 'Haricot Rouge – Meringué 1kg', unitPrice: 7.99, unit: '1 kg', qty: 4 }]);
   assert.equal(state.currentFlowId, 'main_menu');
   // _handleCheckoutStart ran and moved past checkout_start since there's no
   // saved profile for this fresh phone number.
@@ -429,7 +433,9 @@ test('AfroMarket handleMessage: routes a type "order" inbound message into the n
   const { bot, sent } = createBot(t);
   const from = nextFrom();
 
-  await bot.handleMessage({ from, message: orderMessage({ items: [{ product_retailer_id: 'arachide_blanche_1kg', quantity: 1 }] }) });
+  // quantity: 4 clears the 24.99€ minimum order value (4 * 7.99 = 31.96) -
+  // this test is about routing, not the minimum-order gate.
+  await bot.handleMessage({ from, message: orderMessage({ items: [{ product_retailer_id: 'arachide_blanche_1kg', quantity: 4 }] }) });
 
   assert.equal(sent.length, 1);
   assert.match(sent[0].body, /delivery/i);

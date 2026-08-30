@@ -2054,6 +2054,82 @@ payer's email itself.
   provenance on `customer_profile`; the post-payment "reply CHANGE ADDRESS"
   flow branch is not implemented.
 
+**Bugfixes from live dev testing (2026-08-30) — see
+`afromarket-minimum-order-checkout-flow-bugfix.md` and
+`afromarket-payment-failure-handling-bugfix.md`:**
+
+- **Minimum-order checkout flow:** the 24.99€ check (Workstream 3 above)
+  correctly blocked payment, but the surrounding flow didn't - a cart under
+  threshold still rendered the full `checkout_review` Confirm-Order screen,
+  and a rejected `confirm_order` tap re-sent that identical screen verbatim
+  instead of a distinct rejection. Fixed by gating entry into
+  `checkout_review` itself: `belowMinimumOrder(cart, minimumOrderValueEur)`
+  (extracted from the same comparison `appendMinimumOrderNudge` already did)
+  now runs at the top of `_handleCheckoutStart` and the tail of
+  `_handleFinishCheckoutDetails` - the two only paths that transition into
+  `checkout_review` - redirecting to `cart_view` instead when under
+  threshold, before the customer is even asked for name/address/email.
+  `_handleCheckout`'s own server-side block (the backstop for a redelivered/
+  stale button tap, since the cart can't actually change during that
+  sequential collection) now sends a distinct "❌ Your order wasn't
+  confirmed" message and goes to `cart_view`, not back to `checkout_review`.
+  Load-bearing implementation detail: `ctx.goto()` called from an action-
+  handler method (like `_handleCheckoutStart`) causes the flow engine to
+  re-fetch and render the new target state on its next loop iteration;
+  `ctx.goto()` called from `beforeState` does **not** do this in the same
+  pass (the state definition was already fetched before `beforeState` ran) -
+  this is why the fix lives in the handler methods, not in `beforeState`
+  alongside the nudge-display logic.
+- **Payment-initiation failure handling:** a malformed `PAYPAL_CANCEL_URL`
+  (leading whitespace) caused every PayPal `initiatePayment` call to fail
+  identically (400/`INVALID_PARAMETER_SYNTAX`) with a generic "tap Confirm
+  Order to try again" response and no admin visibility - misleading for a
+  permanent, config-level failure. Fixed:
+  - `paymentService.js`'s `parseTrimmedUrl` trims and validates
+    `PAYPAL_RETURN_URL`/`PAYPAL_CANCEL_URL` at provider-registration time
+    (startup), refusing to register PayPal at all on a malformed **or
+    missing** return URL (cancel URL stays optional, matching
+    `PayPalProvider`'s own fallback-to-return-URL behavior) - a static
+    config defect no longer waits for a live checkout attempt to surface.
+  - `paypalProvider.js`/`stripeProvider.js`'s `initiatePayment` now attach
+    `.status` to the thrown error on an API failure response.
+    Pre-flight validation throws in either provider (missing currency,
+    missing customerEmail, not configured, etc.) deliberately do **not**
+    carry a `.status` - not addressed by this fix, but the startup
+    validation above closes the one concretely-hit gap (a bad/missing
+    return URL) at its source instead.
+  - `_handleCheckout`'s catch block classifies `err.status` 400-499 as
+    permanent/config-class (distinct "trouble starting checkout... our team
+    has been notified" copy, `logger.error`) vs. everything else (unchanged
+    "tap Confirm Order to try again", `logger.warn`).
+  - A config-class failure sends one rate-limited (15 min, Redis `setnx`
+    cooldown) admin WhatsApp alert to `AFROMARKET_ADMIN_PHONE` via
+    `ctx.send({to: adminPhone, ...})` - the flow plugin can address any
+    recipient this way, not just `ctx.from`, since `sendIntent` dispatches
+    by the intent's own `to` field.
+  - A per-session `checkoutFailureCount` (persisted in the same Redis-backed
+    conversation state as everything else `ctx.set()` touches) escalates the
+    3rd+ consecutive failed confirm attempt with a human-fallback line.
+    Reset on a successful `initiatePayment`, and on entry to `cart_view`
+    (Cancel) or `checkout_name` (Start Over) via `beforeState`.
+  - **Stripe gets the identical trim/validate/require-at-registration
+    treatment as PayPal**, added after a subagent review of the initial
+    (PayPal-only) fix flagged Stripe as reproducing the exact same bug class
+    - and, per `AFROMARKET_PAYMENT_PROVIDER`'s default, the higher-value gap
+    in practice (every environment not yet PayPal-provisioned is currently
+    running on Stripe).
+  - The pre-existing "`AFROMARKET_PAYMENT_PROVIDER` selects a provider with
+    no credentials, but another provider IS configured" guard
+    (Workstream 1's own deploy-safety guard, `afromarketFlowPlugin.js`) is a
+    third, distinct config-class failure - same severity (100% of checkouts
+    blocked) as an `initiatePayment` 4xx, so it now also triggers the admin
+    alert (same cooldown key, scoped by `botId`).
+  - Pre-flight validation throws inside either provider's `initiatePayment`
+    (missing currency, missing customerEmail, not configured, etc.)
+    deliberately do **not** carry a `.status` - the startup validation above
+    closes the concretely-hit gaps (a bad/missing return/success URL) at
+    their source instead of classifying every possible throw individually.
+
 ### Append-only payment ledger (not a single mutable row)
 
 `PaymentStore` (`src/core/payments/paymentStore.js`) previously overwrote a

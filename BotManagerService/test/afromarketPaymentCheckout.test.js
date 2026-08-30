@@ -90,7 +90,7 @@ test('AfroMarket checkout: successful Stripe initiation sends a real payment lin
   assert.deepEqual(result.conversationState.context.cart, []);
 });
 
-test('AfroMarket checkout: a failed Stripe initiation never confirms the order and keeps the cart intact', async () => {
+test('AfroMarket checkout: a failed Stripe initiation (4xx, config-class) never confirms the order and keeps the cart intact', async () => {
   currentFetchImpl = async () => ({
     ok: false,
     status: 400,
@@ -103,8 +103,10 @@ test('AfroMarket checkout: a failed Stripe initiation never confirms the order a
   const result = await step('confirm_order');
 
   assert.equal(result.outboundIntents[0].type, 'text');
-  assert.match(result.outboundIntents[0].body, /couldn't start the payment/);
-  assert.match(result.outboundIntents[0].body, /cart is safe/);
+  // 4xx is a permanent config/client error - distinct copy from the
+  // transient-failure "tap Confirm Order to try again" path (see
+  // afromarketPaymentFailureHandling.test.js for the classification itself).
+  assert.match(result.outboundIntents[0].body, /trouble starting checkout/);
   assert.doesNotMatch(result.outboundIntents[0].body, /Order confirmed/);
 
   // Routed back to checkout_review, not order_confirmed - the cart survives the failure.
