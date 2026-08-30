@@ -281,6 +281,7 @@ test('PayPalProvider parseWebhook extracts order id (not capture id), amount, ex
     event_type: 'PAYMENT.CAPTURE.COMPLETED',
     resource: {
       id: 'CAPTURE-1',
+      status: 'COMPLETED',
       custom_id: 'AM-ORDER1',
       amount: { currency_code: 'EUR', value: '27.40' },
       supplementary_data: { related_ids: { order_id: 'ORDER-1' } }
@@ -300,10 +301,22 @@ test('PayPalProvider parseWebhook maps PAYMENT.CAPTURE.DECLINED to FAILED', () =
   const parsed = provider.parseWebhook({
     id: 'WH-EVENT-2',
     event_type: 'PAYMENT.CAPTURE.DECLINED',
-    resource: { id: 'CAPTURE-2', supplementary_data: { related_ids: { order_id: 'ORDER-2' } } }
+    resource: { id: 'CAPTURE-2', status: 'DECLINED', supplementary_data: { related_ids: { order_id: 'ORDER-2' } } }
   });
 
   assert.equal(parsed.status, 'FAILED');
+});
+
+test('PayPalProvider parseWebhook maps PAYMENT.CAPTURE.PENDING to PENDING, not FAILED - a real, distinct event, not a failure just because it is not literally .COMPLETED', () => {
+  const provider = new PayPalProvider({ clientId: 'id', clientSecret: 'secret', fetchImpl: async () => ({}) });
+
+  const parsed = provider.parseWebhook({
+    id: 'WH-EVENT-4',
+    event_type: 'PAYMENT.CAPTURE.PENDING',
+    resource: { id: 'CAPTURE-4', status: 'PENDING', supplementary_data: { related_ids: { order_id: 'ORDER-4' } } }
+  });
+
+  assert.equal(parsed.status, 'PENDING');
 });
 
 test('PayPalProvider parseWebhook skips unrelated event types (e.g. CHECKOUT.ORDER.APPROVED, handled separately by the route)', () => {
@@ -324,6 +337,7 @@ test('mapOrderStatus maps COMPLETED/VOIDED/other order statuses', () => {
 test('mapCaptureStatus maps COMPLETED/DECLINED/other capture statuses - a 2xx capture response is not automatically COMPLETED', () => {
   assert.equal(mapCaptureStatus('COMPLETED'), 'COMPLETED');
   assert.equal(mapCaptureStatus('DECLINED'), 'FAILED');
+  assert.equal(mapCaptureStatus('DENIED'), 'FAILED');
   assert.equal(mapCaptureStatus('PENDING'), 'PENDING');
   assert.equal(mapCaptureStatus(undefined), 'PENDING');
 });

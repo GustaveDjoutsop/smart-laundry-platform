@@ -16,9 +16,14 @@ function mapOrderStatus(status) {
 // HTTP 200/201 from /capture with the individual capture still PENDING (e.g.
 // eCheck clearing, a risk review), not COMPLETED. Callers must check this,
 // not assume a successful HTTP response means the money has actually moved.
+// Also used to interpret a PAYMENT.CAPTURE.* webhook's resource.status (the
+// Capture object) - PENDING/REFUNDED/PARTIALLY_REFUNDED all fall through to
+// PENDING here rather than FAILED, matching the rest of this codebase's
+// PaymentStatus enum (PENDING/PROCESSING/COMPLETED/FAILED - no refund
+// concept exists anywhere else in the payment system either).
 function mapCaptureStatus(status) {
   if (status === 'COMPLETED') return normalizeStatus('COMPLETED');
-  if (status === 'DECLINED') return normalizeStatus('FAILED');
+  if (status === 'DECLINED' || status === 'DENIED') return normalizeStatus('FAILED');
   return normalizeStatus('PENDING');
 }
 
@@ -311,7 +316,11 @@ class PayPalProvider {
     const transactionId = resource && resource.supplementary_data && resource.supplementary_data.related_ids
       ? resource.supplementary_data.related_ids.order_id
       : null;
-    const status = eventType === 'PAYMENT.CAPTURE.COMPLETED' ? normalizeStatus('COMPLETED') : normalizeStatus('FAILED');
+    // Derived from the Capture resource's own status field, not guessed from
+    // the event_type string - PAYMENT.CAPTURE.PENDING (eCheck clearing, a
+    // risk review) is a real, distinct event that must not be treated as a
+    // failure just because it isn't literally ".COMPLETED".
+    const status = mapCaptureStatus(resource && resource.status);
     const amount = resource && resource.amount && resource.amount.value != null ? Number(resource.amount.value) : undefined;
     const externalRef = (resource && resource.custom_id) || null;
 

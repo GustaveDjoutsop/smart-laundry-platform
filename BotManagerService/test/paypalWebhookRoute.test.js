@@ -282,6 +282,7 @@ test('PAYMENT.CAPTURE.COMPLETED is recorded as a duplicate-safe second signal, n
         event_type: 'PAYMENT.CAPTURE.COMPLETED',
         resource: {
           id: 'CAPTURE-DUP-1',
+          status: 'COMPLETED',
           custom_id: 'AM-DUP-1',
           amount: { currency_code: 'EUR', value: '10.00' },
           supplementary_data: { related_ids: { order_id: 'ORDER-DUP-1' } }
