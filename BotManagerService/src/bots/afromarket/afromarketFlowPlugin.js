@@ -66,6 +66,22 @@ function isNativeCatalogEnabled() {
   return String(process.env.AFROMARKET_NATIVE_CATALOG_ENABLED || '').trim().toLowerCase() === 'true';
 }
 
+// Single source of truth for which provider AfroMarket checkout uses. Deliberately
+// one enum-valued flag rather than two independent booleans (STRIPE_ENABLED /
+// PAYPAL_ENABLED) - two booleans can both end up true or both false, which has no
+// sane meaning here; one flag makes "exactly one active provider" true by
+// construction. Defaults to paypal per the production launch decision. Read fresh
+// per call (not cached at require-time), matching isNativeCatalogEnabled's
+// convention above, so it's tunable per Railway environment without a redeploy.
+function getActivePaymentProvider() {
+  const raw = String(process.env.AFROMARKET_PAYMENT_PROVIDER || 'paypal').trim().toLowerCase();
+  if (raw !== 'stripe' && raw !== 'paypal') {
+    logger.warn(`AFROMARKET_PAYMENT_PROVIDER="${raw}" is not "stripe" or "paypal" - defaulting to paypal`);
+    return 'paypal';
+  }
+  return raw;
+}
+
 // Mirrors the section titles already used in afromarket.bot.json's
 // "groceries_categories" list state - kept as a small local map rather than
 // read back out of the JSON config, since it's just the two category labels
@@ -761,13 +777,17 @@ class AfroMarketFlowPlugin extends FlowPlugin {
     }
 
     const { gateway } = getPaymentService();
-    const stripe = gateway.getProvider('stripe');
-    const paymentsConfigured = Boolean(stripe && stripe.isConfigured());
+    const activeProviderName = getActivePaymentProvider();
+    const activeProvider = gateway.getProvider(activeProviderName);
+    const paymentsConfigured = Boolean(activeProvider && activeProvider.isConfigured());
 
     // Email is optional in the combined checkout_details message, but Stripe's
     // hosted checkout requires one - ask for it specifically only when it's actually
-    // needed, rather than failing the whole payment with a generic error.
-    if (paymentsConfigured && !email) {
+    // needed, rather than failing the whole payment with a generic error. PayPal's
+    // Payment Links checkout collects the payer's email itself, so this gate only
+    // applies when Stripe is the active provider (flag can be switched back to
+    // Stripe at any time - this must keep working when it is).
+    if (paymentsConfigured && activeProviderName === 'stripe' && !email) {
       ctx.goto('checkout_email_required');
       return true;
     }
@@ -798,7 +818,7 @@ class AfroMarketFlowPlugin extends FlowPlugin {
         phoneNumber: ctx.from,
         reference: orderNumber,
         description: `AfroMarket order ${orderNumber}`,
-        preferredProvider: 'stripe',
+        preferredProvider: activeProviderName,
         customerEmail: email,
         customerName: name,
         idempotencyKey,
@@ -848,7 +868,7 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       // payment record was ever stored for this attempt (initiatePayment
       // threw before reaching that point), so retrying reuses the same key/
       // order number for what is still logically the same in-flight attempt.
-      logger.warn('AfroMarket: Stripe initiatePayment failed', {
+      logger.warn(`AfroMarket: ${activeProviderName} initiatePayment failed`, {
         error: err && err.message ? err.message : String(err)
       });
       await ctx.send({
@@ -856,7 +876,9 @@ class AfroMarketFlowPlugin extends FlowPlugin {
         to: ctx.from,
         body:
           `⚠️ We couldn't start the payment for this order. Nothing has been charged and your cart is safe.\n\n` +
-          `Please check your email address and tap *Confirm Order* to try again.`
+          (activeProviderName === 'stripe'
+            ? `Please check your email address and tap *Confirm Order* to try again.`
+            : `Please tap *Confirm Order* to try again.`)
       });
       ctx.goto('checkout_review');
       return true;
@@ -874,5 +896,6 @@ module.exports = {
   findCurrentPromoProduct,
   computePercentOff,
   isNativeCatalogEnabled,
-  buildNativeCatalogSections
+  buildNativeCatalogSections,
+  getActivePaymentProvider
 };

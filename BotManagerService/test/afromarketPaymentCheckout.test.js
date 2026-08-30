@@ -3,6 +3,13 @@
 process.env.STRIPE_SECRET_KEY = 'sk_test';
 process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
 process.env.STRIPE_SUCCESS_URL = 'https://afromarket.example.com/payment-return';
+// This file specifically exercises the Stripe path (real HTTP request shape,
+// customer_email requirement, etc.) - the provider selector defaults to
+// paypal, so pin it explicitly rather than let these tests silently start
+// hitting the (here unconfigured) paypal branch instead. See
+// afromarketPaymentProviderSelector.test.js for the selector itself and
+// afromarketPaypalCheckout.test.js for the paypal-path equivalents of these.
+process.env.AFROMARKET_PAYMENT_PROVIDER = 'stripe';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
