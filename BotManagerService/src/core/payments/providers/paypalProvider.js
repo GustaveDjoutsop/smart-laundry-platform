@@ -180,7 +180,15 @@ class PayPalProvider {
 
     if (!ok || !data.id) {
       this.logger && this.logger.warn && this.logger.warn('PayPal initiatePayment failed', data);
-      throw new Error(`PayPal initiatePayment failed (status=${status})`);
+      // .status lets callers (afromarketFlowPlugin.js's _handleCheckout)
+      // classify this as a permanent config/client error (4xx - retrying
+      // won't help, e.g. a malformed cancel_url) vs. a transient one (5xx/
+      // network - retrying might genuinely succeed) without a second API
+      // call just to figure that out.
+      const err = new Error(`PayPal initiatePayment failed (status=${status})`);
+      err.status = status;
+      err.providerName = 'paypal';
+      throw err;
     }
 
     const links = Array.isArray(data.links) ? data.links : [];

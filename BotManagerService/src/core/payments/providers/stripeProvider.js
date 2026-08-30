@@ -130,7 +130,14 @@ class StripeProvider {
 
     if (!res.ok || !data.id) {
       this.logger && this.logger.warn && this.logger.warn('Stripe initiatePayment failed', data);
-      throw new Error(`Stripe initiatePayment failed (status=${res.status})`);
+      // .status lets callers (afromarketFlowPlugin.js's _handleCheckout)
+      // classify this as a permanent config/client error (4xx) vs. a
+      // transient one (5xx/network) without a second API call - same
+      // convention as paypalProvider.js's initiatePayment.
+      const err = new Error(`Stripe initiatePayment failed (status=${res.status})`);
+      err.status = res.status;
+      err.providerName = 'stripe';
+      throw err;
     }
 
     return {

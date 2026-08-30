@@ -129,7 +129,7 @@ test('AfroMarket checkout: PayPal does not ask for an email at all (unlike Strip
   assert.equal(result.outboundIntents[0].url, 'https://paypal.example.com/approve/noemail');
 });
 
-test('AfroMarket checkout: a failed PayPal order creation never confirms the order and keeps the cart intact', async () => {
+test('AfroMarket checkout: a failed PayPal order creation (4xx, config-class) never confirms the order and keeps the cart intact', async () => {
   currentFetchImpl = async (url) => {
     if (String(url).includes('/oauth2/token')) return TOKEN_RESPONSE;
     return { ok: false, status: 400, json: async () => ({ name: 'INVALID_REQUEST' }) };
@@ -141,7 +141,10 @@ test('AfroMarket checkout: a failed PayPal order creation never confirms the ord
   const result = await step('confirm_order');
 
   assert.equal(result.outboundIntents[0].type, 'text');
-  assert.match(result.outboundIntents[0].body, /couldn't start the payment/);
+  // 4xx is a permanent config/client error - distinct copy from the
+  // transient-failure "tap Confirm Order to try again" path (see
+  // afromarketPaymentFailureHandling.test.js for the classification itself).
+  assert.match(result.outboundIntents[0].body, /trouble starting checkout/);
   assert.doesNotMatch(result.outboundIntents[0].body, /email address/, 'PayPal failure copy must not mention email');
 
   assert.equal(result.outboundIntents[1].type, 'buttons');

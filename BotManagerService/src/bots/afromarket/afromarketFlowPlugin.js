@@ -2,7 +2,53 @@ const crypto = require('crypto');
 const { FlowPlugin } = require('../../core/flows/flowPlugin');
 const { getPaymentService } = require('../../core/payments/paymentService');
 const { CustomerProfileStore } = require('../../core/customers/customerProfileStore');
+const { redisManager } = require('../../core/redisManager');
 const { logger } = require('../../utils/logger');
+
+// See afromarket-payment-failure-handling-bugfix.md. A config-class
+// initiatePayment failure (4xx - a permanent, "every customer, every
+// attempt" failure until someone fixes it) pages the admin, but at most
+// once per this window, not once per failed checkout attempt - a sustained
+// outage would otherwise flood AFROMARKET_ADMIN_PHONE with identical
+// WhatsApp alerts.
+const PAYMENT_CONFIG_FAILURE_ALERT_COOLDOWN_SECONDS = 15 * 60;
+// After this many *consecutive* failed initiatePayment attempts in one
+// checkout session (see checkoutFailureCount below), the rejection message
+// acknowledges the pattern instead of repeating the identical "try again"
+// text a third time as if nothing were wrong.
+const PAYMENT_FAILURE_ESCALATION_THRESHOLD = 3;
+
+// Best-effort: a failed admin alert must never itself break the customer-
+// facing failure response it's attached to. Redis-backed cooldown, same
+// setnx-with-TTL pattern already used for idempotency locks elsewhere in
+// this file - no new infrastructure, matching the todo doc's explicit
+// "no new infrastructure needed" scope note.
+//
+// alertBody is caller-built rather than assembled here from a fixed
+// providerName/status shape, since this covers two distinct config-class
+// failures with different data available: an initiatePayment 4xx (has a
+// provider name, HTTP status, order number) and the active-provider-
+// misconfigured guard (has none of those - it never reaches a provider
+// call at all). cooldownKey is scoped by botId (not hardcoded to
+// 'afromarket') so this doesn't silently share cooldown state across bots/
+// tenants if this pattern is ever reused for another client.
+async function maybeAlertAdminOfConfigFailure(ctx, { botId, alertBody }) {
+  const adminPhone = String(process.env.AFROMARKET_ADMIN_PHONE || '').trim();
+  if (!adminPhone) return;
+
+  try {
+    const acquired = await redisManager.setnx(
+      `${botId}:payment-config-failure-admin-alert-cooldown`,
+      '1',
+      PAYMENT_CONFIG_FAILURE_ALERT_COOLDOWN_SECONDS
+    );
+    if (!acquired) return;
+
+    await ctx.send({ type: 'text', to: adminPhone, body: alertBody });
+  } catch (err) {
+    logger.error('AfroMarket: failed to send admin alert for config-class payment failure', err && err.message ? err.message : String(err));
+  }
+}
 
 function formatEuro(amount) {
   const value = Number(amount) || 0;
@@ -187,6 +233,17 @@ function shippingFeeFor(weightGrams, shippingTiers) {
   return Number(tier.priceEur);
 }
 
+// Single source of truth for "is this cart allowed to check out at all" -
+// shared by the checkout-entry gate (_handleCheckoutStart/
+// _handleFinishCheckoutDetails, below - a cart under threshold must never
+// reach checkout_review's Confirm-Order screen in the first place),
+// _handleCheckout's own server-side block, and appendMinimumOrderNudge's
+// display logic. An empty cart is never "below minimum" in the sense this
+// function means - that's the separate, pre-existing empty-cart check.
+function belowMinimumOrder(cart, minimumOrderValueEur) {
+  return cart.length > 0 && typeof minimumOrderValueEur === 'number' && cartTotal(cart) < minimumOrderValueEur;
+}
+
 // Shared by beforeState's cart_view and checkout_review branches - a plain
 // string append rather than folding into buildCartSummaryText itself, since
 // the nudge needs minimumOrderValueEur (bot config), which
@@ -194,10 +251,8 @@ function shippingFeeFor(weightGrams, shippingTiers) {
 // 24.99€ more" makes no sense before there's anything in it at all
 // (buildCartSummaryText already shows its own empty-cart message).
 function appendMinimumOrderNudge(cartSummaryText, cart, minimumOrderValueEur) {
-  if (!cart.length || typeof minimumOrderValueEur !== 'number') return cartSummaryText;
-  const total = cartTotal(cart);
-  if (total >= minimumOrderValueEur) return cartSummaryText;
-  const shortfall = minimumOrderValueEur - total;
+  if (!belowMinimumOrder(cart, minimumOrderValueEur)) return cartSummaryText;
+  const shortfall = minimumOrderValueEur - cartTotal(cart);
   return `${cartSummaryText}\n\n⚠️ Minimum order is ${formatEuro(minimumOrderValueEur)} — add ${formatEuro(shortfall)} more to check out.`;
 }
 
@@ -295,9 +350,21 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       // Reaching cart_view means either a fresh look at the cart before
       // checking out, or landing here via cancel_checkout - either way, any
       // idempotency key/order number from a prior attempt is done with and
-      // must not leak into a later, unrelated checkout.
+      // must not leak into a later, unrelated checkout. The customer has
+      // also left the checkout flow entirely (or never entered it), so any
+      // payment-failure streak (see _handleCheckout's catch block) resets -
+      // a fresh attempt later shouldn't inherit an old escalation state.
       ctx.set('checkoutIdempotencyKey', null);
       ctx.set('checkoutOrderNumber', null);
+      ctx.set('checkoutFailureCount', 0);
+      return;
+    }
+
+    if (stateDefinition.id === 'checkout_name') {
+      // "Start Over" (checkout_review's restart_checkout button) routes
+      // straight here, bypassing _handleCheckoutStart - reset the
+      // payment-failure streak here too, same reasoning as cart_view above.
+      ctx.set('checkoutFailureCount', 0);
       return;
     }
 
@@ -770,6 +837,20 @@ class AfroMarketFlowPlugin extends FlowPlugin {
   // checkout_email sequence for anyone who wants to use different details
   // this time.
   async _handleCheckoutStart(ctx) {
+    // Gate entry into the whole checkout_name -> ... -> checkout_review
+    // sequence, not just payment initiation at the end of it - a cart under
+    // threshold must never reach a screen with an active Confirm Order
+    // button, and there's no reason to make the customer type name/address/
+    // email for an order that will just be bounced back at the end anyway.
+    // See afromarket-minimum-order-checkout-flow-bugfix.md. cart_view's own
+    // beforeState already re-shows the shortfall nudge - no separate
+    // message needed here.
+    const cart = ctx.get('cart') || [];
+    if (belowMinimumOrder(cart, this.botConfig.minimumOrderValueEur)) {
+      ctx.goto('cart_view');
+      return true;
+    }
+
     ctx.set('checkoutUsingSavedAddress', false);
 
     // ctx.phone (not ctx.from): from is a routing identifier that's a BSUID
@@ -840,6 +921,18 @@ class AfroMarketFlowPlugin extends FlowPlugin {
     ctx.set('checkoutEmail', email);
     ctx.set('checkoutPhone', phone);
 
+    // Defense in depth alongside _handleCheckoutStart's own gate above - the
+    // cart can't actually change during the checkout_name/address/email
+    // input sequence (no cart-editing UI is reachable from those states),
+    // so this shouldn't ever trigger in practice, but "whatever decides to
+    // render checkout_review" checking the threshold is the actual
+    // requirement, not just the earliest entry point.
+    const cart = ctx.get('cart') || [];
+    if (belowMinimumOrder(cart, this.botConfig.minimumOrderValueEur)) {
+      ctx.goto('cart_view');
+      return true;
+    }
+
     // No PII (no name/address/email/phone) - just enough to tell from the
     // logs alone whether the sequential name/address/email chain actually
     // completed for a given turn, and whether email was supplied or
@@ -873,23 +966,33 @@ class AfroMarketFlowPlugin extends FlowPlugin {
 
     const minimumOrderValueEur = this.botConfig.minimumOrderValueEur;
     const itemsTotalBeforeShipping = cartTotal(cart);
-    if (typeof minimumOrderValueEur === 'number' && itemsTotalBeforeShipping < minimumOrderValueEur) {
-      // Server-side enforcement, independent of the chat nudge shown at
-      // cart_view/checkout_review (beforeState below) - a customer reaching
-      // confirm_order some other way (a redelivered message, a stale button
-      // payload) must not be able to skip the nudge and check out under
-      // threshold. Cart is preserved and no payment provider is ever
-      // called - same "block, don't touch the cart" shape as the
-      // initiatePayment failure catch block further down.
+    if (belowMinimumOrder(cart, minimumOrderValueEur)) {
+      // Backstop, not the primary gate - _handleCheckoutStart/
+      // _handleFinishCheckoutDetails above already refuse to let an
+      // under-threshold cart reach checkout_review's Confirm-Order screen
+      // at all. This only fires if confirm_order is reached some other way
+      // (a redelivered message, a stale button payload). Cart and saved
+      // address are preserved, no payment provider is ever called - same
+      // "block, don't touch the cart" shape as the initiatePayment failure
+      // catch block further down.
+      //
+      // Deliberately goes to cart_view, NOT back to checkout_review: routing
+      // back to checkout_review would immediately re-render the exact same
+      // Confirm-Order screen the customer was just rejected from (with the
+      // nudge merely appended inside it), reading as the bot being stuck
+      // rather than the order being declined - the actual bug this block
+      // used to have (see afromarket-minimum-order-checkout-flow-bugfix.md).
+      // The rejection message here is deliberately distinct from
+      // appendMinimumOrderNudge's standing cart_view/checkout_review text.
       const shortfall = minimumOrderValueEur - itemsTotalBeforeShipping;
       await ctx.send({
         type: 'text',
         to: ctx.from,
         body:
-          `⚠️ Minimum order is ${formatEuro(minimumOrderValueEur)}. ` +
-          `Add ${formatEuro(shortfall)} more to your cart to check out.`
+          `❌ Your order wasn't confirmed — you're still ${formatEuro(shortfall)} short of the ` +
+          `${formatEuro(minimumOrderValueEur)} minimum. Add more items to check out.`
       });
-      ctx.goto('checkout_review');
+      ctx.goto('cart_view');
       return true;
     }
 
@@ -930,6 +1033,16 @@ class AfroMarketFlowPlugin extends FlowPlugin {
           'payment provider IS configured in this environment - refusing to confirm an unpaid order. ' +
           'Set AFROMARKET_PAYMENT_PROVIDER to the provider that is actually configured.'
       );
+      // Same class of permanent, 100%-of-checkouts-blocked config failure as
+      // an initiatePayment 4xx below - added after a subagent review flagged
+      // that this pre-existing guard got none of this fix's admin-visibility
+      // improvements despite being an equally (arguably more) severe outage.
+      await maybeAlertAdminOfConfigFailure(ctx, {
+        botId: this.botConfig.botId,
+        alertBody:
+          `⚠️ AFROMARKET_PAYMENT_PROVIDER="${activeProviderName}" has no configured credentials, but another ` +
+          `provider is - checkout is blocked for all customers. Set AFROMARKET_PAYMENT_PROVIDER correctly in Railway.`
+      });
       await ctx.send({
         type: 'text',
         to: ctx.from,
@@ -1010,6 +1123,9 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       ctx.set('cart', []);
       ctx.set('checkoutIdempotencyKey', null);
       ctx.set('checkoutOrderNumber', null);
+      // A successful initiatePayment call clears whatever failure streak
+      // preceded it - see the catch block's escalation counter below.
+      ctx.set('checkoutFailureCount', 0);
 
       const payText =
         `📝 Order *${orderNumber}* is ready — *${formatEuro(grandTotal)}*.\n\n` +
@@ -1044,17 +1160,60 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       // payment record was ever stored for this attempt (initiatePayment
       // threw before reaching that point), so retrying reuses the same key/
       // order number for what is still logically the same in-flight attempt.
-      logger.warn(`AfroMarket: ${activeProviderName} initiatePayment failed`, {
-        error: err && err.message ? err.message : String(err)
-      });
+      const errorMessage = err && err.message ? err.message : String(err);
+
+      // 4xx from the provider means this exact request will never succeed no
+      // matter how many times it's retried (a code/config bug, e.g. a
+      // malformed PAYPAL_CANCEL_URL) - distinct from a 5xx/network/timeout
+      // failure, which genuinely might succeed on retry. Telling the
+      // customer to "just tap Confirm Order again" for the former is
+      // actively misleading. err.status is undefined for failures that
+      // aren't a classified provider HTTP response (e.g. "no checkoutUrl
+      // returned") - those fall through to the transient-failure branch,
+      // same as before this classification existed.
+      const isConfigClassFailure = typeof err.status === 'number' && err.status >= 400 && err.status < 500;
+
+      if (isConfigClassFailure) {
+        // error, not warn: this class of failure requires human
+        // intervention (a Railway env var, a provider account issue), not
+        // just observability - it will keep failing identically for every
+        // customer until someone fixes it.
+        logger.error(`AfroMarket: ${activeProviderName} initiatePayment failed with a config/client error (status=${err.status}) - every checkout attempt will fail identically until this is fixed`, {
+          error: errorMessage
+        });
+      } else {
+        logger.warn(`AfroMarket: ${activeProviderName} initiatePayment failed`, { error: errorMessage });
+      }
+
+      // Session-scoped, persisted via the same Redis-backed conversation
+      // state as everything else ctx.set() touches - reset on success
+      // (above), on Start Over (checkout_name's beforeState below), and on
+      // Cancel (cart_view's beforeState below).
+      const failureCount = (Number(ctx.get('checkoutFailureCount')) || 0) + 1;
+      ctx.set('checkoutFailureCount', failureCount);
+      const isEscalated = failureCount >= PAYMENT_FAILURE_ESCALATION_THRESHOLD;
+
+      if (isConfigClassFailure) {
+        await maybeAlertAdminOfConfigFailure(ctx, {
+          botId: this.botConfig.botId,
+          alertBody:
+            `⚠️ ${activeProviderName} payment initiation is failing (${err.status}/config error) - checkout is ` +
+            `likely blocked for all customers. Check Railway env vars and logs. (order ${orderNumber})`
+        });
+      }
+
+      const baseMessage = isConfigClassFailure
+        ? `⚠️ We're having trouble starting checkout right now — our team has been notified.\n\n` +
+          `Please try again in a little while, or message us directly.`
+        : `⚠️ We couldn't start the payment for this order. Nothing has been charged and your cart is safe.\n\n` +
+          (activeProviderName === 'stripe'
+            ? `Please check your email address and tap *Confirm Order* to try again.`
+            : `Please tap *Confirm Order* to try again.`);
+
       await ctx.send({
         type: 'text',
         to: ctx.from,
-        body:
-          `⚠️ We couldn't start the payment for this order. Nothing has been charged and your cart is safe.\n\n` +
-          (activeProviderName === 'stripe'
-            ? `Please check your email address and tap *Confirm Order* to try again.`
-            : `Please tap *Confirm Order* to try again.`)
+        body: isEscalated ? `${baseMessage}\n\nStill having trouble? Message us directly and we'll sort out your order.` : baseMessage
       });
       ctx.goto('checkout_review');
       return true;
@@ -1066,6 +1225,7 @@ module.exports = {
   AfroMarketFlowPlugin,
   formatEuro,
   cartTotal,
+  belowMinimumOrder,
   basketWeightGrams,
   shippingFeeFor,
   isShippingEnabled,
