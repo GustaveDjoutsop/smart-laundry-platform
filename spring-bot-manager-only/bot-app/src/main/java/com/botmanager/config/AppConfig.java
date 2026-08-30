@@ -25,7 +25,6 @@ import java.util.concurrent.Executor;
 @EnableConfigurationProperties({
         WhatsAppProperties.class,
         CamPayProperties.class,
-        MqttProperties.class,
         PaymentProperties.class,
         RateLimitProperties.class,
         BotProperties.class,

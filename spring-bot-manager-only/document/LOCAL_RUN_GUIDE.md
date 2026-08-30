@@ -133,16 +133,14 @@ Also supported as Spring properties:
 - `campay.collect-path.<botId>`
 - `campay.status-path.<botId>`
 
-## 4.6 MQTT Variables (Laundry machine integration)
+## 4.6 Machine control (R6: MQTT removed)
 
-| Variable | Required | Default | Purpose |
-|---|---|---|---|
-| `MQTT_URL` | Optional | empty | MQTT broker URL |
-| `MQTT_USERNAME` | Optional | empty | Broker username |
-| `MQTT_PASSWORD` | Optional | empty | Broker password |
-| `MQTT_TOPIC_PREFIX` | Optional | empty | Topic prefix |
-
-If MQTT is not configured, startup continues and MQTT features remain inactive.
+This service no longer talks MQTT directly. MachineStateService owns MQTT for
+real machine telemetry/control (ESP32 pulse, machine lifecycle); this service
+calls it over HTTP (`POST /api/machines/start-cycle`). The `MqttManager` that
+used to live here only ever connected to report a health-check boolean and
+was never subscribed or published to — removed rather than kept as a fallback
+nothing used.
 
 ## 4.7 Rate Limit and Payment Timing
 

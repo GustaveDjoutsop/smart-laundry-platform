@@ -8,8 +8,7 @@ import org.springframework.test.context.TestPropertySource;
 @SpringBootTest
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
-    "spring.data.redis.url=redis://localhost:6379",
-        "mqtt.url="
+    "spring.data.redis.url=redis://localhost:6379"
 })
 class SpringBotManagerApplicationTest {
 

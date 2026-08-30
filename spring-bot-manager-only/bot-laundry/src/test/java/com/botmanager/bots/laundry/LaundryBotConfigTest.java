@@ -111,22 +111,6 @@ class LaundryBotConfigTest {
         }
     }
 
-    @Nested
-    class MqttConfig {
-
-        @Test
-        void shouldSetAndGetTopicPrefix() {
-            // given
-            LaundryBotConfig.MqttConfig mqtt = new LaundryBotConfig.MqttConfig();
-
-            // when
-            mqtt.setTopicPrefix("laundry/machines");
-
-            // then
-            assertThat(mqtt.getTopicPrefix()).isEqualTo("laundry/machines");
-        }
-    }
-
     @Test
     void shouldSetAndGetAllFields() {
         // given

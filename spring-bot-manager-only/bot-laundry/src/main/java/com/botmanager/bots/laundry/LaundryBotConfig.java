@@ -13,8 +13,6 @@ import java.util.Map;
 @Setter
 public class LaundryBotConfig extends BotConfig {
 
-    private MqttConfig mqtt;
-
     private List<MachineConfig> machines;
 
     private Map<String, List<ProgramConfig>> programs;
@@ -60,13 +58,6 @@ public class LaundryBotConfig extends BotConfig {
         private boolean washFlowEnabled = false;
 
         private boolean reservationEnabled = false;
-    }
-
-    @Getter
-    @Setter
-    public static class MqttConfig {
-
-        private String topicPrefix;
     }
 
     @Getter

@@ -51,12 +51,6 @@
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
-        <!-- MQTT Client -->
-        <dependency>
-            <groupId>com.hivemq</groupId>
-            <artifactId>hivemq-mqtt-client</artifactId>
-        </dependency>
-
         <!-- Mustache Templating -->
         <dependency>
             <groupId>com.github.spullara.mustache.java</groupId>

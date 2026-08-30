@@ -7,9 +7,6 @@
     "whatsapp": { "windowMs": 60000, "maxRequests": 120 },
     "payments": { "windowMs": 60000, "maxRequests": 120 }
   },
-  "mqtt": {
-    "topicPrefix": "laundry"
-  },
   "shortCycle": {
     "duration": 30,
     "price": 1000,

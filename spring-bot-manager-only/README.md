@@ -98,7 +98,7 @@ Network access service bot for pressing / laundry services.
 
 ```
 spring-bot-manager-only/
-├── bot-core/        # Flow engine, WhatsApp client, Redis, persistence, MQTT manager
+├── bot-core/        # Flow engine, WhatsApp client, Redis, persistence
 ├── bot-payment/     # PaymentGateway interface + DefaultPaymentGateway (HTTP delegate)
 │                    # PaymentsController (webhook forwarder)
 │                    # MicroserviceProperties (configurable URLs)
@@ -180,9 +180,6 @@ Place bot config files in `configs/bots/`:
     "closeTime": "22:00",
     "closingBufferMinutes": 15,
     "timezone": "Africa/Douala"
-  },
-  "mqtt": {
-    "topicPrefix": "laundry/cameroon"
   }
 }
 ```
