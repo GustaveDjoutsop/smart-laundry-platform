@@ -125,13 +125,34 @@ class PaymentGateway {
     if (!provider) throw new Error(`Unknown provider: ${providerName}`);
     const res = await provider.checkStatus(transactionId);
 
+    // PayPal's checkStatus self-heals an order stuck at APPROVED by capturing
+    // it directly (see paypalProvider.js) - a genuine alternate route to the
+    // same capture response the CHECKOUT.ORDER.APPROVED webhook's own capture
+    // normally feeds into routes/payments.js's recordPaypalCapture. When this
+    // poll is what actually drove the capture (e.g. because that webhook's
+    // delivery failed signature verification), the payer/shipping data it
+    // returned must still reach payment metadata the same way - otherwise
+    // afromarketFlowPlugin's post-payment-address flow (which reads
+    // metadata.paypalPayerName/paypalShippingAddress) always falls through to
+    // asking the customer for an address they already gave PayPal. Read-merge-
+    // write, not a fresh object - appendEvent's metadata field replaces
+    // wholesale, and this must not drop the cart/name/address/etc. captured
+    // at initiatePayment time.
+    let metadata;
+    if ((res.payerName !== undefined || res.shippingAddress !== undefined) && this.store && this.store.getPayment) {
+      const existing = await this.store.getPayment({ botId, transactionId });
+      const existingMetadata = (existing && existing.metadata) || {};
+      metadata = { ...existingMetadata, paypalPayerName: res.payerName, paypalShippingAddress: res.shippingAddress };
+    }
+
     const updated = {
       botId,
       provider: providerName,
       transactionId,
       status: normalizeStatus(res.status),
       checkedAt: new Date().toISOString(),
-      raw: res.raw || null
+      raw: res.raw || null,
+      ...(metadata !== undefined ? { metadata } : {})
     };
 
     let previousStatus = null;

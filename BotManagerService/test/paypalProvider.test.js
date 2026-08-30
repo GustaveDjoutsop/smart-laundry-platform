@@ -205,6 +205,55 @@ test('PayPalProvider checkStatus self-heals a stuck APPROVED order by capturing 
   assert.equal(result.status, 'COMPLETED');
 });
 
+// This self-heal path is a genuine alternate route to the same capture
+// response the CHECKOUT.ORDER.APPROVED webhook's own capture normally feeds
+// into routes/payments.js's recordPaypalCapture - if this poll is what
+// actually drives the capture (e.g. because that webhook's delivery failed
+// signature verification, a real production scenario this codebase has hit),
+// the payer/shipping data must not be silently dropped. See
+// paymentGateway.test.js for the metadata-merge side of this.
+test('PayPalProvider checkStatus self-heal capture also extracts payer name and shipping address', async () => {
+  const { fetchImpl } = makeFetch([
+    TOKEN_RESPONSE,
+    { status: 200, body: { status: 'APPROVED' } },
+    {
+      status: 201,
+      body: {
+        status: 'COMPLETED',
+        payer: { name: { given_name: 'Jane', surname: 'Doe' } },
+        purchase_units: [
+          {
+            shipping: {
+              address: {
+                address_line_1: '12 Main St',
+                postal_code: '10115',
+                admin_area_2: 'Berlin',
+                country_code: 'DE'
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]);
+
+  const provider = new PayPalProvider({ clientId: 'id', clientSecret: 'secret', fetchImpl });
+  const result = await provider.checkStatus('ORDER-STUCK-WITH-ADDRESS');
+
+  assert.equal(result.payerName, 'Jane Doe');
+  assert.equal(result.shippingAddress, '12 Main St, 10115 Berlin, DE');
+});
+
+test('PayPalProvider checkStatus does not return payerName/shippingAddress when the order was already completed (no self-heal capture attempted)', async () => {
+  const { fetchImpl } = makeFetch([TOKEN_RESPONSE, { status: 200, body: { status: 'COMPLETED' } }]);
+
+  const provider = new PayPalProvider({ clientId: 'id', clientSecret: 'secret', fetchImpl });
+  const result = await provider.checkStatus('ORDER-1');
+
+  assert.equal(result.payerName, undefined);
+  assert.equal(result.shippingAddress, undefined);
+});
+
 test('PayPalProvider checkStatus maps a voided order to FAILED', async () => {
   const { fetchImpl } = makeFetch([TOKEN_RESPONSE, { status: 200, body: { status: 'VOIDED' } }]);
 

@@ -107,6 +107,68 @@ test('checkStatus returns previousStatus reflecting the store snapshot before th
   assert.equal(result.previousStatus, 'PENDING');
 });
 
+// PayPal's checkStatus self-heals a stuck APPROVED order by capturing it
+// directly (see paypalProvider.test.js) - a genuine alternate route to the
+// capture response the CHECKOUT.ORDER.APPROVED webhook's own capture
+// normally feeds into routes/payments.js's recordPaypalCapture. When that
+// webhook never arrives (e.g. a signature verification failure - a real
+// production scenario this codebase has hit), this poll is what actually
+// drives the capture, so the payer/shipping data it returns must still
+// reach payment metadata - see afromarket-remove-prepayment-address-
+// collection.md, which reads metadata.paypalPayerName/paypalShippingAddress.
+test('checkStatus merges a self-heal capture\'s payer name and shipping address into payment metadata, preserving existing metadata', async () => {
+  const provider = fakeProvider({
+    checkStatus: async () => ({ status: 'COMPLETED', raw: {}, payerName: 'Jane Doe', shippingAddress: '12 Main St, 10115 Berlin, DE' })
+  });
+  const store = new PaymentStore({ ttlSeconds: 60 });
+  const gateway = new PaymentGateway({ providers: { paypal: provider }, store });
+
+  await store.appendEvent({
+    botId: 'afromarket-selfheal-test',
+    transactionId: 'tx-selfheal',
+    provider: 'paypal',
+    eventType: 'payment_initiated',
+    status: 'PENDING',
+    source: 'initiate',
+    metadata: { service: 'afromarket_order', orderNumber: 'AM-1', cart: [{ productId: 'rice_1kg', qty: 1 }] }
+  });
+
+  const result = await gateway.checkStatus({ botId: 'afromarket-selfheal-test', provider: 'paypal', transactionId: 'tx-selfheal' });
+
+  assert.deepEqual(result.metadata, {
+    service: 'afromarket_order',
+    orderNumber: 'AM-1',
+    cart: [{ productId: 'rice_1kg', qty: 1 }],
+    paypalPayerName: 'Jane Doe',
+    paypalShippingAddress: '12 Main St, 10115 Berlin, DE'
+  });
+
+  const stored = await store.getPayment({ botId: 'afromarket-selfheal-test', transactionId: 'tx-selfheal' });
+  assert.equal(stored.metadata.paypalPayerName, 'Jane Doe');
+  assert.equal(stored.metadata.orderNumber, 'AM-1', 'the cart/order data from initiatePayment must survive the merge');
+});
+
+test('checkStatus does not touch metadata at all when the provider returns no payerName/shippingAddress (e.g. Stripe, or an already-completed PayPal order)', async () => {
+  const provider = fakeProvider({ checkStatus: async () => ({ status: 'COMPLETED', raw: {} }) });
+  const store = new PaymentStore({ ttlSeconds: 60 });
+  const gateway = new PaymentGateway({ providers: { stripe: provider }, store });
+
+  await store.appendEvent({
+    botId: 'afromarket-nometadata-test',
+    transactionId: 'tx-nometadata',
+    provider: 'stripe',
+    eventType: 'payment_initiated',
+    status: 'PENDING',
+    source: 'initiate',
+    metadata: { orderNumber: 'AM-2' }
+  });
+
+  await gateway.checkStatus({ botId: 'afromarket-nometadata-test', provider: 'stripe', transactionId: 'tx-nometadata' });
+
+  const stored = await store.getPayment({ botId: 'afromarket-nometadata-test', transactionId: 'tx-nometadata' });
+  assert.deepEqual(stored.metadata, { orderNumber: 'AM-2' }, 'pre-existing metadata must be untouched, not wiped to null');
+});
+
 test('handleWebhook propagates the provider-parsed eventId for downstream dedup', () => {
   const provider = fakeProvider({
     parseWebhook: () => ({ transactionId: 'tx1', status: 'COMPLETED', amount: 10, externalRef: 'AM-1', eventId: 'evt_123', raw: {} })

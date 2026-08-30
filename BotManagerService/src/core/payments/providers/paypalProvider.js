@@ -227,7 +227,21 @@ class PayPalProvider {
     if (data.status === 'APPROVED') {
       const captured = await this.captureOrder(transactionId);
       if (captured.ok) {
-        return { transactionId, status: mapOrderStatus(captured.data.status), raw: captured.data };
+        // Same payer/shipping extraction as routes/payments.js's
+        // recordPaypalCapture (the CHECKOUT.ORDER.APPROVED webhook's own
+        // capture path) - this self-heal path is a genuine alternate route
+        // to the same capture response and must not silently drop the data
+        // that afromarketFlowPlugin's post-payment-address flow depends on
+        // (see afromarket-remove-prepayment-address-collection.md). Callers
+        // (PaymentGateway.checkStatus) merge these into payment metadata.
+        const purchaseUnit = captured.data.purchase_units && captured.data.purchase_units[0];
+        return {
+          transactionId,
+          status: mapOrderStatus(captured.data.status),
+          raw: captured.data,
+          payerName: formatPayerName(captured.data.payer),
+          shippingAddress: formatShippingAddress(purchaseUnit && purchaseUnit.shipping && purchaseUnit.shipping.address)
+        };
       }
     }
 
