@@ -296,9 +296,21 @@ test('AfroMarket checkout: a misconfigured active provider (paypal selected but 
     };
 
     const step = createStepper();
-    await driveToCheckoutReview(step);
-
-    const result = await step('confirm_order');
+    await step('hi');
+    await step('shop_online');
+    await step('cat_beans_nuts');
+    await step('product_haricot_rouge_1kg');
+    // 4x clears the 24.99€ minimum order value (4 * 7.99 = 31.96). No name/
+    // address/email steps here at all - paypal-active skips that sequence
+    // entirely (see afromarket-remove-prepayment-address-collection.md),
+    // so _handleCheckout (and this guard inside it) fires straight off the
+    // single 'start_checkout' tap.
+    await step('cart_add');
+    await step('cart_add');
+    await step('cart_add');
+    await step('cart_add');
+    await step('view_cart');
+    const result = await step('start_checkout');
 
     assert.equal(result.outboundIntents[0].type, 'text');
     assert.match(result.outboundIntents[0].body, /temporarily unavailable/);

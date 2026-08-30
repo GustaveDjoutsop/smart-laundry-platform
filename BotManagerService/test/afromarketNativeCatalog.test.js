@@ -5,6 +5,11 @@
 process.env.STRIPE_SECRET_KEY = 'sk_test';
 process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
 process.env.STRIPE_SUCCESS_URL = 'https://afromarket.example.com/payment-return';
+// These tests exercise the post-native-order checkout hand-off through
+// checkout_name, the pre-payment collection sequence that's now Stripe-only
+// - the provider selector defaults to paypal, which skips it entirely (see
+// afromarket-remove-prepayment-address-collection.md).
+process.env.AFROMARKET_PAYMENT_PROVIDER = 'stripe';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');

@@ -22,6 +22,16 @@ function buildOrderConfirmLockKey({ botId, transactionId }) {
   return `orderConfirmSent:${botId}:${transactionId}`;
 }
 
+// Deliberately a separate key from buildOrderConfirmLockKey above, not a
+// reuse of it - that lock is acquired the moment payment.completed fires
+// (whether the order finalizes immediately or is deferred pending an
+// address), so it's already held by the time _onPostPaymentAddressCaptured
+// runs. Finalizing needs its own idempotency guard against a redelivered/
+// duplicate address reply, at a genuinely later point in time.
+function buildPostPaymentAddressCapturedLockKey({ botId, transactionId }) {
+  return `orderAddressCaptured:${botId}:${transactionId}`;
+}
+
 function buildErasurePendingKey({ botId, from }) {
   return `deletePending:${botId}:${from}`;
 }
@@ -64,8 +74,14 @@ class AfroMarketBot extends ConfigBot {
     });
 
     this._onPaymentCompleted = this._onPaymentCompleted.bind(this);
+    this._onPostPaymentAddressCaptured = this._onPostPaymentAddressCaptured.bind(this);
     if (paymentEvents && paymentEvents.on) {
       paymentEvents.on('payment.completed', this._onPaymentCompleted);
+      // See afromarket-remove-prepayment-address-collection.md - fired by
+      // afromarketFlowPlugin.js's _handleCapturePostPaymentAddress once the
+      // customer replies to the post-payment address prompt
+      // _askForPostPaymentAddress below sends them into.
+      paymentEvents.on('afromarket.post_payment_address_captured', this._onPostPaymentAddressCaptured);
     }
   }
 
@@ -309,16 +325,36 @@ class AfroMarketBot extends ConfigBot {
     const acquiredLock = await redisManager.setnx(lockKey, '1', 60 * 60 * 24);
     if (!acquiredLock) return;
 
-    await this._recordOrder({ botId, transactionId, payment, metadata, customerPhone });
-
     // Same PayPal-over-chat preference as _recordOrder - the customer should
-    // see the address their order is actually shipping to, not a stale
-    // chat-entered one PayPal's own data has since superseded.
+    // see (or be asked for) the address their order is actually shipping
+    // to, not a stale chat-entered one PayPal's own data has since
+    // superseded. With pre-payment collection removed for the PayPal path
+    // (see afromarket-remove-prepayment-address-collection.md),
+    // metadata.name/address are now genuinely absent rather than merely
+    // secondary for most PayPal orders - not every PayPal payment method
+    // (a guest/card payment through the Payment Link) returns a shipping
+    // address either.
+    const buyerName = metadata.paypalPayerName || metadata.name || null;
+    const buyerAddress = metadata.paypalShippingAddress || metadata.address || null;
+
+    if (!buyerAddress) {
+      // Money has already moved - this must never block or reverse that.
+      // invoice_record is legally append-only (no update() - see
+      // InvoiceRecordStore, § 147 AO / § 257 HGB), so _recordOrder's insert
+      // is deliberately deferred rather than writing a permanently-
+      // incomplete invoice now and having no way to fix it once the address
+      // does arrive.
+      await this._askForPostPaymentAddress({ botId, transactionId, payment, metadata, customerPhone });
+      return;
+    }
+
+    await this._recordOrder({ botId, transactionId, payment, metadata, customerPhone, buyerName, buyerAddress });
+
     const confirmationText = buildOrderConfirmationText({
       orderNumber: metadata.orderNumber,
       cart: metadata.cart || [],
-      name: metadata.paypalPayerName || metadata.name,
-      address: metadata.paypalShippingAddress || metadata.address,
+      name: buyerName,
+      address: buyerAddress,
       phone: metadata.phone,
       shippingFeeEur: metadata.shippingFeeEur
     });
@@ -338,18 +374,144 @@ class AfroMarketBot extends ConfigBot {
     });
   }
 
+  // Puts the conversation directly into post_payment_address_needed
+  // (afromarket.bot.json) via a direct Redis write - same mechanism
+  // _handleNativeOrder (afromarketFlowPlugin.js) already uses to hand off
+  // into the flow engine from outside a normal flowEngine.step() call, since
+  // this fires from an async payment-webhook event, not an inbound WhatsApp
+  // message. The stashed context is everything the eventual
+  // afromarket.post_payment_address_captured handler below needs to finish
+  // the order - deliberately the same {payment, metadata} shape
+  // _recordOrder already takes, so no separate reconstruction logic is
+  // needed once the address arrives.
+  async _askForPostPaymentAddress({ botId, transactionId, payment, metadata, customerPhone }) {
+    // buildOrderConfirmLockKey is already held by the caller at this point
+    // (_onPaymentCompleted acquires it before branching into this deferred
+    // path), so if anything below throws, this order is stranded for 24h
+    // with no address prompt sent and no invoice written - a redelivered
+    // payment.completed webhook would just hit the held lock and return
+    // early. The lock is released on failure so a redelivery can retry.
+    try {
+      const appConfig = getAppConfig();
+      const conversationKey = `conv:${botId}:${customerPhone}`;
+      const existingSerializedState = await redisManager.get(conversationKey);
+      const conversationState = existingSerializedState
+        ? JSON.parse(existingSerializedState)
+        : { currentFlowId: null, currentStateId: null, context: {} };
+
+      conversationState.currentFlowId = this.config.defaultFlowId || 'main_menu';
+      conversationState.currentStateId = 'post_payment_address_needed';
+      conversationState.context = conversationState.context || {};
+      conversationState.context.pendingOrderTransactionId = transactionId;
+      conversationState.context.pendingOrderPayment = {
+        provider: payment && payment.provider,
+        amount: payment && payment.amount,
+        currency: payment && payment.currency,
+        externalRef: payment && payment.externalRef
+      };
+      conversationState.context.pendingOrderMetadata = metadata;
+      // The already-validated checkout phone, not re-derived from the reply
+      // turn's ctx.phone/ctx.from - that fallback chain is BSUID-fragile
+      // (see _handleCheckoutStart's own comment on the same issue) and has
+      // no guaranteed relationship to the phone this order actually paid
+      // under.
+      conversationState.context.pendingOrderCustomerPhone = customerPhone;
+
+      await redisManager.setex(conversationKey, appConfig.redis.ttlSeconds, JSON.stringify(conversationState));
+
+      if (!this.whatsapp.isConfigured()) {
+        logger.info('AfroMarket order paid but missing a delivery address (WhatsApp not configured)', { botId, transactionId, customerPhone });
+        return;
+      }
+
+      // post_payment_address_needed's own `prompt` field carries this same
+      // text for the (normally unreachable) case the flow engine re-prompts
+      // on its own - sent here explicitly because entering that state via a
+      // direct Redis write, not a ctx.goto() inside a flowEngine.step()
+      // call, doesn't trigger the engine's own "just entered an input
+      // state, send its prompt" behavior.
+      await this.whatsapp.sendText({
+        to: customerPhone,
+        body: `✅ Payment received! We just need your delivery address to ship this — what's the full address?`
+      });
+    } catch (error) {
+      logger.error('AfroMarket: failed to stash pending order and prompt for a post-payment address - releasing the confirm lock so a redelivered webhook can retry', {
+        botId,
+        transactionId,
+        customerPhone,
+        error: error.message
+      });
+      await redisManager.del(buildOrderConfirmLockKey({ botId, transactionId })).catch(() => {});
+    }
+  }
+
+  // Fired by afromarketFlowPlugin.js's _handleCapturePostPaymentAddress once
+  // the customer replies with their address. Finalizes exactly what
+  // _onPaymentCompleted would have done immediately if PayPal had returned
+  // the address in the first place.
+  async _onPostPaymentAddressCaptured(event) {
+    const botId = this.config && this.config.botId ? this.config.botId : 'afromarket';
+    if (!event || event.botId !== botId) return;
+
+    const { transactionId, customerPhone, address, payment, metadata } = event;
+    if (!transactionId || !customerPhone || !address || !metadata) {
+      // The emitter (_handleCapturePostPaymentAddress) already guarantees
+      // transactionId/payment/metadata and checks address before emitting,
+      // so a falsy value here in practice means a missing customerPhone -
+      // logged rather than silently dropped so a stuck order is observable
+      // instead of just never finalizing.
+      logger.error('AfroMarket: post-payment-address-captured event is missing required fields, dropping it', {
+        botId,
+        transactionId,
+        customerPhone,
+        hasAddress: Boolean(address),
+        hasMetadata: Boolean(metadata)
+      });
+      return;
+    }
+
+    const lockKey = buildPostPaymentAddressCapturedLockKey({ botId, transactionId });
+    const acquiredLock = await redisManager.setnx(lockKey, '1', 60 * 60 * 24);
+    if (!acquiredLock) return;
+
+    const buyerName = metadata.paypalPayerName || metadata.name || null;
+
+    await this._recordOrder({ botId, transactionId, payment, metadata, customerPhone, buyerName, buyerAddress: address });
+
+    const confirmationText = buildOrderConfirmationText({
+      orderNumber: metadata.orderNumber,
+      cart: metadata.cart || [],
+      name: buyerName,
+      address,
+      phone: metadata.phone,
+      shippingFeeEur: metadata.shippingFeeEur
+    });
+
+    if (!this.whatsapp.isConfigured()) {
+      logger.info('AfroMarket order finalized after post-payment address capture (WhatsApp not configured)', { botId, transactionId, customerPhone });
+      return;
+    }
+
+    await this.whatsapp.sendButtons({
+      to: customerPhone,
+      body: confirmationText,
+      buttons: [
+        { id: 'shop_again', title: '🛍 Shop Again' },
+        { id: 'menu', title: '🏠 Main Menu' }
+      ]
+    });
+  }
+
   // Snapshots the order into invoice_record (append-only, 10y retention) and
   // upserts customer_profile. Best-effort: a bookkeeping/profile write
   // failure must not block the customer's order confirmation from sending.
-  async _recordOrder({ botId, transactionId, payment, metadata, customerPhone }) {
-    // PayPal only learns the shipping address and payer name once the buyer
-    // has already paid (its checkout page is PayPal-hosted - see
-    // recordPaypalCapture in routes/payments.js) - when present, that's more
-    // trustworthy than whatever was typed in chat before payment, since it
-    // came straight from the buyer's PayPal account rather than free text.
-    const buyerName = metadata.paypalPayerName || metadata.name || null;
-    const buyerAddress = metadata.paypalShippingAddress || metadata.address || null;
-
+  //
+  // buyerName/buyerAddress are resolved by the caller (_onPaymentCompleted
+  // or _onPostPaymentAddressCaptured), not recomputed here - the latter's
+  // address came from the customer's own post-payment reply, not from
+  // metadata.paypalShippingAddress/metadata.address at all, so a single
+  // COALESCE here couldn't express both callers' logic correctly.
+  async _recordOrder({ botId, transactionId, payment, metadata, customerPhone, buyerName, buyerAddress }) {
     try {
       await withRetries(() =>
         this.invoiceRecordStore.insert({

@@ -3,6 +3,7 @@ const { FlowPlugin } = require('../../core/flows/flowPlugin');
 const { getPaymentService } = require('../../core/payments/paymentService');
 const { CustomerProfileStore } = require('../../core/customers/customerProfileStore');
 const { redisManager } = require('../../core/redisManager');
+const { paymentEvents } = require('../../core/payments/paymentEvents');
 const { logger } = require('../../utils/logger');
 
 // See afromarket-payment-failure-handling-bugfix.md. A config-class
@@ -460,6 +461,10 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       return this._handleFinishCheckoutDetails(ctx);
     }
 
+    if (action === 'checkout.capturePostPaymentAddress') {
+      return this._handleCapturePostPaymentAddress(ctx);
+    }
+
     return false;
   }
 
@@ -863,6 +868,41 @@ class AfroMarketFlowPlugin extends FlowPlugin {
     const phone = rawPhone ? (rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`) : '';
     ctx.set('checkoutPhone', phone);
 
+    // Resolves the open decision the original PayPal migration task
+    // explicitly left unresolved (Workstream 2, point 4) - confirmed by
+    // Sunday: skip checkout_name/address/email and checkout_review's
+    // confirm screen entirely for PayPal, straight from cart confirmation
+    // to the payment link. PayPal supplies the shipping address and payer
+    // name from its capture response instead (see recordPaypalCapture in
+    // routes/payments.js); AfroMarketBot.js's post-payment fallback
+    // (post_payment_address_needed) covers the case where it doesn't. Also
+    // skips the saved-profile lookup below - PayPal already has whatever
+    // address is on file for the buyer's own PayPal account, and prefilling
+    // from a possibly-stale customer_profile row here would just create the
+    // exact "chat-entered value that isn't actually more current than
+    // PayPal's own data" ambiguity Workstream 2's COALESCE preference logic
+    // was built to resolve, for no benefit (the customer is never shown or
+    // asked to confirm it). The Stripe path below is entirely unchanged -
+    // Stripe Checkout Sessions in this codebase were built around a
+    // pre-collected customerEmail, and switching back to Stripe must keep
+    // working exactly as it does today.
+    if (getActivePaymentProvider() === 'paypal') {
+      ctx.set('checkoutName', '');
+      ctx.set('checkoutAddress', '');
+      ctx.set('checkoutEmail', '');
+      // Same idempotency-key/order-number generation checkout_review's own
+      // beforeState normally does - skipped here along with the rest of
+      // that screen, so _handleCheckout still gets double-tap protection
+      // and a stable order number across a retried initiatePayment call.
+      if (!ctx.get('checkoutIdempotencyKey')) {
+        ctx.set('checkoutIdempotencyKey', crypto.randomUUID());
+      }
+      if (!ctx.get('checkoutOrderNumber')) {
+        ctx.set('checkoutOrderNumber', generateOrderNumber());
+      }
+      return this._handleCheckout(ctx);
+    }
+
     let profile = null;
     try {
       profile = await this.customerProfileStore.get({ botId: this.botConfig.botId, whatsappId: ctx.from });
@@ -945,6 +985,79 @@ class AfroMarketFlowPlugin extends FlowPlugin {
     return true;
   }
 
+  // Reached from post_payment_address_needed (afromarket.bot.json), which
+  // AfroMarketBot.js's _askForPostPaymentAddress puts the conversation into
+  // directly (same "write conversationState straight to Redis" mechanism
+  // _handleNativeOrder already uses, not a normal ctx.goto() mid-turn) -
+  // this is money-already-moved territory: PayPal's capture succeeded but
+  // returned no shipping address (a guest/card payment can complete without
+  // one). See afromarket-remove-prepayment-address-collection.md point 3.
+  //
+  // The actual order-finalizing work (invoice insert, customer_profile
+  // upsert, the real "order confirmed" message) happens in AfroMarketBot.js,
+  // not here - this FlowPlugin has no access to invoiceRecordStore or
+  // identityResolver. Emitting an event and letting AfroMarketBot's own
+  // listener do that work mirrors the existing payment.completed ->
+  // _onPaymentCompleted pattern exactly, rather than inventing a new way
+  // for a flow handler to reach into Bot-level stores.
+  async _handleCapturePostPaymentAddress(ctx) {
+    const address = String(ctx.get('postPaymentAddressRaw') || '').trim();
+    if (!address) {
+      // Free text, but not truly empty-tolerant like checkout_address - an
+      // address is the one thing this whole detour exists to collect, so a
+      // blank reply (e.g. an unsupported message type flowEngine.js
+      // couldn't extract text from) re-prompts instead of silently
+      // finalizing an order with no delivery address after all.
+      ctx.goto('post_payment_address_needed');
+      return true;
+    }
+
+    const transactionId = ctx.get('pendingOrderTransactionId');
+    const payment = ctx.get('pendingOrderPayment');
+    const metadata = ctx.get('pendingOrderMetadata');
+    // The phone the order actually paid under, stashed by
+    // AfroMarketBot.js's _askForPostPaymentAddress - not ctx.phone/ctx.from
+    // from this reply turn, which for a BSUID-only contact can be a routing
+    // identifier with no guaranteed relationship to the checkout phone.
+    const customerPhone = ctx.get('pendingOrderCustomerPhone');
+
+    if (transactionId && payment && metadata && customerPhone) {
+      paymentEvents.emit('afromarket.post_payment_address_captured', {
+        botId: this.botConfig.botId,
+        transactionId,
+        customerPhone,
+        address,
+        payment,
+        metadata
+      });
+
+      // Cleared once handed off, same as checkoutIdempotencyKey/
+      // checkoutOrderNumber elsewhere in this file - not load-bearing (this
+      // state is never re-entered without AfroMarketBot.js overwriting
+      // these again first) but avoids leaving stale order data sitting in
+      // the conversation's Redis blob.
+      ctx.set('pendingOrderTransactionId', null);
+      ctx.set('pendingOrderPayment', null);
+      ctx.set('pendingOrderMetadata', null);
+      ctx.set('pendingOrderCustomerPhone', null);
+    } else {
+      // Shouldn't happen (this state is only ever entered with these four
+      // set together), but a customer reply must never vanish silently if
+      // it somehow does - loud enough to notice, not a thrown exception
+      // that would drop their reply with no response at all.
+      logger.error('AfroMarket: post-payment address captured but pending order context is missing', { transactionId, customerPhone });
+    }
+
+    // The real detailed confirmation (address, total, delivery estimate)
+    // arrives as a separate, later message from AfroMarketBot's event
+    // listener once the DB writes complete - this is just the immediate
+    // turn's response, reusing order_confirmed the same way every other
+    // checkout outcome already funnels through it.
+    ctx.set('orderConfirmationText', `✅ Thanks! Finalizing your order now — you'll get a confirmation shortly.`);
+    ctx.goto('order_confirmed');
+    return true;
+  }
+
   async _handleCheckout(ctx) {
     const cart = ctx.get('cart') || [];
     const name = ctx.get('checkoutName') || 'there';
@@ -1012,6 +1125,15 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       return true;
     }
 
+    // checkout_review's template shows Name/Address/Phone/Email fields that
+    // are never populated for the PayPal path (collection is skipped
+    // entirely - see _handleCheckoutStart) - routing a failure back there
+    // would render a confusing blank-fields screen instead of the "no
+    // pre-payment details to review" state the customer actually left from.
+    // cart_view is always a valid, populated screen to return to regardless
+    // of provider.
+    const failureReturnState = activeProviderName === 'paypal' ? 'cart_view' : 'checkout_review';
+
     // Distinguishes two very different situations that both look like
     // "!paymentsConfigured": local dev with zero payment env vars at all
     // (handled below - legacy instant confirmation, unchanged from before
@@ -1048,7 +1170,7 @@ class AfroMarketFlowPlugin extends FlowPlugin {
         to: ctx.from,
         body: `⚠️ Payment is temporarily unavailable. Please try again shortly, or contact us if this persists.`
       });
-      ctx.goto('checkout_review');
+      ctx.goto(failureReturnState);
       return true;
     }
 
@@ -1093,7 +1215,7 @@ class AfroMarketFlowPlugin extends FlowPlugin {
           to: ctx.from,
           body: `⚠️ Shipping is temporarily unavailable for this order. Please try again shortly, or contact us if this persists.`
         });
-        ctx.goto('checkout_review');
+        ctx.goto(failureReturnState);
         return true;
       }
     }
@@ -1111,7 +1233,17 @@ class AfroMarketFlowPlugin extends FlowPlugin {
         customerEmail: email,
         customerName: name,
         idempotencyKey,
-        metadata: { service: 'afromarket_order', orderNumber, cart: cartSnapshot, name, address, phone, email, shippingFeeEur }
+        // metadata.name is deliberately the RAW checkoutName (possibly
+        // null/empty - genuinely absent for the PayPal skip-path, or for a
+        // Stripe customer who somehow reached here without one), not the
+        // `name` local's 'there' greeting fallback used elsewhere in this
+        // function. _recordOrder's `metadata.paypalPayerName || metadata.name`
+        // preference (AfroMarketBot.js) needs to see "no chat name" as
+        // falsy, not as the literal string "there" masquerading as a real
+        // one - confirmed via afromarket-remove-prepayment-address-
+        // collection.md's point 4, since chat-entered values are now
+        // usually absent rather than merely secondary for PayPal orders.
+        metadata: { service: 'afromarket_order', orderNumber, cart: cartSnapshot, name: ctx.get('checkoutName') || null, address, phone, email, shippingFeeEur }
       });
 
       if (!payment.checkoutUrl) {
@@ -1131,6 +1263,20 @@ class AfroMarketFlowPlugin extends FlowPlugin {
         `📝 Order *${orderNumber}* is ready — *${formatEuro(grandTotal)}*.\n\n` +
         `Tap below to pay securely. We'll confirm right here as soon as your payment goes through.`;
       ctx.set('orderConfirmationText', payText);
+
+      // A customer going straight from "add to cart" to "here's a payment
+      // link" with zero explanation (since name/address/email collection is
+      // skipped entirely for PayPal - see _handleCheckoutStart) would read
+      // as a worse experience than the old flow, not a smoother one, unless
+      // it's framed. Stripe still collects details beforehand, so it needs
+      // no equivalent message.
+      if (activeProviderName === 'paypal') {
+        await ctx.send({
+          type: 'text',
+          to: ctx.from,
+          body: `Tap the link below to pay. We'll get your delivery address from PayPal automatically — no need to type it here.`
+        });
+      }
 
       try {
         await ctx.send({
@@ -1208,14 +1354,17 @@ class AfroMarketFlowPlugin extends FlowPlugin {
         : `⚠️ We couldn't start the payment for this order. Nothing has been charged and your cart is safe.\n\n` +
           (activeProviderName === 'stripe'
             ? `Please check your email address and tap *Confirm Order* to try again.`
-            : `Please tap *Confirm Order* to try again.`);
+            // PayPal skips checkout_review entirely (see
+            // _handleCheckoutStart) - there's no "Confirm Order" button to
+            // point back to, only cart_view's "Checkout" button.
+            : `Please tap *Checkout* to try again.`);
 
       await ctx.send({
         type: 'text',
         to: ctx.from,
         body: isEscalated ? `${baseMessage}\n\nStill having trouble? Message us directly and we'll sort out your order.` : baseMessage
       });
-      ctx.goto('checkout_review');
+      ctx.goto(failureReturnState);
       return true;
     }
   }
