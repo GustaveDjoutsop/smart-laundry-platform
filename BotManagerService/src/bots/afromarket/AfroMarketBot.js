@@ -319,7 +319,8 @@ class AfroMarketBot extends ConfigBot {
       cart: metadata.cart || [],
       name: metadata.paypalPayerName || metadata.name,
       address: metadata.paypalShippingAddress || metadata.address,
-      phone: metadata.phone
+      phone: metadata.phone,
+      shippingFeeEur: metadata.shippingFeeEur
     });
 
     if (!this.whatsapp.isConfigured()) {

@@ -17,6 +17,7 @@ test('toCatalogItem maps a bot.json product onto the Catalog Batch UPDATE shape'
     id: 'ndole_250g',
     name: 'Ndolè Cameroun 250g',
     priceEur: 9.99,
+    weightGrams: 250,
     imageUrl: 'https://legal.botmanagementservice.eu/products/afromarket-ndole-250g.jpg',
     description: 'Washed and dried Cameroonian Ndolè leaves.'
   };
@@ -40,7 +41,7 @@ test('toCatalogItem maps a bot.json product onto the Catalog Batch UPDATE shape'
 test('toCatalogItem formats a whole-euro price with two decimal places', () => {
   // when
   const item = toCatalogItem({
-    product: { id: 'p1', name: 'Item', priceEur: 8, imageUrl: 'https://example.com/p1.jpg' },
+    product: { id: 'p1', name: 'Item', priceEur: 8, weightGrams: 500, imageUrl: 'https://example.com/p1.jpg' },
     currency: 'EUR',
     phoneNumber: '4915123456789'
   });
@@ -52,7 +53,7 @@ test('toCatalogItem formats a whole-euro price with two decimal places', () => {
 test('toCatalogItem falls back to the product name when description is missing', () => {
   // when
   const item = toCatalogItem({
-    product: { id: 'p1', name: 'Item', priceEur: 1.5, imageUrl: 'https://example.com/p1.jpg' },
+    product: { id: 'p1', name: 'Item', priceEur: 1.5, weightGrams: 500, imageUrl: 'https://example.com/p1.jpg' },
     currency: 'EUR',
     phoneNumber: '4915123456789'
   });
@@ -64,7 +65,7 @@ test('toCatalogItem falls back to the product name when description is missing',
 test('toCatalogItem accepts a free item priced at zero instead of treating it as a missing field', () => {
   // when
   const item = toCatalogItem({
-    product: { id: 'p1', name: 'Item', priceEur: 0, imageUrl: 'https://example.com/p1.jpg' },
+    product: { id: 'p1', name: 'Item', priceEur: 0, weightGrams: 500, imageUrl: 'https://example.com/p1.jpg' },
     currency: 'EUR',
     phoneNumber: '4915123456789'
   });
@@ -108,7 +109,7 @@ test('toCatalogItem throws when name is missing', () => {
 test('toCatalogItem includes sale_price when salePriceEur is set and lower than priceEur', () => {
   // when
   const item = toCatalogItem({
-    product: { id: 'p1', name: 'Item', priceEur: 4.99, salePriceEur: 3.99, imageUrl: 'https://example.com/p1.jpg' },
+    product: { id: 'p1', name: 'Item', priceEur: 4.99, salePriceEur: 3.99, weightGrams: 500, imageUrl: 'https://example.com/p1.jpg' },
     currency: 'EUR',
     phoneNumber: '4915123456789'
   });
@@ -121,7 +122,7 @@ test('toCatalogItem includes sale_price when salePriceEur is set and lower than 
 test('toCatalogItem omits sale_price entirely when salePriceEur is not set', () => {
   // when
   const item = toCatalogItem({
-    product: { id: 'p1', name: 'Item', priceEur: 4.99, imageUrl: 'https://example.com/p1.jpg' },
+    product: { id: 'p1', name: 'Item', priceEur: 4.99, weightGrams: 500, imageUrl: 'https://example.com/p1.jpg' },
     currency: 'EUR',
     phoneNumber: '4915123456789'
   });
@@ -132,7 +133,7 @@ test('toCatalogItem omits sale_price entirely when salePriceEur is not set', () 
 
 test('toCatalogItem throws when salePriceEur is not a valid number', () => {
   // given
-  const product = { id: 'p1', name: 'Item', priceEur: 4.99, salePriceEur: 'cheap', imageUrl: 'https://example.com/p1.jpg' };
+  const product = { id: 'p1', name: 'Item', priceEur: 4.99, salePriceEur: 'cheap', weightGrams: 500, imageUrl: 'https://example.com/p1.jpg' };
 
   // when / then
   assert.throws(() => toCatalogItem({ product, currency: 'EUR', phoneNumber: '4915123456789' }), /salePriceEur is not a valid number/);
@@ -140,7 +141,7 @@ test('toCatalogItem throws when salePriceEur is not a valid number', () => {
 
 test('toCatalogItem throws when salePriceEur is not lower than priceEur', () => {
   // given
-  const product = { id: 'p1', name: 'Item', priceEur: 4.99, salePriceEur: 4.99, imageUrl: 'https://example.com/p1.jpg' };
+  const product = { id: 'p1', name: 'Item', priceEur: 4.99, salePriceEur: 4.99, weightGrams: 500, imageUrl: 'https://example.com/p1.jpg' };
 
   // when / then
   assert.throws(() => toCatalogItem({ product, currency: 'EUR', phoneNumber: '4915123456789' }), /must be less than priceEur/);
@@ -148,7 +149,7 @@ test('toCatalogItem throws when salePriceEur is not lower than priceEur', () => 
 
 test('toCatalogItem throws when salePriceEur is negative', () => {
   // given
-  const product = { id: 'p1', name: 'Item', priceEur: 4.99, salePriceEur: -1, imageUrl: 'https://example.com/p1.jpg' };
+  const product = { id: 'p1', name: 'Item', priceEur: 4.99, salePriceEur: -1, weightGrams: 500, imageUrl: 'https://example.com/p1.jpg' };
 
   // when / then
   assert.throws(() => toCatalogItem({ product, currency: 'EUR', phoneNumber: '4915123456789' }), /must be greater than zero/);
@@ -156,7 +157,7 @@ test('toCatalogItem throws when salePriceEur is negative', () => {
 
 test('toCatalogItem throws when salePriceEur is zero', () => {
   // given
-  const product = { id: 'p1', name: 'Item', priceEur: 4.99, salePriceEur: 0, imageUrl: 'https://example.com/p1.jpg' };
+  const product = { id: 'p1', name: 'Item', priceEur: 4.99, salePriceEur: 0, weightGrams: 500, imageUrl: 'https://example.com/p1.jpg' };
 
   // when / then
   assert.throws(() => toCatalogItem({ product, currency: 'EUR', phoneNumber: '4915123456789' }), /must be greater than zero/);
@@ -164,10 +165,41 @@ test('toCatalogItem throws when salePriceEur is zero', () => {
 
 test('toCatalogItem throws when salePriceEur is higher than priceEur', () => {
   // given
-  const product = { id: 'p1', name: 'Item', priceEur: 4.99, salePriceEur: 5.99, imageUrl: 'https://example.com/p1.jpg' };
+  const product = { id: 'p1', name: 'Item', priceEur: 4.99, salePriceEur: 5.99, weightGrams: 500, imageUrl: 'https://example.com/p1.jpg' };
 
   // when / then
   assert.throws(() => toCatalogItem({ product, currency: 'EUR', phoneNumber: '4915123456789' }), /must be less than priceEur/);
+});
+
+test('toCatalogItem throws when weightGrams is missing (Workstream 4: required for tiered shipping, not a Meta catalog field)', () => {
+  // given
+  const product = { id: 'p1', name: 'Item', priceEur: 4.99, imageUrl: 'https://example.com/p1.jpg' };
+
+  // when / then
+  assert.throws(() => toCatalogItem({ product, currency: 'EUR', phoneNumber: '4915123456789' }), /weightGrams must be a positive number/);
+});
+
+test('toCatalogItem throws when weightGrams is zero or negative', () => {
+  // given
+  const zero = { id: 'p1', name: 'Item', priceEur: 4.99, weightGrams: 0, imageUrl: 'https://example.com/p1.jpg' };
+  const negative = { id: 'p1', name: 'Item', priceEur: 4.99, weightGrams: -100, imageUrl: 'https://example.com/p1.jpg' };
+
+  // when / then
+  assert.throws(() => toCatalogItem({ product: zero, currency: 'EUR', phoneNumber: '4915123456789' }), /weightGrams must be a positive number/);
+  assert.throws(() => toCatalogItem({ product: negative, currency: 'EUR', phoneNumber: '4915123456789' }), /weightGrams must be a positive number/);
+});
+
+test('toCatalogItem does not send weightGrams to Meta - it is not part of the catalog item shape', () => {
+  // when
+  const item = toCatalogItem({
+    product: { id: 'p1', name: 'Item', priceEur: 4.99, weightGrams: 500, imageUrl: 'https://example.com/p1.jpg' },
+    currency: 'EUR',
+    phoneNumber: '4915123456789'
+  });
+
+  // then
+  assert.equal('weightGrams' in item.data, false);
+  assert.equal('weight' in item.data, false);
 });
 
 test('toCatalogItem throws when imageUrl is missing', () => {
@@ -214,8 +246,8 @@ test('buildBatchRequestBody maps every product in the bot config into one items_
   const botConfig = {
     currency: 'EUR',
     products: [
-      { id: 'p1', name: 'One', priceEur: 1, imageUrl: 'https://example.com/p1.jpg' },
-      { id: 'p2', name: 'Two', priceEur: 2, imageUrl: 'https://example.com/p2.jpg' }
+      { id: 'p1', name: 'One', priceEur: 1, weightGrams: 500, imageUrl: 'https://example.com/p1.jpg' },
+      { id: 'p2', name: 'Two', priceEur: 2, weightGrams: 500, imageUrl: 'https://example.com/p2.jpg' }
     ]
   };
 
@@ -239,7 +271,7 @@ test('buildBatchRequestBody throws when the bot config has no products', () => {
 
 test('buildBatchRequestBody defaults to EUR when the bot config has no currency', () => {
   // given
-  const botConfig = { products: [{ id: 'p1', name: 'One', priceEur: 1, imageUrl: 'https://example.com/p1.jpg' }] };
+  const botConfig = { products: [{ id: 'p1', name: 'One', priceEur: 1, weightGrams: 500, imageUrl: 'https://example.com/p1.jpg' }] };
 
   // when
   const body = buildBatchRequestBody({ botConfig, phoneNumber: '4915123456789' });

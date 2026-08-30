@@ -130,6 +130,94 @@ function addProductToCart(cart, product, { unitPriceOverride } = {}) {
   });
 }
 
+// Single source of truth for a cart's grand total - was previously
+// duplicated as an inline `reduce` in buildCartSummaryText,
+// buildOrderConfirmationText and _handleCheckout (three copies of the same
+// one-liner); now also reused for the minimum-order-value check below.
+function cartTotal(cart) {
+  return cart.reduce((sum, line) => sum + line.unitPrice * line.qty, 0);
+}
+
+// Tiered shipping (flat config-driven tiers, not a live Packlink API - see
+// afromarket-paypal-migration-and-shipping-todo.md Workstream 4). Disabled
+// by default: every shippingTiers.priceEur in afromarket.bot.json is
+// currently a null placeholder pending Sunday's actual Packlink rate
+// lookup, and shippingFeeFor below fails loudly on a null-price match by
+// design - flipping this on before real prices are filled in would block
+// every AfroMarket checkout rather than mis-price one. Same rollout shape
+// (env flag, off by default, read fresh per call) as
+// isNativeCatalogEnabled above.
+function isShippingEnabled() {
+  return String(process.env.AFROMARKET_SHIPPING_ENABLED || '').trim().toLowerCase() === 'true';
+}
+
+// Looks up each cart line's product to sum real weight - deliberately does
+// NOT default a missing/unfound weightGrams to 0. A product silently
+// treated as weightless would silently undercharge (or entirely skip)
+// shipping for it, which is worse than failing the checkout outright and
+// getting it fixed. submitCatalogBatch.js already requires weightGrams on
+// every catalog product going forward, so reaching this in production means
+// either a stale cart line referencing a removed product, or a genuine data
+// gap - both worth surfacing loudly, not silently absorbing as 0g.
+function basketWeightGrams(cart, products) {
+  return cart.reduce((sum, line) => {
+    const product = (products || []).find((p) => p && p.id === line.productId);
+    if (!product || typeof product.weightGrams !== 'number' || product.weightGrams <= 0) {
+      throw new Error(`Cannot compute shipping weight: product "${line.productId}" has no valid weightGrams`);
+    }
+    return sum + product.weightGrams * line.qty;
+  }, 0);
+}
+
+// First tier whose maxWeightGrams is null (the catch-all top tier) or
+// covers the given weight. Throws rather than returning 0€ when the
+// matched tier's priceEur is still a null placeholder (see
+// isShippingEnabled's comment) or when no tier matches at all (shouldn't
+// happen with a well-formed config that ends in a null-maxWeightGrams
+// catch-all, but a misconfigured shippingTiers array must not silently
+// ship for free either).
+function shippingFeeFor(weightGrams, shippingTiers) {
+  const tier = (shippingTiers || []).find((t) => t && (t.maxWeightGrams === null || t.maxWeightGrams >= weightGrams));
+  if (!tier) {
+    throw new Error(`No shipping tier configured covers ${weightGrams}g`);
+  }
+  if (tier.priceEur === null || tier.priceEur === undefined) {
+    throw new Error(`Shipping tier for ${weightGrams}g has no priceEur configured yet (placeholder not filled in)`);
+  }
+  return Number(tier.priceEur);
+}
+
+// Shared by beforeState's cart_view and checkout_review branches - a plain
+// string append rather than folding into buildCartSummaryText itself, since
+// the nudge needs minimumOrderValueEur (bot config), which
+// buildCartSummaryText doesn't take. No nudge on an empty cart - "add
+// 24.99€ more" makes no sense before there's anything in it at all
+// (buildCartSummaryText already shows its own empty-cart message).
+function appendMinimumOrderNudge(cartSummaryText, cart, minimumOrderValueEur) {
+  if (!cart.length || typeof minimumOrderValueEur !== 'number') return cartSummaryText;
+  const total = cartTotal(cart);
+  if (total >= minimumOrderValueEur) return cartSummaryText;
+  const shortfall = minimumOrderValueEur - total;
+  return `${cartSummaryText}\n\n⚠️ Minimum order is ${formatEuro(minimumOrderValueEur)} — add ${formatEuro(shortfall)} more to check out.`;
+}
+
+// checkout_review-only preview of what _handleCheckout will actually charge
+// - the customer must see shipping before paying, not have it appear only
+// in the PayPal/Stripe charge (see the todo doc's Workstream 4). Best-effort:
+// swallows any error (missing weightGrams, a still-null-price tier) rather
+// than breaking the review screen entirely - _handleCheckout is the real
+// enforcement point and blocks checkout properly on the same failure.
+function appendShippingPreview(cartSummaryText, cart, botConfig) {
+  if (!cart.length || !isShippingEnabled()) return cartSummaryText;
+  try {
+    const weightGrams = basketWeightGrams(cart, botConfig.products);
+    const shippingFeeEur = shippingFeeFor(weightGrams, botConfig.shippingTiers);
+    return `${cartSummaryText}\n\nShipping: ${formatEuro(shippingFeeEur)}\n*Total incl. shipping: ${formatEuro(cartTotal(cart) + shippingFeeEur)}*`;
+  } catch (_err) {
+    return cartSummaryText;
+  }
+}
+
 function buildCartSummaryText(cart) {
   if (!cart.length) {
     return '🛒 Your cart is empty.\n\nBrowse groceries to add items!';
@@ -140,9 +228,7 @@ function buildCartSummaryText(cart) {
     return `• ${line.qty}x ${line.name} — ${formatEuro(lineTotal)}`;
   });
 
-  const grandTotal = cart.reduce((sum, line) => sum + line.unitPrice * line.qty, 0);
-
-  return `🛒 *Your Cart*\n\n${lines.join('\n')}\n\n*Total: ${formatEuro(grandTotal)}*`;
+  return `🛒 *Your Cart*\n\n${lines.join('\n')}\n\n*Total: ${formatEuro(cartTotal(cart))}*`;
 }
 
 function generateOrderNumber() {
@@ -158,15 +244,22 @@ function estimatedDeliveryDate() {
   return deliveryDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-function buildOrderConfirmationText({ orderNumber, cart, name, address, phone }) {
-  const grandTotal = cart.reduce((sum, line) => sum + line.unitPrice * line.qty, 0);
+// shippingFeeEur is optional (0/undefined when shipping isn't enabled yet -
+// see isShippingEnabled) - the "Shipping:" line only appears once it's a
+// real positive charge, so this reads identically to before Workstream 4
+// for as long as the feature stays off.
+function buildOrderConfirmationText({ orderNumber, cart, name, address, phone, shippingFeeEur }) {
+  const itemsTotal = cartTotal(cart);
+  const grandTotal = itemsTotal + (Number(shippingFeeEur) || 0);
   const itemLines = cart.map((line) => `• ${line.qty}x ${line.name}`).join('\n');
+  const shippingLine = shippingFeeEur ? `Shipping: ${formatEuro(shippingFeeEur)}\n` : '';
 
   return (
     `✅ *Order confirmed*\n\n` +
     `Hi ${name},\n\n` +
     `Thank you for your purchase! Your order number is *${orderNumber}*.\n\n` +
     `${itemLines}\n\n` +
+    `${shippingLine}` +
     `Total: *${formatEuro(grandTotal)}*\n` +
     `Delivering to: ${address}\n` +
     `Contact: ${phone}\n\n` +
@@ -198,7 +291,7 @@ class AfroMarketFlowPlugin extends FlowPlugin {
 
     if (stateDefinition.id === 'cart_view') {
       const cart = ctx.get('cart') || [];
-      ctx.set('cartSummaryText', buildCartSummaryText(cart));
+      ctx.set('cartSummaryText', appendMinimumOrderNudge(buildCartSummaryText(cart), cart, this.botConfig.minimumOrderValueEur));
       // Reaching cart_view means either a fresh look at the cart before
       // checking out, or landing here via cancel_checkout - either way, any
       // idempotency key/order number from a prior attempt is done with and
@@ -210,7 +303,9 @@ class AfroMarketFlowPlugin extends FlowPlugin {
 
     if (stateDefinition.id === 'checkout_review') {
       const cart = ctx.get('cart') || [];
-      ctx.set('cartSummaryText', buildCartSummaryText(cart));
+      let cartSummaryText = appendMinimumOrderNudge(buildCartSummaryText(cart), cart, this.botConfig.minimumOrderValueEur);
+      cartSummaryText = appendShippingPreview(cartSummaryText, cart, this.botConfig);
+      ctx.set('cartSummaryText', cartSummaryText);
       // Generated once per checkout attempt and reused across the review ->
       // email-required -> confirm loop, so a double-tap on "Confirm Order"
       // (or a redelivered inbound message) can't mint a second order/payment
@@ -776,6 +871,28 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       return true;
     }
 
+    const minimumOrderValueEur = this.botConfig.minimumOrderValueEur;
+    const itemsTotalBeforeShipping = cartTotal(cart);
+    if (typeof minimumOrderValueEur === 'number' && itemsTotalBeforeShipping < minimumOrderValueEur) {
+      // Server-side enforcement, independent of the chat nudge shown at
+      // cart_view/checkout_review (beforeState below) - a customer reaching
+      // confirm_order some other way (a redelivered message, a stale button
+      // payload) must not be able to skip the nudge and check out under
+      // threshold. Cart is preserved and no payment provider is ever
+      // called - same "block, don't touch the cart" shape as the
+      // initiatePayment failure catch block further down.
+      const shortfall = minimumOrderValueEur - itemsTotalBeforeShipping;
+      await ctx.send({
+        type: 'text',
+        to: ctx.from,
+        body:
+          `⚠️ Minimum order is ${formatEuro(minimumOrderValueEur)}. ` +
+          `Add ${formatEuro(shortfall)} more to your cart to check out.`
+      });
+      ctx.goto('checkout_review');
+      return true;
+    }
+
     const { gateway } = getPaymentService();
     const activeProviderName = getActivePaymentProvider();
     const activeProvider = gateway.getProvider(activeProviderName);
@@ -839,7 +956,35 @@ class AfroMarketFlowPlugin extends FlowPlugin {
     const orderNumber = ctx.get('checkoutOrderNumber') || generateOrderNumber();
     const idempotencyKey = ctx.get('checkoutIdempotencyKey');
     const cartSnapshot = cart.map((line) => ({ ...line }));
-    const grandTotal = cartSnapshot.reduce((sum, line) => sum + line.unitPrice * line.qty, 0);
+    const itemsTotal = cartTotal(cartSnapshot);
+
+    // Ships disabled by default (see isShippingEnabled) - the config below
+    // is real but every shippingTiers.priceEur is still a null placeholder
+    // pending Sunday's actual Packlink rate lookup, and shippingFeeFor fails
+    // loudly on a null-price match by design (never a silent 0€ charge).
+    // Flipping this flag on before real prices are filled in would block
+    // every AfroMarket checkout, not just mis-price one - so it stays off
+    // until explicitly turned on, same rollout shape as
+    // AFROMARKET_NATIVE_CATALOG_ENABLED.
+    let shippingFeeEur = 0;
+    if (isShippingEnabled()) {
+      try {
+        const weightGrams = basketWeightGrams(cartSnapshot, this.botConfig.products);
+        shippingFeeEur = shippingFeeFor(weightGrams, this.botConfig.shippingTiers);
+      } catch (err) {
+        logger.error('AfroMarket: shipping fee calculation failed - blocking checkout rather than risk an unpriced/undercharged shipment', {
+          error: err && err.message ? err.message : String(err)
+        });
+        await ctx.send({
+          type: 'text',
+          to: ctx.from,
+          body: `⚠️ Shipping is temporarily unavailable for this order. Please try again shortly, or contact us if this persists.`
+        });
+        ctx.goto('checkout_review');
+        return true;
+      }
+    }
+    const grandTotal = itemsTotal + shippingFeeEur;
 
     try {
       const payment = await gateway.initiatePayment({
@@ -853,11 +998,11 @@ class AfroMarketFlowPlugin extends FlowPlugin {
         customerEmail: email,
         customerName: name,
         idempotencyKey,
-        metadata: { service: 'afromarket_order', orderNumber, cart: cartSnapshot, name, address, phone, email }
+        metadata: { service: 'afromarket_order', orderNumber, cart: cartSnapshot, name, address, phone, email, shippingFeeEur }
       });
 
       if (!payment.checkoutUrl) {
-        throw new Error('Stripe initiatePayment returned no checkoutUrl');
+        throw new Error(`${activeProviderName} initiatePayment returned no checkoutUrl`);
       }
 
       // Only clear the cart once a real payment session actually exists - a
@@ -920,6 +1065,10 @@ class AfroMarketFlowPlugin extends FlowPlugin {
 module.exports = {
   AfroMarketFlowPlugin,
   formatEuro,
+  cartTotal,
+  basketWeightGrams,
+  shippingFeeFor,
+  isShippingEnabled,
   buildCartSummaryText,
   generateOrderNumber,
   buildOrderConfirmationText,

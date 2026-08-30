@@ -49,6 +49,13 @@ async function driveToCheckoutReview(step) {
   await step('shop_online');
   await step('cat_beans_nuts');
   await step('product_haricot_rouge_1kg');
+  // 4x clears the 24.99€ minimum order value (4 * 7.99 = 31.96) - repeat
+  // cart_add on the same product increments qty on one line rather than
+  // pushing a new one, so cart.length-based assertions elsewhere are
+  // unaffected.
+  await step('cart_add');
+  await step('cart_add');
+  await step('cart_add');
   await step('cart_add');
   await step('view_cart');
   await step('start_checkout');

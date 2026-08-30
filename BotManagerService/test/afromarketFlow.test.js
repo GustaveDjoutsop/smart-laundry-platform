@@ -69,12 +69,17 @@ test('AfroMarket: full shop -> product -> cart -> checkout flow', async () => {
   result = await step('cart_add');
   assert.match(result.outboundIntents[0].body, /Added \*Haricot Rouge – Meringué 1kg\* \(€7\.99\)/);
 
+  // 4x clears the 24.99€ minimum order value (4 * 7.99 = 31.96) - 2x
+  // (15.98€) would trip the new minimum-order nudge/block this test isn't
+  // about, so this test now adds enough to stay clear of it.
+  await step('cart_add');
+  await step('cart_add');
   result = await step('cart_add');
   assert.match(result.outboundIntents[0].body, /Added \*Haricot Rouge – Meringué 1kg\*/);
 
   result = await step('view_cart');
-  assert.match(result.outboundIntents[0].body, /2x Haricot Rouge – Meringué 1kg — €15\.98/);
-  assert.match(result.outboundIntents[0].body, /Total: €15\.98/);
+  assert.match(result.outboundIntents[0].body, /4x Haricot Rouge – Meringué 1kg — €31\.96/);
+  assert.match(result.outboundIntents[0].body, /Total: €31\.96/);
 
   result = await step('start_checkout');
   assert.match(result.outboundIntents[0].body, /full name/i);
@@ -101,8 +106,8 @@ test('AfroMarket: full shop -> product -> cart -> checkout flow', async () => {
   assert.match(confirmation, /Order confirmed/);
   assert.match(confirmation, /Hi Jane Doe/);
   assert.match(confirmation, /order number is \*AM-/);
-  assert.match(confirmation, /2x Haricot Rouge – Meringué 1kg/);
-  assert.match(confirmation, /Total: \*€15\.98\*/);
+  assert.match(confirmation, /4x Haricot Rouge – Meringué 1kg/);
+  assert.match(confirmation, /Total: \*€31\.96\*/);
   assert.match(confirmation, /Delivering to: 12 Main St, Berlin/);
   assert.match(confirmation, /Contact: \+33600000000/);
   assert.equal(result.outboundIntents[0].type, 'buttons');
@@ -167,6 +172,12 @@ test('AfroMarket: checkout reuses a saved delivery address instead of asking aga
   await step('shop_online');
   await step('cat_beans_nuts');
   await step('product_haricot_rouge_1kg');
+  // 4x clears the 24.99€ minimum order value (this test checks out all the
+  // way through confirm_order, unlike the other saved-profile tests below
+  // that only check the review screen).
+  await step('cart_add');
+  await step('cart_add');
+  await step('cart_add');
   await step('cart_add');
   await step('view_cart');
 
