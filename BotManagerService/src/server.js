@@ -44,8 +44,9 @@ async function bootstrap() {
 
   await machineService.init();
 
+  let retentionWorker = null;
   if (config.database.url) {
-    const retentionWorker = new RetentionWorker({ pool: getPool() });
+    retentionWorker = new RetentionWorker({ pool: getPool() });
     retentionWorker.start();
   } else {
     logger.warn('DATABASE_URL not set: retention worker disabled, invoice/customer-profile stores unavailable');
@@ -67,9 +68,47 @@ async function bootstrap() {
   });
 
   const app = createApp({ redisManager, mqttManager });
-  app.listen(config.server.port, () => {
+  const server = app.listen(config.server.port, () => {
     logger.info(`BotManagerService listening on port ${config.server.port}`);
   });
+
+  // Ordered so in-flight work has the best chance to finish cleanly: stop
+  // taking new HTTP requests and polling/background work first, then drop
+  // the connections those workers were using. A stuck client holding a
+  // keep-alive connection open must not hang the process forever on
+  // SIGTERM/SIGINT - Railway (and most orchestrators) send SIGKILL after a
+  // fixed grace period regardless, so force-exiting slightly ahead of that
+  // is strictly better than being killed mid-cleanup.
+  let shuttingDown = false;
+  const shutdown = (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info(`${signal} received, shutting down gracefully`);
+
+    const forceExitTimer = setTimeout(() => {
+      logger.warn('Graceful shutdown timed out after 10s, forcing exit');
+      process.exit(1);
+    }, 10_000);
+    forceExitTimer.unref();
+
+    server.close(async () => {
+      paymentWorker.stop();
+      if (retentionWorker) retentionWorker.stop();
+
+      await mqttManager.disconnect();
+      await redisManager.close();
+      if (config.database.url) {
+        await getPool()
+          .end()
+          .catch((err) => logger.warn('Postgres pool close failed', err && err.message ? err.message : String(err)));
+      }
+
+      clearTimeout(forceExitTimer);
+      process.exit(0);
+    });
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 bootstrap().catch((err) => {

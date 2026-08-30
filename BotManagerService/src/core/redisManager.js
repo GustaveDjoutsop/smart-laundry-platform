@@ -183,6 +183,19 @@ class RedisManager {
       this.fallbackLists.delete(key);
     }, delayMs).unref?.();
   }
+
+  // Used on process shutdown - a graceful QUIT (finishes in-flight commands),
+  // not a hard disconnect. No-op when running on the in-memory fallback.
+  async close() {
+    if (!this.connected || !this.client) return;
+
+    try {
+      await this.client.quit();
+    } catch (err) {
+      logger.warn('Redis quit failed', err && err.message ? err.message : String(err));
+    }
+    this.connected = false;
+  }
 }
 
 const redisManager = new RedisManager();
