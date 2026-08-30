@@ -4,6 +4,12 @@
 // from eating that delay for real on every run. Set before requiring
 // flowEngine.js since the value is read fresh per call, not cached.
 process.env.CAROUSEL_FOOTER_DELAY_MS = '0';
+// This file's checkout-flow tests exercise the pre-payment name/address/
+// email collection sequence, which is now Stripe-only - PayPal skips it
+// entirely (see afromarket-remove-prepayment-address-collection.md and
+// afromarketPaypalCheckout.test.js for that path). Pinned explicitly since
+// the provider selector defaults to paypal.
+process.env.AFROMARKET_PAYMENT_PROVIDER = 'stripe';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');

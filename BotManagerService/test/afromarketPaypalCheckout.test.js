@@ -3,6 +3,14 @@
 // path a fresh deploy actually takes. See that file for the Stripe path
 // (pinned explicitly there) and afromarketPaymentProviderSelector.test.js
 // for the selector itself.
+//
+// Per afromarket-remove-prepayment-address-collection.md, PayPal skips the
+// checkout_name/address/email/checkout_review sequence entirely -
+// _handleCheckoutStart calls _handleCheckout directly the moment
+// 'start_checkout' is tapped from cart_view, so every test here drives only
+// as far as a qualifying cart_view and taps 'start_checkout' once, not
+// through a separate name/address/email/confirm_order sequence like the
+// Stripe-path tests do.
 process.env.SANDBOX_PAYPAL_CLIENT_ID = 'paypal-client-id-test';
 process.env.SANDBOX_PAYPAL_CLIENT_SECRET = 'paypal-client-secret-test';
 process.env.SANDBOX_PAYPAL_WEBHOOK_ID = 'WH-TEST';
@@ -44,28 +52,20 @@ function createStepper() {
   };
 }
 
-async function driveToCheckoutReview(step) {
+// Ends at cart_view, qualifying (4x haricot_rouge_1kg = 31.96€, clears the
+// 24.99€ minimum) - deliberately does NOT tap 'start_checkout', since that
+// single tap is what each test itself exercises (it triggers payment-link
+// generation directly for PayPal, no intermediate review screen).
+async function driveToQualifyingCartView(step) {
   await step('hi');
   await step('shop_online');
   await step('cat_beans_nuts');
   await step('product_haricot_rouge_1kg');
-  // 4x clears the 24.99€ minimum order value (4 * 7.99 = 31.96) - repeat
-  // cart_add on the same product increments qty on one line rather than
-  // pushing a new one, so cart.length-based assertions elsewhere are
-  // unaffected.
   await step('cart_add');
   await step('cart_add');
   await step('cart_add');
   await step('cart_add');
-  await step('view_cart');
-  await step('start_checkout');
-  await step('Jane Doe');
-  await step('12 Main St, Berlin');
-  // checkout_email is still prompted pre-payment even on the PayPal path
-  // (Workstream 2's "kept as a fallback or removed" decision is still
-  // open - see the todo doc) - PayPal just never *requires* it, so 'skip'
-  // goes straight through to checkout_review.
-  return step('skip');
+  return step('view_cart');
 }
 
 test('AfroMarket checkout: PayPal is the active provider by default', async () => {
@@ -74,10 +74,8 @@ test('AfroMarket checkout: PayPal is the active provider by default', async () =
   assert.equal(getActivePaymentProvider(), 'paypal');
 });
 
-test('AfroMarket checkout: successful PayPal order creation sends the payer-action link and does not confirm the order yet', async () => {
-  let callCount = 0;
+test('AfroMarket checkout: tapping Checkout skips name/address/email collection entirely and goes straight to the PayPal link', async () => {
   currentFetchImpl = async (url) => {
-    callCount += 1;
     if (String(url).includes('/oauth2/token')) return TOKEN_RESPONSE;
     return {
       ok: true,
@@ -91,42 +89,82 @@ test('AfroMarket checkout: successful PayPal order creation sends the payer-acti
   };
 
   const step = createStepper();
-  await driveToCheckoutReview(step);
+  await driveToQualifyingCartView(step);
+  const result = await step('start_checkout');
 
-  const result = await step('confirm_order');
+  // No "what's your full name?"/delivery-address/email prompt anywhere in
+  // this turn's response - just the explanation, the link, and the "order
+  // ready" confirmation (see the dedicated explanation-message test below
+  // for that first message specifically).
+  // Matches the OLD checkout_name/address/email prompts' distinctive
+  // phrasing specifically, not just any mention of "address" - the NEW
+  // explanation message legitimately says "delivery address" too (just in
+  // a different sentence, see the dedicated test below).
+  const bodies = result.outboundIntents.map((i) => i.body);
+  assert.ok(!bodies.some((b) => /what's your full name/i.test(b)));
+  assert.ok(!bodies.some((b) => /what's your delivery address/i.test(b)));
+  assert.ok(!bodies.some((b) => /reply \*skip\* if you'd rather not share/i.test(b)));
+  assert.ok(!bodies.some((b) => /confirm your order/i.test(b)), 'checkout_review must never render for PayPal');
 
-  assert.equal(result.outboundIntents.length, 2);
-  assert.equal(result.outboundIntents[0].type, 'cta_url');
-  assert.equal(result.outboundIntents[0].url, 'https://www.sandbox.paypal.com/checkoutnow?token=ORDER-xyz789');
-
-  assert.equal(result.outboundIntents[1].type, 'buttons');
-  assert.match(result.outboundIntents[1].body, /Order .* is ready/);
-
+  assert.equal(result.outboundIntents[1].type, 'cta_url');
+  assert.equal(result.outboundIntents[1].url, 'https://www.sandbox.paypal.com/checkoutnow?token=ORDER-xyz789');
   assert.deepEqual(result.conversationState.context.cart, []);
-  assert.equal(callCount, 2, 'one OAuth token call + one order-creation call');
 });
 
-test('AfroMarket checkout: PayPal does not ask for an email at all (unlike Stripe)', async () => {
+test('AfroMarket checkout: sends the "we\'ll get your address from PayPal" explanation before the payment link', async () => {
   currentFetchImpl = async (url) => {
     if (String(url).includes('/oauth2/token')) return TOKEN_RESPONSE;
+    return { ok: true, status: 201, json: async () => ({ id: 'ORDER-explain', links: [{ rel: 'approve', href: 'https://paypal.example.com/approve/explain' }] }) };
+  };
+
+  const step = createStepper();
+  await driveToQualifyingCartView(step);
+  const result = await step('start_checkout');
+
+  assert.equal(result.outboundIntents[0].type, 'text');
+  assert.match(result.outboundIntents[0].body, /get your delivery address from PayPal automatically/);
+  assert.match(result.outboundIntents[0].body, /no need to type it here/);
+});
+
+test('AfroMarket checkout: successful PayPal order creation sends the payer-action link and does not confirm the order yet', async () => {
+  // Order-creation calls counted separately from OAuth token calls -
+  // PayPalProvider caches its token across calls (see paypalProvider.test.js's
+  // dedicated coverage of that), and getPaymentService() is a module-level
+  // singleton shared by every test in this file, so whether a token call
+  // happens on any given test depends on whether an earlier test already
+  // populated the cache - not something this test should assert on.
+  let orderCreationCalls = 0;
+  currentFetchImpl = async (url) => {
+    if (String(url).includes('/oauth2/token')) return TOKEN_RESPONSE;
+    orderCreationCalls += 1;
     return {
       ok: true,
       status: 201,
-      json: async () => ({ id: 'ORDER-noemail', links: [{ rel: 'approve', href: 'https://paypal.example.com/approve/noemail' }] })
+      json: async () => ({
+        id: 'ORDER-xyz789',
+        status: 'PAYER_ACTION_REQUIRED',
+        links: [{ rel: 'payer-action', href: 'https://www.sandbox.paypal.com/checkoutnow?token=ORDER-xyz789' }]
+      })
     };
   };
 
   const step = createStepper();
-  const review = await driveToCheckoutReview(step);
+  await driveToQualifyingCartView(step);
+  const result = await step('start_checkout');
 
-  // No email prompt loop after 'skip' - PayPal's checkout_email_required
-  // gate only applies to Stripe, unlike the equivalent Stripe-path test in
-  // afromarketPaymentCheckout.test.js which does hit that prompt.
-  assert.match(review.outboundIntents[0].body, /confirm your order/i);
+  // explanation text, cta_url, then order_confirmed's own "is ready" render
+  // (ctx.goto('order_confirmed') from within the same action-handler turn -
+  // see afromarketFlowPlugin.js's _handleCheckout).
+  assert.equal(result.outboundIntents.length, 3);
+  assert.equal(result.outboundIntents[1].type, 'cta_url');
+  assert.equal(result.outboundIntents[1].url, 'https://www.sandbox.paypal.com/checkoutnow?token=ORDER-xyz789');
 
-  const result = await step('confirm_order');
-  assert.equal(result.outboundIntents[0].type, 'cta_url');
-  assert.equal(result.outboundIntents[0].url, 'https://paypal.example.com/approve/noemail');
+  assert.equal(result.outboundIntents[2].type, 'buttons');
+  assert.match(result.outboundIntents[2].body, /Order .* is ready/);
+  assert.doesNotMatch(result.outboundIntents[2].body, /Order confirmed/);
+
+  assert.deepEqual(result.conversationState.context.cart, []);
+  assert.equal(orderCreationCalls, 1);
 });
 
 test('AfroMarket checkout: a failed PayPal order creation (4xx, config-class) never confirms the order and keeps the cart intact', async () => {
@@ -136,22 +174,40 @@ test('AfroMarket checkout: a failed PayPal order creation (4xx, config-class) ne
   };
 
   const step = createStepper();
-  await driveToCheckoutReview(step);
-
-  const result = await step('confirm_order');
+  await driveToQualifyingCartView(step);
+  const result = await step('start_checkout');
 
   assert.equal(result.outboundIntents[0].type, 'text');
   // 4xx is a permanent config/client error - distinct copy from the
-  // transient-failure "tap Confirm Order to try again" path (see
+  // transient-failure "tap Checkout to try again" path (see
   // afromarketPaymentFailureHandling.test.js for the classification itself).
   assert.match(result.outboundIntents[0].body, /trouble starting checkout/);
   assert.doesNotMatch(result.outboundIntents[0].body, /email address/, 'PayPal failure copy must not mention email');
 
+  // Routed to cart_view, not checkout_review (which is never populated for
+  // PayPal) - see failureReturnState in afromarketFlowPlugin.js.
   assert.equal(result.outboundIntents[1].type, 'buttons');
+  assert.match(result.outboundIntents[1].body, /Your Cart/);
   assert.equal(result.conversationState.context.cart.length, 1);
 });
 
-test('AfroMarket checkout: a double-tap on Confirm Order reuses the same idempotency key and does not call PayPal twice', async () => {
+test('AfroMarket checkout: a double-tap on Checkout does not call PayPal twice', async () => {
+  // Unlike the Stripe path's equivalent test (afromarketPaymentCheckout.
+  // test.js), which replays the identical checkout_review snapshot for two
+  // separate flowEngine.step() calls to simulate a genuine race, that
+  // technique doesn't model this codebase's real concurrency: QueueManager
+  // (src/core/queueManager.js) is a single, fully serialized, in-process
+  // queue - two real button taps are guaranteed to process one at a time,
+  // never concurrently on the same starting snapshot. For PayPal's
+  // skip-straight-to-payment flow, checkoutIdempotencyKey is generated
+  // fresh inside _handleCheckoutStart itself (there's no earlier
+  // checkout_review state to have already persisted one to protect a
+  // same-snapshot replay), so this test exercises the real mechanism with
+  // two genuinely sequential taps instead: the first tap's success moves
+  // the conversation to order_confirmed, so a second 'start_checkout' sent
+  // afterwards is just unrecognized free text there (falls through
+  // order_confirmed_route's default to welcome) - it can't re-trigger
+  // checkout at all, regardless of cart contents.
   let orderCreationCalls = 0;
   currentFetchImpl = async (url) => {
     if (String(url).includes('/oauth2/token')) return TOKEN_RESPONSE;
@@ -160,31 +216,14 @@ test('AfroMarket checkout: a double-tap on Confirm Order reuses the same idempot
   };
 
   const step = createStepper();
-  const review = await driveToCheckoutReview(step);
+  await driveToQualifyingCartView(step);
 
-  const idempotencyKey = review.conversationState.context.checkoutIdempotencyKey;
-  assert.ok(idempotencyKey, 'checkout_review must have generated an idempotency key');
-
-  const flowEngine = new FlowEngine({ botConfig, plugin: new AfroMarketFlowPlugin({ botConfig }) });
-  const tapState = () => JSON.parse(JSON.stringify(review.conversationState));
-
-  const firstTap = [];
-  await flowEngine.step({
-    from: '+491701234567',
-    message: { text: { body: 'confirm_order' } },
-    state: tapState(),
-    send: async (intent) => firstTap.push(intent)
-  });
+  const firstTap = await step('start_checkout');
   assert.equal(orderCreationCalls, 1);
+  assert.ok(firstTap.outboundIntents.some((i) => i.type === 'cta_url' && i.url === 'https://paypal.example.com/approve/once'));
+  assert.deepEqual(firstTap.conversationState.context.cart, []);
+  assert.equal(firstTap.conversationState.currentStateId, 'order_confirmed');
 
-  const secondTap = [];
-  await flowEngine.step({
-    from: '+491701234567',
-    message: { text: { body: 'confirm_order' } },
-    state: tapState(),
-    send: async (intent) => secondTap.push(intent)
-  });
-
+  await step('start_checkout');
   assert.equal(orderCreationCalls, 1, 'PayPal must only be called once across both taps');
-  assert.equal(secondTap[0].url, 'https://paypal.example.com/approve/once');
 });

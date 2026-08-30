@@ -4,12 +4,21 @@
 // checkout_review's Confirm-Order screen unreachable for an under-threshold
 // cart (previously it rendered anyway, with the nudge merely appended
 // inside it - a rejected confirm_order tap re-sent that exact same screen
-// verbatim, reading as the bot being stuck). No payment provider env vars
-// are set in this file - the minimum-order check runs before provider
-// selection in _handleCheckout, so it's exercised here against the legacy
-// no-provider-configured branch, independent of Stripe/PayPal specifics
-// (see afromarketPaymentCheckout.test.js/afromarketPaypalCheckout.test.js
-// for the equivalent checks with a real provider configured).
+// verbatim, reading as the bot being stuck). No payment provider is
+// actually configured in this file - the minimum-order check runs before
+// provider selection in _handleCheckout, so it's exercised here against the
+// legacy no-provider-configured branch, independent of Stripe/PayPal
+// specifics (see afromarketPaymentCheckout.test.js/
+// afromarketPaypalCheckout.test.js for the equivalent checks with a real
+// provider configured). AFROMARKET_PAYMENT_PROVIDER is pinned to 'stripe'
+// (still unconfigured, no STRIPE_SECRET_KEY set) purely so these tests can
+// still reach checkout_review via the chat-collection sequence as a vehicle
+// to confirm_order - PayPal skips that sequence and checkout_review
+// entirely (see afromarket-remove-prepayment-address-collection.md), so the
+// provider-agnostic minimum-order gate itself is exercised the same way
+// either pin would produce, just via a route that still exists.
+process.env.AFROMARKET_PAYMENT_PROVIDER = 'stripe';
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 

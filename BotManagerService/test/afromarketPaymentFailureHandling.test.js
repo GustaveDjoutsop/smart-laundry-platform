@@ -319,9 +319,21 @@ test('the misconfigured-active-provider guard (a different config-class failure 
       throw new Error('no payment provider API call should happen - the misconfiguration guard must block checkout first');
     };
 
+    // No name/address/email steps here - paypal-active skips that sequence
+    // entirely (see afromarket-remove-prepayment-address-collection.md), so
+    // this guard (inside _handleCheckout) fires straight off the single
+    // 'start_checkout' tap.
     const step = createStepper();
-    await driveToCheckoutReview(step);
-    const result = await step('confirm_order');
+    await step('hi');
+    await step('shop_online');
+    await step('cat_beans_nuts');
+    await step('product_haricot_rouge_1kg');
+    await step('cart_add');
+    await step('cart_add');
+    await step('cart_add');
+    await step('cart_add');
+    await step('view_cart');
+    const result = await step('start_checkout');
 
     const adminAlerts = result.outboundIntents.filter((i) => i.to === ADMIN_PHONE);
     assert.equal(adminAlerts.length, 1);

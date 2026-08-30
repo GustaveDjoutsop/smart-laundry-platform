@@ -357,6 +357,19 @@
         },
 
         {
+          "id": "post_payment_address_needed",
+          "type": "input",
+          "prompt": "✅ Payment received! We just need your delivery address to ship this — what's the full address? (street, house number, postcode, city)",
+          "saveAs": "postPaymentAddressRaw",
+          "next": "post_payment_address_captured"
+        },
+        {
+          "id": "post_payment_address_captured",
+          "type": "action",
+          "action": "checkout.capturePostPaymentAddress"
+        },
+
+        {
           "id": "recipes_hub",
           "type": "list",
           "template": "🍲 *Recipe Ideas*\n\nWhat would you like to explore?",
