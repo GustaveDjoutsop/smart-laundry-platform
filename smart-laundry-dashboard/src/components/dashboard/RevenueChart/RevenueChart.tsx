@@ -77,7 +77,7 @@ export default function RevenueChart({ data, target }: RevenueChartProps) {
             />
             <Tooltip
               contentStyle={tooltipStyles}
-              formatter={(value: number) => [formatCurrency(value), 'Revenue']}
+              formatter={(value) => [formatCurrency(Number(value ?? 0)), 'Revenue']}
             />
             <Area
               type="monotone"
