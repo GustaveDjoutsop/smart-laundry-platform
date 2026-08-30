@@ -1994,6 +1994,66 @@ different provider):
 - **Not yet tested live** — needs real Stripe test-mode credentials before a
   payment link can actually be sent and confirmed on WhatsApp.
 
+**Provider selector (PayPal added, defaults to active) — see
+`afromarket-paypal-migration-and-shipping-todo.md`:** Stripe above is no
+longer the only/default provider. `afromarketFlowPlugin.js::getActivePaymentProvider()`
+reads `AFROMARKET_PAYMENT_PROVIDER` (`"stripe"` or `"paypal"`, defaults to
+`"paypal"`) and `_handleCheckout` selects the provider through it instead of
+hardcoding `'stripe'` — both providers can be registered simultaneously
+(`PaymentGateway` already supported this via an explicit `preferredProvider`);
+the flag is what's exclusive, not the registration. Stripe's
+`checkout_email_required` gate is now conditional on `activeProviderName === 'stripe'`
+rather than unconditional, since PayPal's Orders v2 checkout collects the
+payer's email itself.
+
+- **`src/core/payments/providers/paypalProvider.js`** — Orders v2 (`intent=CAPTURE`),
+  *not* PayPal's newer "Payment Links" product (that turned out to lack an
+  official, publicly-documented API when checked against
+  `developer.paypal.com`/`paypal/paypal-rest-api-specifications` at
+  implementation time — see the todo doc's Workstream 2). `initiatePayment`
+  → `POST /v2/checkout/orders` with `payment_source.paypal.experience_context`
+  (`shipping_preference: GET_FROM_FILE` — PayPal collects the buyer's
+  shipping address itself, no address collected upfront) and returns the
+  `payer-action` (or `approve`) link as `checkoutUrl`. PayPal never
+  auto-captures a `CAPTURE`-intent order on buyer approval — a new
+  `captureOrder(orderId)` method (not part of the Stripe-mirrored interface)
+  explicitly calls `POST /v2/checkout/orders/{id}/capture`, called from the
+  webhook route on `CHECKOUT.ORDER.APPROVED` and, as a self-heal backstop, from
+  `checkStatus` whenever it finds an order stuck at `APPROVED`.
+  `verifyWebhook` is async (unlike Stripe's/CamPay's sync HMAC check) — it
+  posts a verification request to PayPal's own `/v1/notifications/verify-webhook-signature`
+  API rather than computing a local signature, fails closed without
+  `SANDBOX_PAYPAL_WEBHOOK_ID` configured.
+- `POST /api/payments/webhooks/paypal/:botId` in `routes/payments.js` handles
+  two distinct event types: `CHECKOUT.ORDER.APPROVED` triggers
+  `captureOrder` and records the result immediately via `recordPaypalCapture`
+  (the capture API response is the *only* place payer name + shipping address
+  are available — the later `PAYMENT.CAPTURE.COMPLETED` webhook's `resource`
+  is just the Capture object, no payer/shipping); `PAYMENT.CAPTURE.*` events
+  go through the normal `gateway.handleWebhook` → ledger-append → `payment.status`
+  path as a redundant confirmation. Both signals can report `COMPLETED` for
+  the same order — relies on `PaymentStatusWorker`'s existing `isSameStatus`
+  guard (unmodified) to ensure only the first one actually triggers order
+  processing, not a new dedup mechanism.
+- `AfroMarketBot.js::_recordOrder`/`_onPaymentCompleted` now prefer
+  `metadata.paypalPayerName`/`metadata.paypalShippingAddress` (folded into the
+  payment's `metadata` by `recordPaypalCapture`, merged not replaced) over the
+  pre-payment chat-entered `metadata.name`/`metadata.address` when present.
+- Env vars: `SANDBOX_PAYPAL_CLIENT_ID`/`SANDBOX_PAYPAL_CLIENT_SECRET` (sandbox
+  only — no production PayPal credentials exist yet; unrelated to the billing
+  system's own `SANDBOX_SECRET_KEY`), `SANDBOX_PAYPAL_WEBHOOK_ID` (from
+  registering a webhook subscription in PayPal's developer dashboard — manual
+  step, not yet done), `PAYPAL_RETURN_URL`/`PAYPAL_CANCEL_URL`,
+  `AFROMARKET_PAYMENT_PROVIDER`.
+- **Not yet tested live** — needs the sandbox webhook actually registered
+  (`SANDBOX_PAYPAL_WEBHOOK_ID` provisioned) and a real sandbox buyer account
+  before an order can be paid and confirmed end-to-end on WhatsApp.
+- **Still open (see the todo doc):** whether pre-payment name/address
+  collection (`checkout_name`/`checkout_address` states) should be removed
+  now that PayPal can supply both; whether to track `address_source`
+  provenance on `customer_profile`; the post-payment "reply CHANGE ADDRESS"
+  flow branch is not implemented.
+
 ### Append-only payment ledger (not a single mutable row)
 
 `PaymentStore` (`src/core/payments/paymentStore.js`) previously overwrote a

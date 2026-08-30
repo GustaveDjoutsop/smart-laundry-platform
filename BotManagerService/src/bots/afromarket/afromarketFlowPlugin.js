@@ -784,7 +784,7 @@ class AfroMarketFlowPlugin extends FlowPlugin {
     // Email is optional in the combined checkout_details message, but Stripe's
     // hosted checkout requires one - ask for it specifically only when it's actually
     // needed, rather than failing the whole payment with a generic error. PayPal's
-    // Payment Links checkout collects the payer's email itself, so this gate only
+    // Orders v2 checkout collects the payer's email itself, so this gate only
     // applies when Stripe is the active provider (flag can be switched back to
     // Stripe at any time - this must keep working when it is).
     if (paymentsConfigured && activeProviderName === 'stripe' && !email) {
@@ -792,8 +792,39 @@ class AfroMarketFlowPlugin extends FlowPlugin {
       return true;
     }
 
-    // No payment provider configured at all (e.g. local dev without STRIPE_SECRET_KEY) -
-    // legacy instant confirmation, unchanged from before payments existed.
+    // Distinguishes two very different situations that both look like
+    // "!paymentsConfigured": local dev with zero payment env vars at all
+    // (handled below - legacy instant confirmation, unchanged from before
+    // payments existed) versus a real deploy where a payment provider IS
+    // configured but happens not to be the one AFROMARKET_PAYMENT_PROVIDER
+    // currently selects (e.g. Stripe configured, flag unset/misconfigured,
+    // defaults to paypal, paypal not yet provisioned). The second case must
+    // never silently fall through to unpaid instant confirmation - that
+    // would give away every order for free the moment this flag exists in
+    // an environment nobody has explicitly set it for yet.
+    const stripeProvider = gateway.getProvider('stripe');
+    const paypalProvider = gateway.getProvider('paypal');
+    const anyAfroMarketProviderConfigured = Boolean(
+      (stripeProvider && stripeProvider.isConfigured()) || (paypalProvider && paypalProvider.isConfigured())
+    );
+    if (!paymentsConfigured && anyAfroMarketProviderConfigured) {
+      logger.error(
+        `AfroMarket: AFROMARKET_PAYMENT_PROVIDER="${activeProviderName}" has no configured credentials, but another ` +
+          'payment provider IS configured in this environment - refusing to confirm an unpaid order. ' +
+          'Set AFROMARKET_PAYMENT_PROVIDER to the provider that is actually configured.'
+      );
+      await ctx.send({
+        type: 'text',
+        to: ctx.from,
+        body: `⚠️ Payment is temporarily unavailable. Please try again shortly, or contact us if this persists.`
+      });
+      ctx.goto('checkout_review');
+      return true;
+    }
+
+    // No payment provider configured at all (e.g. local dev without any
+    // payment env vars) - legacy instant confirmation, unchanged from before
+    // payments existed.
     if (!paymentsConfigured) {
       const orderNumber = ctx.get('checkoutOrderNumber') || generateOrderNumber();
       const cartSnapshot = cart.map((line) => ({ ...line }));

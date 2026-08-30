@@ -263,3 +263,35 @@ test('AfroMarket checkout: a double-tap on Confirm Order reuses the same idempot
   assert.equal(callCount, 1, 'Stripe must only be called once across both taps');
   assert.equal(secondTap[0].url, 'https://checkout.stripe.com/c/pay/cs_test_once');
 });
+
+test('AfroMarket checkout: a misconfigured active provider (paypal selected but not configured) refuses checkout instead of silently confirming an unpaid order, when Stripe IS configured in this environment', async () => {
+  // The exact deploy-sequencing footgun this must guard against: Stripe is
+  // configured (STRIPE_SECRET_KEY set at the top of this file), but the
+  // active-provider flag now selects paypal (unconfigured here - no
+  // SANDBOX_PAYPAL_CLIENT_ID in this file) - e.g. AFROMARKET_PAYMENT_PROVIDER
+  // left unset/defaulted in an environment that only has Stripe wired up so
+  // far. Falling through to the "no provider configured at all" legacy
+  // instant-confirmation branch here would give the order away for free.
+  const previousProvider = process.env.AFROMARKET_PAYMENT_PROVIDER;
+  process.env.AFROMARKET_PAYMENT_PROVIDER = 'paypal';
+
+  try {
+    currentFetchImpl = async () => {
+      throw new Error('no payment provider API call should happen - checkout must be refused before reaching one');
+    };
+
+    const step = createStepper();
+    await driveToCheckoutReview(step);
+
+    const result = await step('confirm_order');
+
+    assert.equal(result.outboundIntents[0].type, 'text');
+    assert.match(result.outboundIntents[0].body, /temporarily unavailable/);
+    assert.doesNotMatch(result.outboundIntents[0].body, /Order confirmed/);
+
+    // Cart survives - the order must not be confirmed/fulfilled unpaid.
+    assert.equal(result.conversationState.context.cart.length, 1);
+  } finally {
+    process.env.AFROMARKET_PAYMENT_PROVIDER = previousProvider;
+  }
+});
