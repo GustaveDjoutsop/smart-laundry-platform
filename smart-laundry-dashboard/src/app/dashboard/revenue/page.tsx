@@ -367,7 +367,7 @@ export default function RevenuePage() {
                           border: '1px solid #e5e7eb',
                           borderRadius: '8px',
                         }}
-                        formatter={(value: number) => [formatCurrency(value), 'Revenue']}
+                        formatter={(value) => [formatCurrency(Number(value ?? 0)), 'Revenue']}
                       />
                       <Area
                         type="monotone"
@@ -404,7 +404,7 @@ export default function RevenuePage() {
                               ))}
                             </Pie>
                             <Tooltip
-                              formatter={(value: number) => [formatCurrency(value), 'Revenue']}
+                              formatter={(value) => [formatCurrency(Number(value ?? 0)), 'Revenue']}
                             />
                           </PieChart>
                         </ResponsiveContainer>
@@ -469,9 +469,10 @@ export default function RevenuePage() {
                           border: '1px solid #e5e7eb',
                           borderRadius: '8px',
                         }}
-                        formatter={(value: number, name: string) => {
-                          if (name === 'revenue') return [formatCurrency(value), 'Revenue'];
-                          return [value, 'Cycles'];
+                        formatter={(value, name) => {
+                          const numericValue = Number(value ?? 0);
+                          if (name === 'revenue') return [formatCurrency(numericValue), 'Revenue'];
+                          return [numericValue, 'Cycles'];
                         }}
                       />
                       <Bar dataKey="revenue" fill="#3b82f6" radius={[4, 4, 0, 0]} />
