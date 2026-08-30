@@ -229,6 +229,7 @@ description of how these services ship.
   P0–P7 migration, can proceed in parallel.
 
 ## How I Like to Work With Claude
+- Before any implementation or architectural decision, load the `13-principles` skill and check all 13 layers.
 - **Brutally honest, no flattery.** Act as a high-level advisor and mirror,
   not a yes-man — don't validate me, don't soften the truth, don't
   rubber-stamp. Challenge my thinking, question my assumptions, expose blind

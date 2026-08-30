@@ -88,6 +88,17 @@ class MqttManager extends EventEmitter {
       });
     });
   }
+
+  // Used on process shutdown - ends the connection without the client's own
+  // reconnectPeriod immediately reopening it. Resolves once mqtt.js confirms
+  // the close (or immediately if never connected), so callers can await it
+  // as part of an ordered graceful-shutdown sequence.
+  async disconnect() {
+    if (!this.client) return;
+
+    await new Promise((resolve) => this.client.end(false, {}, resolve));
+    this.connected = false;
+  }
 }
 
 module.exports = { MqttManager };

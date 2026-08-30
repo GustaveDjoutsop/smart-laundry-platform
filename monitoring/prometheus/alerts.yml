@@ -123,6 +123,15 @@ groups:
           summary: "Outbox relay stalled — events pending but none processed"
           description: "{{ $value }} events are queued but the relay has not processed any in 10 minutes. Check OutboxRelayService logs."
 
+      - alert: PaidTransactionsWithoutMachineStart
+        expr: payment_reconciliation_orphaned_transactions > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Paid transactions with no confirmed machine start"
+          description: "{{ $value }} transaction(s) succeeded payment but have no outbox-confirmed machine start after the 15-minute grace period. A customer paid and their machine may never have started — check PaymentManagementService's PayToStartReconciliationService logs, then OutboxRelayService/MachineStateService connectivity."
+
       # ── JVM health ──────────────────────────────────────────────────────────
 
       - alert: JVMHeapUsageHigh

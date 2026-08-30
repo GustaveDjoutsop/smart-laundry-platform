@@ -44,4 +44,29 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     List<Transaction> findByStatusAndReminderSentAtIsNullAndUpdatedAtAfter(PaymentStatus status, LocalDateTime after);
 
     List<Transaction> findByStatusAndCompletedNotifiedAtIsNullAndUpdatedAtAfter(PaymentStatus status, LocalDateTime after);
+
+    /**
+     * R4 reconciliation query: successful, non-reservation-hold payments whose machine
+     * cycle started before {@code cutoff} but for which no {@code outbox} row has been
+     * confirmed processed yet. A payment reaching {@code SUCCESSFUL} always writes its
+     * outbox row in the same transaction it sets {@code cycleStartedAt} (see
+     * {@code PaymentService.processWebhook}), so any match here means the pay→start
+     * delivery is stuck (still retrying, dead-lettered, or — if this ever returns rows
+     * for a very fresh transaction — the outbox write itself is missing, which would be
+     * a separate bug). Anchored on {@code cycleStartedAt}, not {@code createdAt}: a
+     * provider webhook that arrives late (after {@code PaymentTimeoutService} would
+     * already have marked the transaction {@code TIMEOUT}, were it not for this exact
+     * late-success race) can still flip it to {@code SUCCESSFUL} with a {@code createdAt}
+     * already older than the grace period, which would falsely flag it as orphaned
+     * before the outbox relay has had any chance to run. {@code cutoff} should be set
+     * well past the outbox's max retry window so transient MachineStateService downtime
+     * alone does not trigger a false positive. {@code reservationHold = false} doubles
+     * as the null-guard for {@code cycleStartedAt}, which is only ever set on that path
+     * (see {@code PaymentService#findActiveTransactionsByPhone}).
+     */
+    @Query("SELECT t FROM Transaction t WHERE t.status = com.smartlaundromat.payment.model.enums.PaymentStatus.SUCCESSFUL "
+            + "AND t.reservationHold = false "
+            + "AND t.cycleStartedAt < :cutoff "
+            + "AND NOT EXISTS (SELECT 1 FROM OutboxEvent o WHERE o.aggregateId = t.externalReference AND o.processedAt IS NOT NULL)")
+    List<Transaction> findPaidWithoutConfirmedMachineStart(@Param("cutoff") LocalDateTime cutoff);
 }
