@@ -1,4 +1,5 @@
 const { PaymentStatus } = require('./paymentTypes');
+const { redisManager } = require('../redisManager');
 
 function isTerminal(status) {
   return status === PaymentStatus.COMPLETED || status === PaymentStatus.FAILED;
@@ -215,15 +216,45 @@ class PaymentStatusWorker {
       }
     }
 
-    // Emit higher-level events only on transitions into terminal states
+    // Emit higher-level events only on transitions into terminal states.
+    // isSameStatus above is a plain Redis get-then-compare, not atomic - a
+    // real webhook delivery and this worker's own backstop poll (PayPal's
+    // checkStatus self-heal, see paypalProvider.js) can both independently
+    // read the payment as "not yet COMPLETED" and both reach this branch
+    // before either has written the new status, if their reads interleave.
+    // Confirmed happening in production (see
+    // afromarket-dual-completion-trigger-and-contact-field.md - two
+    // "payment.completed" emissions logged for the same transaction within
+    // the same second). Every current listener happens to hold its own
+    // atomic per-transaction lock before doing real work (AfroMarketBot's
+    // buildOrderConfirmLockKey, machineService's machineStart: lock), so
+    // this hasn't yet double-written an order - but that's each listener
+    // protecting itself by convention, not a guarantee. _claimTerminalEmission
+    // makes the emission itself exactly-once regardless of downstream
+    // listener discipline, so a future listener that forgets its own lock
+    // is still safe.
     if (this.events && this.events.emit) {
       if (status === PaymentStatus.COMPLETED && previousStatus !== PaymentStatus.COMPLETED) {
-        this.events.emit('payment.completed', { botId, provider, transactionId, externalRef, payment: updatedPayment });
+        if (await this._claimTerminalEmission({ botId, provider, transactionId, status: PaymentStatus.COMPLETED })) {
+          this.events.emit('payment.completed', { botId, provider, transactionId, externalRef, payment: updatedPayment });
+        }
       }
       if (status === PaymentStatus.FAILED && previousStatus !== PaymentStatus.FAILED) {
-        this.events.emit('payment.failed', { botId, provider, transactionId, externalRef, payment: updatedPayment });
+        if (await this._claimTerminalEmission({ botId, provider, transactionId, status: PaymentStatus.FAILED })) {
+          this.events.emit('payment.failed', { botId, provider, transactionId, externalRef, payment: updatedPayment });
+        }
       }
     }
+  }
+
+  // Atomic (setnx-backed) claim on "this transaction has already emitted its
+  // terminal payment.completed/payment.failed event" - the actual source of
+  // truth for exactly-once emission, independent of the racy read-then-write
+  // status check in _onStatus above. Only the first caller to win this claim
+  // (for a given botId/provider/transactionId/status) proceeds to emit.
+  async _claimTerminalEmission({ botId, provider, transactionId, status }) {
+    const key = `paymentTerminalEmitted:${botId}:${provider}:${transactionId}:${status}`;
+    return redisManager.setnx(key, '1', 60 * 60 * 24);
   }
 }
 

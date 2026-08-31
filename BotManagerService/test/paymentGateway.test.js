@@ -116,9 +116,15 @@ test('checkStatus returns previousStatus reflecting the store snapshot before th
 // drives the capture, so the payer/shipping data it returns must still
 // reach payment metadata - see afromarket-remove-prepayment-address-
 // collection.md, which reads metadata.paypalPayerName/paypalShippingAddress.
-test('checkStatus merges a self-heal capture\'s payer name and shipping address into payment metadata, preserving existing metadata', async () => {
+test('checkStatus merges a self-heal capture\'s payer name, shipping address, and contact into payment metadata, preserving existing metadata', async () => {
   const provider = fakeProvider({
-    checkStatus: async () => ({ status: 'COMPLETED', raw: {}, payerName: 'Jane Doe', shippingAddress: '12 Main St, 10115 Berlin, DE' })
+    checkStatus: async () => ({
+      status: 'COMPLETED',
+      raw: {},
+      payerName: 'Jane Doe',
+      shippingAddress: '12 Main St, 10115 Berlin, DE',
+      payerContact: 'jane@example.com'
+    })
   });
   const store = new PaymentStore({ ttlSeconds: 60 });
   const gateway = new PaymentGateway({ providers: { paypal: provider }, store });
@@ -140,11 +146,13 @@ test('checkStatus merges a self-heal capture\'s payer name and shipping address 
     orderNumber: 'AM-1',
     cart: [{ productId: 'rice_1kg', qty: 1 }],
     paypalPayerName: 'Jane Doe',
-    paypalShippingAddress: '12 Main St, 10115 Berlin, DE'
+    paypalShippingAddress: '12 Main St, 10115 Berlin, DE',
+    paypalPayerContact: 'jane@example.com'
   });
 
   const stored = await store.getPayment({ botId: 'afromarket-selfheal-test', transactionId: 'tx-selfheal' });
   assert.equal(stored.metadata.paypalPayerName, 'Jane Doe');
+  assert.equal(stored.metadata.paypalPayerContact, 'jane@example.com');
   assert.equal(stored.metadata.orderNumber, 'AM-1', 'the cart/order data from initiatePayment must survive the merge');
 });
 

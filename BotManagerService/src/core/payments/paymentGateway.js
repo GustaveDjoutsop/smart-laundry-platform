@@ -130,19 +130,30 @@ class PaymentGateway {
     // same capture response the CHECKOUT.ORDER.APPROVED webhook's own capture
     // normally feeds into routes/payments.js's recordPaypalCapture. When this
     // poll is what actually drove the capture (e.g. because that webhook's
-    // delivery failed signature verification), the payer/shipping data it
-    // returned must still reach payment metadata the same way - otherwise
-    // afromarketFlowPlugin's post-payment-address flow (which reads
+    // delivery failed signature verification), the payer/shipping/contact
+    // data it returned must still reach payment metadata the same way -
+    // otherwise afromarketFlowPlugin's post-payment-address flow (which reads
     // metadata.paypalPayerName/paypalShippingAddress) always falls through to
-    // asking the customer for an address they already gave PayPal. Read-merge-
+    // asking the customer for an address they already gave PayPal, and the
+    // order confirmation's Contact: line renders empty (see
+    // afromarket-dual-completion-trigger-and-contact-field.md). Read-merge-
     // write, not a fresh object - appendEvent's metadata field replaces
     // wholesale, and this must not drop the cart/name/address/etc. captured
     // at initiatePayment time.
     let metadata;
-    if ((res.payerName !== undefined || res.shippingAddress !== undefined) && this.store && this.store.getPayment) {
+    if (
+      (res.payerName !== undefined || res.shippingAddress !== undefined || res.payerContact !== undefined) &&
+      this.store &&
+      this.store.getPayment
+    ) {
       const existing = await this.store.getPayment({ botId, transactionId });
       const existingMetadata = (existing && existing.metadata) || {};
-      metadata = { ...existingMetadata, paypalPayerName: res.payerName, paypalShippingAddress: res.shippingAddress };
+      metadata = {
+        ...existingMetadata,
+        paypalPayerName: res.payerName,
+        paypalShippingAddress: res.shippingAddress,
+        paypalPayerContact: res.payerContact
+      };
     }
 
     const updated = {

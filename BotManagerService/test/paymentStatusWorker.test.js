@@ -102,6 +102,69 @@ test('PaymentStatusWorker emits payment.completed and stops tracking', async () 
   worker.stop();
 });
 
+// See afromarket-dual-completion-trigger-and-contact-field.md - confirmed in
+// production dev logs: the real webhook delivery and this worker's own
+// backstop poll (PayPal's checkStatus self-heal) can both independently read
+// a payment as "not yet COMPLETED" and both reach _onStatus's transition
+// branch before either has written the new status, if their reads
+// interleave - previousStatus on the event is a snapshot taken at read time,
+// not re-validated atomically at emit time. _claimTerminalEmission is what
+// actually guarantees exactly-once emission regardless of this race, so this
+// test drives _onStatus directly with two "racing" calls that both carry the
+// same stale previousStatus (deterministically simulating the interleaving,
+// rather than hoping real timing reproduces it).
+test('_onStatus emits payment.completed exactly once even when two racing calls both see the same stale previousStatus', async () => {
+  const events = new EventEmitter();
+  const store = new PaymentStore({ ttlSeconds: 60 });
+  const botRegistry = { getBotByName: () => null };
+  const worker = new PaymentStatusWorker({ store, events, botRegistry });
+
+  await store.upsertPayment({ botId: 'afromarket-race-test', provider: 'paypal', transactionId: 'tx-race', status: PaymentStatus.PENDING });
+
+  let completedCount = 0;
+  events.on('payment.completed', () => {
+    completedCount += 1;
+  });
+
+  const racingEvent = {
+    botId: 'afromarket-race-test',
+    provider: 'paypal',
+    transactionId: 'tx-race',
+    status: PaymentStatus.COMPLETED,
+    previousStatus: PaymentStatus.PENDING
+  };
+
+  await Promise.all([worker._onStatus(racingEvent), worker._onStatus(racingEvent)]);
+
+  assert.equal(completedCount, 1, 'payment.completed must be emitted exactly once, not once per racing trigger');
+});
+
+test('_onStatus emits payment.failed exactly once even when two racing calls both see the same stale previousStatus', async () => {
+  const events = new EventEmitter();
+  const store = new PaymentStore({ ttlSeconds: 60 });
+  const botRegistry = { getBotByName: () => null };
+  const worker = new PaymentStatusWorker({ store, events, botRegistry });
+
+  await store.upsertPayment({ botId: 'afromarket-race-test-2', provider: 'paypal', transactionId: 'tx-race-failed', status: PaymentStatus.PENDING });
+
+  let failedCount = 0;
+  events.on('payment.failed', () => {
+    failedCount += 1;
+  });
+
+  const racingEvent = {
+    botId: 'afromarket-race-test-2',
+    provider: 'paypal',
+    transactionId: 'tx-race-failed',
+    status: PaymentStatus.FAILED,
+    previousStatus: PaymentStatus.PENDING
+  };
+
+  await Promise.all([worker._onStatus(racingEvent), worker._onStatus(racingEvent)]);
+
+  assert.equal(failedCount, 1, 'payment.failed must be emitted exactly once, not once per racing trigger');
+});
+
 test('regression: payment.completed fires through the real PaymentGateway.checkStatus path, where the store already reflects the new status before payment.status is emitted', async () => {
   // The fake-gateway tests above never write to the store from checkStatus,
   // so they never exercised the actual bug: the real PaymentGateway.checkStatus

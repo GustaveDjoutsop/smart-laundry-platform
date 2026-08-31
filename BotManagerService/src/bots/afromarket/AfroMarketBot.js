@@ -350,12 +350,23 @@ class AfroMarketBot extends ConfigBot {
 
     await this._recordOrder({ botId, transactionId, payment, metadata, customerPhone, buyerName, buyerAddress });
 
+    // PayPal's own payer contact (email, or phone if the buyer shared one)
+    // first, then the chat/WhatsApp-derived phone already on metadata, then
+    // the verified WhatsApp sender number itself - see
+    // afromarket-dual-completion-trigger-and-contact-field.md. The latter
+    // two are normally the same value in this codebase (metadata.phone is
+    // always ctx.phone-derived - see afromarketFlowPlugin's
+    // _handleCheckoutStart), but customerPhone is the one guaranteed to be
+    // populated even in the BSUID-only edge case where metadata.phone came
+    // back blank.
+    const contactPhone = metadata.paypalPayerContact || metadata.phone || customerPhone;
+
     const confirmationText = buildOrderConfirmationText({
       orderNumber: metadata.orderNumber,
       cart: metadata.cart || [],
       name: buyerName,
       address: buyerAddress,
-      phone: metadata.phone,
+      phone: contactPhone,
       shippingFeeEur: metadata.shippingFeeEur
     });
 
@@ -478,12 +489,16 @@ class AfroMarketBot extends ConfigBot {
 
     await this._recordOrder({ botId, transactionId, payment, metadata, customerPhone, buyerName, buyerAddress: address });
 
+    // See the equivalent fallback chain (and its full comment) in
+    // _onPaymentCompleted above.
+    const contactPhone = metadata.paypalPayerContact || metadata.phone || customerPhone;
+
     const confirmationText = buildOrderConfirmationText({
       orderNumber: metadata.orderNumber,
       cart: metadata.cart || [],
       name: buyerName,
       address,
-      phone: metadata.phone,
+      phone: contactPhone,
       shippingFeeEur: metadata.shippingFeeEur
     });
 

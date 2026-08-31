@@ -2,7 +2,7 @@ const express = require('express');
 
 const { getPaymentService } = require('../core/payments/paymentService');
 const { verifyHmacSha256Hex } = require('../core/payments/webhookSignature');
-const { formatShippingAddress, formatPayerName, mapCaptureStatus } = require('../core/payments/providers/paypalProvider');
+const { formatShippingAddress, formatPayerName, formatPayerContact, mapCaptureStatus } = require('../core/payments/providers/paypalProvider');
 const { logger } = require('../utils/logger');
 
 function getSignatureHeader(req) {
@@ -10,12 +10,12 @@ function getSignatureHeader(req) {
   return req.get(headerName);
 }
 
-// Folds a successful PayPal capture response's payer/shipping data into the
-// payment record. Deliberately reads-merges-writes existing metadata rather
-// than passing a fresh object to appendEvent - PaymentStore.appendEvent's
-// metadata field replaces wholesale, not deep-merges, so passing only the
-// new PayPal fields would silently drop the cart/name/address/etc. captured
-// at initiatePayment time.
+// Folds a successful PayPal capture response's payer/shipping/contact data
+// into the payment record. Deliberately reads-merges-writes existing
+// metadata rather than passing a fresh object to appendEvent -
+// PaymentStore.appendEvent's metadata field replaces wholesale, not
+// deep-merges, so passing only the new PayPal fields would silently drop
+// the cart/name/address/etc. captured at initiatePayment time.
 async function recordPaypalCapture({ botId, store, events, orderId, capture }) {
   const existing = await store.getPayment({ botId, transactionId: orderId });
   const existingMetadata = (existing && existing.metadata) || {};
@@ -35,6 +35,10 @@ async function recordPaypalCapture({ botId, store, events, orderId, capture }) {
     capture.purchase_units && capture.purchase_units[0] && capture.purchase_units[0].shipping && capture.purchase_units[0].shipping.address
   );
   const payerName = formatPayerName(capture.payer);
+  // Populates the order confirmation's "Contact:" line - previously nothing
+  // extracted this at all, so it always rendered empty (see
+  // afromarket-dual-completion-trigger-and-contact-field.md).
+  const payerContact = formatPayerContact(capture.payer);
 
   const { duplicate, previousStatus } = await store.appendEvent({
     botId,
@@ -54,7 +58,7 @@ async function recordPaypalCapture({ botId, store, events, orderId, capture }) {
     externalRef: (capture.purchase_units && capture.purchase_units[0] && capture.purchase_units[0].reference_id) || null,
     // Recorded regardless of status - still useful once/if a later webhook
     // does resolve a PENDING capture to COMPLETED.
-    metadata: { ...existingMetadata, paypalPayerName: payerName, paypalShippingAddress: shippingAddress },
+    metadata: { ...existingMetadata, paypalPayerName: payerName, paypalShippingAddress: shippingAddress, paypalPayerContact: payerContact },
     raw: capture,
     source: 'capture-response'
   });

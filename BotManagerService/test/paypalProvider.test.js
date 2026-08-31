@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { PayPalProvider, mapOrderStatus, mapCaptureStatus, formatShippingAddress, formatPayerName } = require('../src/core/payments/providers/paypalProvider');
+const { PayPalProvider, mapOrderStatus, mapCaptureStatus, formatShippingAddress, formatPayerName, formatPayerContact } = require('../src/core/payments/providers/paypalProvider');
 
 const TOKEN_RESPONSE = { status: 200, body: { access_token: 'access-token-abc', token_type: 'Bearer', expires_in: 32000 } };
 
@@ -212,7 +212,7 @@ test('PayPalProvider checkStatus self-heals a stuck APPROVED order by capturing 
 // signature verification, a real production scenario this codebase has hit),
 // the payer/shipping data must not be silently dropped. See
 // paymentGateway.test.js for the metadata-merge side of this.
-test('PayPalProvider checkStatus self-heal capture also extracts payer name and shipping address', async () => {
+test('PayPalProvider checkStatus self-heal capture also extracts payer name, shipping address, and contact', async () => {
   const { fetchImpl } = makeFetch([
     TOKEN_RESPONSE,
     { status: 200, body: { status: 'APPROVED' } },
@@ -220,7 +220,7 @@ test('PayPalProvider checkStatus self-heal capture also extracts payer name and 
       status: 201,
       body: {
         status: 'COMPLETED',
-        payer: { name: { given_name: 'Jane', surname: 'Doe' } },
+        payer: { name: { given_name: 'Jane', surname: 'Doe' }, email_address: 'jane@example.com' },
         purchase_units: [
           {
             shipping: {
@@ -242,9 +242,10 @@ test('PayPalProvider checkStatus self-heal capture also extracts payer name and 
 
   assert.equal(result.payerName, 'Jane Doe');
   assert.equal(result.shippingAddress, '12 Main St, 10115 Berlin, DE');
+  assert.equal(result.payerContact, 'jane@example.com');
 });
 
-test('PayPalProvider checkStatus does not return payerName/shippingAddress when the order was already completed (no self-heal capture attempted)', async () => {
+test('PayPalProvider checkStatus does not return payerName/shippingAddress/payerContact when the order was already completed (no self-heal capture attempted)', async () => {
   const { fetchImpl } = makeFetch([TOKEN_RESPONSE, { status: 200, body: { status: 'COMPLETED' } }]);
 
   const provider = new PayPalProvider({ clientId: 'id', clientSecret: 'secret', fetchImpl });
@@ -252,6 +253,7 @@ test('PayPalProvider checkStatus does not return payerName/shippingAddress when 
 
   assert.equal(result.payerName, undefined);
   assert.equal(result.shippingAddress, undefined);
+  assert.equal(result.payerContact, undefined);
 });
 
 test('PayPalProvider checkStatus maps a voided order to FAILED', async () => {
@@ -413,4 +415,24 @@ test('formatPayerName joins given_name and surname', () => {
   assert.equal(formatPayerName({ name: { given_name: 'Jane', surname: 'Doe' } }), 'Jane Doe');
   assert.equal(formatPayerName(null), null);
   assert.equal(formatPayerName({ name: {} }), null);
+});
+
+// See afromarket-dual-completion-trigger-and-contact-field.md - the order
+// confirmation's "Contact:" line was rendering empty because nothing
+// extracted this from PayPal's capture response at all before.
+test('formatPayerContact prefers email over phone when both are present', () => {
+  assert.equal(
+    formatPayerContact({ email_address: 'jane@example.com', phone: { phone_number: { national_number: '15551234567' } } }),
+    'jane@example.com'
+  );
+});
+
+test('formatPayerContact falls back to phone when email is absent', () => {
+  assert.equal(formatPayerContact({ phone: { phone_number: { national_number: '15551234567' } } }), '15551234567');
+});
+
+test('formatPayerContact returns null when the payer has neither email nor phone', () => {
+  assert.equal(formatPayerContact(null), null);
+  assert.equal(formatPayerContact({}), null);
+  assert.equal(formatPayerContact({ email_address: '' }), null);
 });

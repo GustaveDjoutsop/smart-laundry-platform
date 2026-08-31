@@ -177,6 +177,121 @@ test('AfroMarket order recording: PayPal-returned name and shipping address fina
   assert.match(sent[0].body, /12 Main St, 10115 Berlin, DE/);
 });
 
+// --- afromarket-dual-completion-trigger-and-contact-field.md ---------------
+
+test('shouldPopulateContactFromPaypalPayerInfoWhenAvailable', async (t) => {
+  const { bot, sent } = createBot(t);
+
+  await bot._onPaymentCompleted(
+    completedPaymentEvent({
+      transactionId: 'tx_paypal_contact',
+      provider: 'paypal',
+      payment: {
+        provider: 'paypal',
+        amount: 27.4,
+        currency: 'EUR',
+        customerPhone: '+491701234567',
+        externalRef: 'ORDER-contact-1',
+        metadata: {
+          service: 'afromarket_order',
+          orderNumber: 'AM-contact-1',
+          cart: [{ productId: 'rice_1kg', qty: 2 }],
+          name: null,
+          address: null,
+          // metadata.phone is populated (the WhatsApp sender number, same as
+          // customerPhone in this codebase) - PayPal's own contact must still
+          // win over it, since it's the more authoritative "this is what the
+          // buyer told PayPal to reach them at for this specific payment"
+          // signal.
+          phone: '+491701234567',
+          email: null,
+          paypalPayerName: 'Jane Doe',
+          paypalShippingAddress: '12 Main St, 10115 Berlin, DE',
+          paypalPayerContact: 'jane@paypal-example.com'
+        }
+      }
+    })
+  );
+
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].body, /Contact: jane@paypal-example\.com/);
+});
+
+test('falls back to metadata.phone (2nd tier) when PayPal omits contact info but metadata.phone is populated', async (t) => {
+  const { bot, sent } = createBot(t);
+
+  await bot._onPaymentCompleted(
+    completedPaymentEvent({
+      transactionId: 'tx_paypal_no_contact',
+      provider: 'paypal',
+      payment: {
+        provider: 'paypal',
+        amount: 27.4,
+        currency: 'EUR',
+        // Deliberately different from metadata.phone below, so a pass here
+        // proves the 2nd tier (metadata.phone) was actually used, not just
+        // that the 3rd tier (customerPhone) happened to produce the same
+        // value - see the dedicated 3rd-tier-only test below for that case.
+        customerPhone: '+491700000000',
+        externalRef: 'ORDER-contact-2',
+        metadata: {
+          service: 'afromarket_order',
+          orderNumber: 'AM-contact-2',
+          cart: [{ productId: 'rice_1kg', qty: 2 }],
+          name: null,
+          address: null,
+          phone: '+491701234567',
+          email: null,
+          paypalPayerName: 'Jane Doe',
+          paypalShippingAddress: '12 Main St, 10115 Berlin, DE'
+          // No paypalPayerContact - a guest/card PayPal payment that shared
+          // neither an email nor a phone number.
+        }
+      }
+    })
+  );
+
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].body, /Contact: \+491701234567/);
+});
+
+test('shouldFallBackToWhatsappSenderNumberWhenPaypalOmitsContactInfo', async (t) => {
+  const { bot, sent } = createBot(t);
+
+  await bot._onPaymentCompleted(
+    completedPaymentEvent({
+      transactionId: 'tx_paypal_no_contact_no_metadata_phone',
+      provider: 'paypal',
+      payment: {
+        provider: 'paypal',
+        amount: 27.4,
+        currency: 'EUR',
+        customerPhone: '+491701234567',
+        externalRef: 'ORDER-contact-3',
+        metadata: {
+          service: 'afromarket_order',
+          orderNumber: 'AM-contact-3',
+          cart: [{ productId: 'rice_1kg', qty: 2 }],
+          name: null,
+          address: null,
+          // Both the 1st tier (paypalPayerContact) and 2nd tier
+          // (metadata.phone) are absent here - only the 3rd tier
+          // (customerPhone, the verified WhatsApp sender number) remains,
+          // proving it's a genuine fallback of last resort, not just
+          // coincidentally reachable.
+          phone: null,
+          email: null,
+          paypalPayerName: 'Jane Doe',
+          paypalShippingAddress: '12 Main St, 10115 Berlin, DE'
+        }
+      }
+    })
+  );
+
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].body, /Contact: \+491701234567/);
+});
+
 test('AfroMarket order recording: PayPal capture missing a shipping address defers the invoice/profile write and asks the customer for it instead', async (t) => {
   const { bot, invoiceCalls, profileCalls, sent } = createBot(t);
   const transactionId = 'tx_paypal_no_address';
@@ -289,7 +404,8 @@ test('AfroMarket order recording: a captured post-payment address finalizes the 
       phone: '+491701234569',
       email: null,
       paypalPayerName: 'Alex Doe',
-      paypalShippingAddress: null
+      paypalShippingAddress: null,
+      paypalPayerContact: 'alex@paypal-example.com'
     }
   });
 
@@ -303,6 +419,14 @@ test('AfroMarket order recording: a captured post-payment address finalizes the 
   assert.equal(sent[0].type, 'buttons');
   assert.match(sent[0].body, /Order confirmed/);
   assert.match(sent[0].body, /99 Other St, Hamburg/);
+  // _onPostPaymentAddressCaptured has its own copy of the same
+  // paypalPayerContact || metadata.phone || customerPhone fallback chain as
+  // _onPaymentCompleted - this is the only test exercising that call site's
+  // Contact: line specifically (see also
+  // shouldPopulateContactFromPaypalPayerInfoWhenAvailable/
+  // shouldFallBackToWhatsappSenderNumberWhenPaypalOmitsContactInfo above,
+  // which cover _onPaymentCompleted's identical logic).
+  assert.match(sent[0].body, /Contact: alex@paypal-example\.com/);
 });
 
 test('AfroMarket order recording: a redelivered post-payment-address-captured event does not finalize the order twice', async (t) => {

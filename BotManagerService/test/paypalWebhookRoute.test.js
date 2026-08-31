@@ -29,6 +29,7 @@ global.fetch = (...args) => currentFetchImpl(...args);
 
 const { paymentsRouter } = require('../src/routes/payments');
 const { getPaymentService } = require('../src/core/payments/paymentService');
+const { PaymentStatusWorker } = require('../src/core/payments/paymentStatusWorker');
 
 const TOKEN_RESPONSE = { ok: true, status: 200, json: async () => ({ access_token: 'access-token-abc', expires_in: 32000 }) };
 
@@ -96,6 +97,67 @@ test('POST /webhooks/paypal/:botId rejects when signature verification fails', a
 
     assert.equal(res.status, 403);
   } finally {
+    server.close();
+  }
+});
+
+// See afromarket-dual-completion-trigger-and-contact-field.md. "Verified
+// webhook" here means either the real signed webhook delivery, or
+// PaymentStatusWorker's own backstop poll (which independently re-verifies
+// against PayPal's own API rather than trusting anything from the customer's
+// browser) - never an unsigned/unverifiable request. This test proves the
+// unsigned case specifically: a failed-signature delivery must never reach
+// recordPaypalCapture or emit payment.completed, not just return a 403.
+test('shouldOnlyCompleteOrderViaVerifiedWebhook', async () => {
+  const { store, events, gateway } = getPaymentService();
+  const worker = new PaymentStatusWorker({ gateway, store, events, botRegistry: { getBotByName: () => null } });
+  worker.start();
+
+  let completedCount = 0;
+  const onCompleted = () => {
+    completedCount += 1;
+  };
+  events.on('payment.completed', onCompleted);
+
+  await store.upsertPayment({
+    botId: 'afromarket',
+    transactionId: 'ORDER-UNVERIFIED-1',
+    provider: 'paypal',
+    status: 'PENDING',
+    metadata: { service: 'afromarket_order', orderNumber: 'AM-UNVERIFIED-1' }
+  });
+
+  currentFetchImpl = async (url) => {
+    if (String(url).includes('/oauth2/token')) return TOKEN_RESPONSE;
+    if (String(url).includes('/v1/notifications/verify-webhook-signature')) {
+      return { ok: true, status: 200, json: async () => ({ verification_status: 'FAILURE' }) };
+    }
+    throw new Error(`Unexpected fetch call: ${url} - an unverified webhook must never reach captureOrder`);
+  };
+
+  const server = await startServer();
+  try {
+    const res = await post(
+      server,
+      '/payments/webhooks/paypal/afromarket',
+      { id: 'WH-EVT-UNVERIFIED-1', event_type: 'CHECKOUT.ORDER.APPROVED', resource: { id: 'ORDER-UNVERIFIED-1' } },
+      {
+        'paypal-transmission-id': 't-unverified',
+        'paypal-transmission-time': '2026-01-01T00:00:00Z',
+        'paypal-cert-url': 'https://api.paypal.com/cert',
+        'paypal-auth-algo': 'SHA256withRSA',
+        'paypal-transmission-sig': 'sig'
+      }
+    );
+
+    assert.equal(res.status, 403);
+    assert.equal(completedCount, 0, 'an unverified webhook must never trigger payment.completed');
+
+    const payment = await store.getPayment({ botId: 'afromarket', transactionId: 'ORDER-UNVERIFIED-1' });
+    assert.equal(payment.status, 'PENDING', 'the payment record itself must be untouched');
+  } finally {
+    events.off('payment.completed', onCompleted);
+    worker.stop();
     server.close();
   }
 });
@@ -307,6 +369,100 @@ test('PAYMENT.CAPTURE.COMPLETED is recorded as a duplicate-safe second signal, n
     const payment = await store.getPayment({ botId: 'afromarket', transactionId: 'ORDER-DUP-1' });
     assert.equal(payment.status, 'COMPLETED');
   } finally {
+    server.close();
+  }
+});
+
+// See afromarket-dual-completion-trigger-and-contact-field.md. Named per the
+// doc's original hypothesis (the customer's browser hitting /payment-return
+// racing the webhook), but traced and confirmed that isn't the actual
+// mechanism - /payment-return has zero side effects (see paymentReturn.test.js's
+// shouldNotTriggerOrderCompletionFromPaymentReturnRoute), so it cannot
+// participate in any race at all. The two triggers exercised here instead are
+// the ones actually observed in production logs: the real webhook delivery
+// and PaymentStatusWorker's own backstop poll (PayPal's checkStatus
+// self-heal), both hitting the same transaction.
+//
+// IMPORTANT what this test does and doesn't prove: the poll below runs
+// strictly *after* the webhook's HTTP response has fully resolved, so by the
+// time it reads the payment's status, the webhook's write has already
+// landed - this is deliberately sequential, not a genuine race, and it
+// passes via the pre-existing (unchanged by this fix) previousStatus-
+// resolves-to-COMPLETED short-circuit in _onStatus, never even reaching the
+// new _claimTerminalEmission claim. It's still worth keeping as an honest,
+// deterministic proof of the doc's literal requirement ("even if both paths
+// are hit for the same transaction ID, completion executes exactly once")
+// at the real HTTP/webhook-route level - but it is NOT a regression test for
+// the actual race. That coverage lives entirely in paymentStatusWorker.
+// test.js's two direct _onStatus tests, which force both racing calls to
+// carry the same stale previousStatus and do exercise _claimTerminalEmission.
+test('shouldNotDoubleProcessWhenWebhookAndReturnFireForSameTransaction', async () => {
+  const { store, events, gateway } = getPaymentService();
+  const worker = new PaymentStatusWorker({ gateway, store, events, botRegistry: { getBotByName: () => null } });
+  // start() is what actually registers _onStatus as a payment.status
+  // listener - both the webhook route and _pollOnce below only emit
+  // payment.status themselves, they don't call _onStatus directly.
+  worker.start();
+
+  let completedCount = 0;
+  const onCompleted = () => {
+    completedCount += 1;
+  };
+  events.on('payment.completed', onCompleted);
+
+  await store.upsertPayment({
+    botId: 'afromarket',
+    transactionId: 'ORDER-DUAL-TRIGGER-1',
+    provider: 'paypal',
+    status: 'PENDING',
+    metadata: { service: 'afromarket_order', orderNumber: 'AM-DUAL-1', cart: [{ productId: 'x', qty: 1 }] }
+  });
+
+  const captureResponse = {
+    ok: true,
+    status: 201,
+    json: async () => ({
+      status: 'COMPLETED',
+      payer: { name: { given_name: 'Jane', surname: 'Doe' } },
+      purchase_units: [
+        {
+          reference_id: 'AM-DUAL-1',
+          shipping: { address: { address_line_1: '12 Main St', postal_code: '10115', admin_area_2: 'Berlin', country_code: 'DE' } },
+          payments: { captures: [{ id: 'CAPTURE-DUAL-1', status: 'COMPLETED', amount: { currency_code: 'EUR', value: '27.40' } }] }
+        }
+      ]
+    })
+  };
+  currentFetchImpl = verifySuccessFetch([captureResponse]);
+
+  const server = await startServer();
+  try {
+    // Trigger 1: the real, verified webhook.
+    const webhookRes = await post(
+      server,
+      '/payments/webhooks/paypal/afromarket',
+      { id: 'WH-EVT-DUAL-1', event_type: 'CHECKOUT.ORDER.APPROVED', resource: { id: 'ORDER-DUAL-TRIGGER-1' } },
+      {
+        'paypal-transmission-id': 't-dual',
+        'paypal-transmission-time': '2026-01-01T00:00:00Z',
+        'paypal-cert-url': 'https://api.paypal.com/cert',
+        'paypal-auth-algo': 'SHA256withRSA',
+        'paypal-transmission-sig': 'sig'
+      }
+    );
+    assert.equal(webhookRes.status, 200);
+
+    // Trigger 2: PaymentStatusWorker's own backstop poll landing shortly
+    // after - by now PayPal's real order status has moved off APPROVED
+    // (matches production: the order was already captured by trigger 1), so
+    // no second capture call happens - just a status re-read.
+    currentFetchImpl = verifySuccessFetch([{ ok: true, status: 200, json: async () => ({ status: 'COMPLETED' }) }]);
+    await worker._pollOnce({ botId: 'afromarket', provider: 'paypal', transactionId: 'ORDER-DUAL-TRIGGER-1' });
+
+    assert.equal(completedCount, 1, 'payment.completed must fire exactly once across both triggers, not once per trigger');
+  } finally {
+    events.off('payment.completed', onCompleted);
+    worker.stop();
     server.close();
   }
 });
