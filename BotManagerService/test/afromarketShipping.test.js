@@ -128,6 +128,28 @@ test('buildOrderConfirmationText shows no Shipping line at all when shippingFeeE
   assert.match(withoutShipping, /Total: \*€10\.00\*/);
 });
 
+// See afromarket-dual-completion-trigger-and-contact-field.md - the Contact:
+// line was rendering with nothing after it ("Contact:\n") whenever phone was
+// blank. Callers are expected to resolve their own fallback chain (PayPal
+// payer contact -> metadata.phone -> customerPhone - see AfroMarketBot.js)
+// before reaching this function, but this is the last line of defense.
+test('shouldOmitContactLineRatherThanRenderEmptyWhenNoContactInfoAvailable', () => {
+  const cart = [{ productId: 'a', name: 'Item A', unitPrice: 10, qty: 1 }];
+
+  const text = buildOrderConfirmationText({ orderNumber: 'AM-1', cart, name: 'Jane', address: 'Somewhere', phone: '' });
+
+  assert.doesNotMatch(text, /Contact:/);
+  assert.match(text, /Delivering to: Somewhere\n\nWe'll start/, 'no dangling blank Contact line between the address and the next paragraph');
+});
+
+test('buildOrderConfirmationText renders the Contact line exactly as before when phone is present', () => {
+  const cart = [{ productId: 'a', name: 'Item A', unitPrice: 10, qty: 1 }];
+
+  const text = buildOrderConfirmationText({ orderNumber: 'AM-1', cart, name: 'Jane', address: 'Somewhere', phone: '+491701234567' });
+
+  assert.match(text, /Contact: \+491701234567/);
+});
+
 async function driveToConfirmOrder(step) {
   await step('hi');
   await step('shop_online');

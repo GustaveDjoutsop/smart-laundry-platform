@@ -51,6 +51,21 @@ function formatPayerName(payer) {
   return full || null;
 }
 
+// Email first: PayPal's payer.email_address is tied to the account itself
+// and present on essentially every real capture; payer.phone is only there
+// if the buyer separately added and consented to share one, so it's a much
+// rarer win. See afromarket-dual-completion-trigger-and-contact-field.md -
+// the order confirmation's "Contact:" line was rendering empty because
+// nothing extracted this at all before.
+function formatPayerContact(payer) {
+  if (!payer) return null;
+  const email = payer.email_address && String(payer.email_address).trim();
+  if (email) return email;
+  const nationalNumber = payer.phone && payer.phone.phone_number && payer.phone.phone_number.national_number;
+  const phone = nationalNumber && String(nationalNumber).trim();
+  return phone || null;
+}
+
 class PayPalProvider {
   constructor({ clientId, clientSecret, baseUrl, returnUrl, cancelUrl, webhookId, logger, fetchImpl } = {}) {
     this.clientId = clientId;
@@ -227,7 +242,22 @@ class PayPalProvider {
     if (data.status === 'APPROVED') {
       const captured = await this.captureOrder(transactionId);
       if (captured.ok) {
-        return { transactionId, status: mapOrderStatus(captured.data.status), raw: captured.data };
+        // Same payer/shipping extraction as routes/payments.js's
+        // recordPaypalCapture (the CHECKOUT.ORDER.APPROVED webhook's own
+        // capture path) - this self-heal path is a genuine alternate route
+        // to the same capture response and must not silently drop the data
+        // that afromarketFlowPlugin's post-payment-address flow depends on
+        // (see afromarket-remove-prepayment-address-collection.md). Callers
+        // (PaymentGateway.checkStatus) merge these into payment metadata.
+        const purchaseUnit = captured.data.purchase_units && captured.data.purchase_units[0];
+        return {
+          transactionId,
+          status: mapOrderStatus(captured.data.status),
+          raw: captured.data,
+          payerName: formatPayerName(captured.data.payer),
+          shippingAddress: formatShippingAddress(purchaseUnit && purchaseUnit.shipping && purchaseUnit.shipping.address),
+          payerContact: formatPayerContact(captured.data.payer)
+        };
       }
     }
 
@@ -336,4 +366,4 @@ class PayPalProvider {
   }
 }
 
-module.exports = { PayPalProvider, buildUrl, mapOrderStatus, mapCaptureStatus, formatShippingAddress, formatPayerName };
+module.exports = { PayPalProvider, buildUrl, mapOrderStatus, mapCaptureStatus, formatShippingAddress, formatPayerName, formatPayerContact };

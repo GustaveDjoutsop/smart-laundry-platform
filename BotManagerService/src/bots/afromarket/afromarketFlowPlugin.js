@@ -309,6 +309,13 @@ function buildOrderConfirmationText({ orderNumber, cart, name, address, phone, s
   const grandTotal = itemsTotal + (Number(shippingFeeEur) || 0);
   const itemLines = cart.map((line) => `• ${line.qty}x ${line.name}`).join('\n');
   const shippingLine = shippingFeeEur ? `Shipping: ${formatEuro(shippingFeeEur)}\n` : '';
+  // Never render "Contact:" with nothing after it - callers are expected to
+  // already have resolved their own fallback chain (e.g. AfroMarketBot.js's
+  // metadata.paypalPayerContact || metadata.phone || customerPhone) before
+  // reaching here, but this is the last line of defense against an empty
+  // value slipping through (see
+  // afromarket-dual-completion-trigger-and-contact-field.md).
+  const contactLine = phone ? `Contact: ${phone}\n` : '';
 
   return (
     `✅ *Order confirmed*\n\n` +
@@ -318,7 +325,7 @@ function buildOrderConfirmationText({ orderNumber, cart, name, address, phone, s
     `${shippingLine}` +
     `Total: *${formatEuro(grandTotal)}*\n` +
     `Delivering to: ${address}\n` +
-    `Contact: ${phone}\n\n` +
+    `${contactLine}\n` +
     `We'll start getting your fresh African groceries ready to ship.\n` +
     `We deliver within ${DELIVERY_WINDOW_DAYS} days - estimated arrival: ${estimatedDeliveryDate()}.\n\n` +
     `We will let you know when your order ships.`

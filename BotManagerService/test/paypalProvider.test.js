@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { PayPalProvider, mapOrderStatus, mapCaptureStatus, formatShippingAddress, formatPayerName } = require('../src/core/payments/providers/paypalProvider');
+const { PayPalProvider, mapOrderStatus, mapCaptureStatus, formatShippingAddress, formatPayerName, formatPayerContact } = require('../src/core/payments/providers/paypalProvider');
 
 const TOKEN_RESPONSE = { status: 200, body: { access_token: 'access-token-abc', token_type: 'Bearer', expires_in: 32000 } };
 
@@ -205,6 +205,57 @@ test('PayPalProvider checkStatus self-heals a stuck APPROVED order by capturing 
   assert.equal(result.status, 'COMPLETED');
 });
 
+// This self-heal path is a genuine alternate route to the same capture
+// response the CHECKOUT.ORDER.APPROVED webhook's own capture normally feeds
+// into routes/payments.js's recordPaypalCapture - if this poll is what
+// actually drives the capture (e.g. because that webhook's delivery failed
+// signature verification, a real production scenario this codebase has hit),
+// the payer/shipping data must not be silently dropped. See
+// paymentGateway.test.js for the metadata-merge side of this.
+test('PayPalProvider checkStatus self-heal capture also extracts payer name, shipping address, and contact', async () => {
+  const { fetchImpl } = makeFetch([
+    TOKEN_RESPONSE,
+    { status: 200, body: { status: 'APPROVED' } },
+    {
+      status: 201,
+      body: {
+        status: 'COMPLETED',
+        payer: { name: { given_name: 'Jane', surname: 'Doe' }, email_address: 'jane@example.com' },
+        purchase_units: [
+          {
+            shipping: {
+              address: {
+                address_line_1: '12 Main St',
+                postal_code: '10115',
+                admin_area_2: 'Berlin',
+                country_code: 'DE'
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]);
+
+  const provider = new PayPalProvider({ clientId: 'id', clientSecret: 'secret', fetchImpl });
+  const result = await provider.checkStatus('ORDER-STUCK-WITH-ADDRESS');
+
+  assert.equal(result.payerName, 'Jane Doe');
+  assert.equal(result.shippingAddress, '12 Main St, 10115 Berlin, DE');
+  assert.equal(result.payerContact, 'jane@example.com');
+});
+
+test('PayPalProvider checkStatus does not return payerName/shippingAddress/payerContact when the order was already completed (no self-heal capture attempted)', async () => {
+  const { fetchImpl } = makeFetch([TOKEN_RESPONSE, { status: 200, body: { status: 'COMPLETED' } }]);
+
+  const provider = new PayPalProvider({ clientId: 'id', clientSecret: 'secret', fetchImpl });
+  const result = await provider.checkStatus('ORDER-1');
+
+  assert.equal(result.payerName, undefined);
+  assert.equal(result.shippingAddress, undefined);
+  assert.equal(result.payerContact, undefined);
+});
+
 test('PayPalProvider checkStatus maps a voided order to FAILED', async () => {
   const { fetchImpl } = makeFetch([TOKEN_RESPONSE, { status: 200, body: { status: 'VOIDED' } }]);
 
@@ -364,4 +415,24 @@ test('formatPayerName joins given_name and surname', () => {
   assert.equal(formatPayerName({ name: { given_name: 'Jane', surname: 'Doe' } }), 'Jane Doe');
   assert.equal(formatPayerName(null), null);
   assert.equal(formatPayerName({ name: {} }), null);
+});
+
+// See afromarket-dual-completion-trigger-and-contact-field.md - the order
+// confirmation's "Contact:" line was rendering empty because nothing
+// extracted this from PayPal's capture response at all before.
+test('formatPayerContact prefers email over phone when both are present', () => {
+  assert.equal(
+    formatPayerContact({ email_address: 'jane@example.com', phone: { phone_number: { national_number: '15551234567' } } }),
+    'jane@example.com'
+  );
+});
+
+test('formatPayerContact falls back to phone when email is absent', () => {
+  assert.equal(formatPayerContact({ phone: { phone_number: { national_number: '15551234567' } } }), '15551234567');
+});
+
+test('formatPayerContact returns null when the payer has neither email nor phone', () => {
+  assert.equal(formatPayerContact(null), null);
+  assert.equal(formatPayerContact({}), null);
+  assert.equal(formatPayerContact({ email_address: '' }), null);
 });
