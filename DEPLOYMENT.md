@@ -330,6 +330,54 @@ environments in the Railway dashboard before flipping `AFROMARKET_PAYMENT_PROVID
 
 ---
 
+## 5b. JVM heap caps (cost optimization, `dev`/`stage` only)
+
+See `railway-cost-optimization-tasks.md` (2026-08-25 baseline: $48.31/month, 94% of
+which is memory) for the full task list this addresses - most of it is Railway
+dashboard clicking Claude cannot do (Serverless toggles, deployment removal, PR
+environment cleanup, spending alerts). This section covers the one item that's a real
+lever from the repo: the four Spring Boot services with no explicit JVM heap cap, so
+the JVM sizes its heap off the container's full allocated memory by default.
+
+| Service | Dockerfile ENTRYPOINT | Explicit `-Xmx` today |
+|---|---|---|
+| `MachineStateService` | `java -jar app.jar` (or `railway.toml`'s `startCommand` for the `dev`-mapped Railway service - see that file's own comment on production overriding this separately in the Railway UI) | none |
+| `PaymentManagementService` | `java -jar app.jar` | none |
+| `api-gateway` | `java -jar app.jar` | none |
+| `reporting-bff` | `java -jar app.jar` | none |
+
+**Deliberately not editing any Dockerfile or `railway.toml` for this** - all four use
+the exec-form `ENTRYPOINT ["java", "-jar", "app.jar"]`, so there's no way to condition
+a hardcoded `-Xmx` flag on environment from inside the image itself, and MachineStateService's
+own `railway.toml` comment leaves genuine ambiguity about whether `production` already
+has its own `startCommand` override in the Railway UI or falls through to this repo's
+config. Given the explicit "do not touch production" constraint on this whole
+cost-optimization pass, guessing wrong here risks exactly what that constraint exists
+to prevent.
+
+Instead: the JVM automatically picks up **`JAVA_TOOL_OPTIONS`** from its process
+environment on startup (logs `Picked up JAVA_TOOL_OPTIONS: ...` to stderr when it does),
+regardless of how `java` was invoked - no code or Dockerfile change needed. Set it as a
+plain Railway environment variable, scoped to whichever environment you want capped:
+
+```
+JAVA_TOOL_OPTIONS=-Xmx384m
+```
+
+- Set this on `dev` (and `stage`, per Task 3's judgment call) for each of the four
+  services above - **do not set it on `production`** without first confirming `dev`
+  runs stable for a few days at this cap (watch for `OutOfMemoryError` in deploy logs).
+- `384m` is a starting point per the task file's own suggested range (`256m`–`384m`);
+  raise per-service if a given one OOMs - `MachineStateService` (heaviest, ~1.16 GB
+  observed) is the most likely to need a higher cap than `api-gateway`/`reporting-bff`
+  (~0.6 GB observed each).
+- Leaving the variable unset anywhere (including `production`, permanently, unless
+  explicitly decided otherwise) is a complete no-op - current behavior is unaffected.
+- **Cannot be set or verified by Claude directly** - no Railway MCP/CLI access exists in
+  this environment, same limitation as §5a.
+
+---
+
 ## 6. Release checklist
 
 Before merging a `feature/*` or `bugfix/*` PR into `master`:
