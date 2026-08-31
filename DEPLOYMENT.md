@@ -358,19 +358,39 @@ to prevent.
 Instead: the JVM automatically picks up **`JAVA_TOOL_OPTIONS`** from its process
 environment on startup (logs `Picked up JAVA_TOOL_OPTIONS: ...` to stderr when it does),
 regardless of how `java` was invoked - no code or Dockerfile change needed. Set it as a
-plain Railway environment variable, scoped to whichever environment you want capped:
+plain Railway environment variable, scoped to whichever environment you want capped.
 
-```
-JAVA_TOOL_OPTIONS=-Xmx384m
-```
+**Per-service starting values** (revised 2026-08-31 - see
+`railway-cost-optimization-task2.md`'s PR #227 review: a uniform `384m` was too
+aggressive for the two heaviest/highest-traffic services and risked real OOM under
+normal dev load, not just at idle):
+
+| Service | `JAVA_TOOL_OPTIONS` |
+|---|---|
+| `MachineStateService` | `-Xmx512m` |
+| `PaymentManagementService` | `-Xmx448m` |
+| `api-gateway` | `-Xmx384m` |
+| `reporting-bff` | `-Xmx384m` |
 
 - Set this on `dev` (and `stage`, per Task 3's judgment call) for each of the four
   services above - **do not set it on `production`** without first confirming `dev`
   runs stable for a few days at this cap (watch for `OutOfMemoryError` in deploy logs).
-- `384m` is a starting point per the task file's own suggested range (`256m`–`384m`);
-  raise per-service if a given one OOMs - `MachineStateService` (heaviest, ~1.16 GB
-  observed) is the most likely to need a higher cap than `api-gateway`/`reporting-bff`
-  (~0.6 GB observed each).
+- `-Xmx` caps JVM **heap** only, not total process memory (RSS) - metaspace, thread
+  stacks, JIT code cache, and off-heap/direct buffers sit on top, so expect real memory
+  to land noticeably above the configured value, not at it. Still a real cut versus no
+  cap at all.
+- `MachineStateService` (~1.16 GB observed, and the only one of the four with
+  meaningful egress - ~6.28 GB/month, suggesting real traffic/polling, not just idle
+  allocation) and `PaymentManagementService` (~0.9 GB observed) got higher starting
+  caps than `api-gateway`/`reporting-bff` (~0.6 GB and ~0.52 GB observed) for exactly
+  this reason. Step down further only after each has run stable for a few days,
+  watching for `OutOfMemoryError`.
+- `api-gateway` uses `spring-cloud-starter-gateway-server-webflux` (confirmed via its
+  `pom.xml`) - reactive/Netty-based. `-Xmx` doesn't cap off-heap direct buffer memory
+  used for request/response streaming; `-XX:MaxDirectMemorySize` defaults to the `-Xmx`
+  value if unset. Not urgent, but worth watching once its heap cap is in and stable -
+  add `-XX:MaxDirectMemorySize=...` to the same `JAVA_TOOL_OPTIONS` value if it turns
+  out to matter in practice.
 - Leaving the variable unset anywhere (including `production`, permanently, unless
   explicitly decided otherwise) is a complete no-op - current behavior is unaffected.
 - **Cannot be set or verified by Claude directly** - no Railway MCP/CLI access exists in
