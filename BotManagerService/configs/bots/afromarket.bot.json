@@ -54,7 +54,7 @@
               "title": "Explore",
               "rows": [
                 { "id": "shop_online", "title": "🛒 Shop online", "description": "Groceries delivered to you" },
-                { "id": "recipes", "title": "🍲 Get recipe ideas", "description": "Recipes, meal plans & dinner tips" },
+                { "id": "recipes", "title": "🍲 Get recipe ideas", "description": "Recipes, meal plans & dinner tips", "hideInProd": true },
                 { "id": "current_promo", "title": "🎉 Current promo", "description": "This week's deal" },
                 { "id": "afro_restaurant", "title": "🍽️ Afro Restaurant", "description": "Restaurants we recommend", "hideInProd": true },
                 { "id": "afromarket_store", "title": "🏬 AfroMarket Store", "description": "Our physical shop" }
@@ -550,7 +550,7 @@
           "template": "🎉 *New in the shop!*\n\nAuthentic Cameroonian staples now available: Haricot Rouge, Ndolè, Arachide Blanche and Feuilles d'OKOK — everything you need for real home cooking, delivered across Germany.",
           "buttons": [
             { "id": "shop_online", "title": "🛒 Shop now" },
-            { "id": "recipes", "title": "🍲 Ndolè recipe" },
+            { "id": "recipes", "title": "🍲 Ndolè recipe", "hideInProd": true },
             { "id": "menu", "title": "🏠 Main menu" }
           ],
           "saveAs": "promoChoice",

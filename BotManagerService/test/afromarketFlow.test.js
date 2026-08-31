@@ -700,7 +700,7 @@ test('AfroMarket: production hides Partner Stores and shows the Steinheim delive
   }
 });
 
-test('AfroMarket: production hides Afro Restaurant from the main menu, dev keeps it', async () => {
+test('AfroMarket: production hides Afro Restaurant and Get recipe ideas from the main menu, dev keeps both', async () => {
   // afro_restaurant_list has no native carousel until a new template is
   // approved (see docs/requirements/afromarket.md v2.2/v2.3) - production
   // hides the menu entry rather than showing the degraded vertical-card
@@ -712,7 +712,7 @@ test('AfroMarket: production hides Afro Restaurant from the main menu, dev keeps
     const { outboundIntents } = await step('hi');
 
     const rowIds = outboundIntents[0].sections.flatMap((section) => section.rows.map((row) => row.id));
-    assert.deepEqual(rowIds, ['shop_online', 'recipes', 'current_promo', 'afromarket_store']);
+    assert.deepEqual(rowIds, ['shop_online', 'current_promo', 'afromarket_store']);
   } finally {
     if (previousConfigEnv === undefined) {
       delete process.env.CONFIG_ENV;
@@ -720,6 +720,67 @@ test('AfroMarket: production hides Afro Restaurant from the main menu, dev keeps
       process.env.CONFIG_ENV = previousConfigEnv;
     }
   }
+});
+
+test('AfroMarket: Get recipe ideas is feature-flagged off on production - not reachable from any entry point, not just the main menu', async () => {
+  // Not just the main menu row - current_promo_none's own "Ndolè recipe"
+  // button is a second, independent entry point into the same recipes_hub
+  // flow (reachable from the main menu's "current_promo" row, which is NOT
+  // itself hidden in prod) and would otherwise still work even with the
+  // main menu row hidden. Uses the same no-live-promo botConfig setup as
+  // the "what's new" fallback test above, to reliably force the
+  // current_promo_none branch rather than depending on afromarket.bot.json
+  // happening to have (or not have) a live salePriceEur product.
+  const previousConfigEnv = process.env.CONFIG_ENV;
+  process.env.CONFIG_ENV = 'production';
+  try {
+    const noSaleBotConfig = JSON.parse(JSON.stringify(botConfig));
+    for (const product of noSaleBotConfig.products) {
+      delete product.salePriceEur;
+    }
+    const flowEngine = new FlowEngine({ botConfig: noSaleBotConfig, plugin: new AfroMarketFlowPlugin({ botConfig: noSaleBotConfig }) });
+    let conversationState = { currentFlowId: null, currentStateId: null, context: {} };
+    const step = async (text) => {
+      const outboundIntents = [];
+      ({ state: conversationState } = await flowEngine.step({
+        from: '+33600000000',
+        phone: '+33600000000',
+        message: { text: { body: text } },
+        state: conversationState,
+        send: async (outboundIntent) => outboundIntents.push(outboundIntent)
+      }));
+      return { outboundIntents, conversationState };
+    };
+
+    const { outboundIntents } = await step('hi');
+    const rowIds = outboundIntents[0].sections.flatMap((section) => section.rows.map((row) => row.id));
+    assert.ok(!rowIds.includes('recipes'), 'main menu must not show Get recipe ideas in production');
+
+    const promoResult = await step('current_promo');
+    assert.match(promoResult.outboundIntents[0].body, /New in the shop/);
+    const promoButtonIds = promoResult.outboundIntents[0].buttons.map((b) => b.id);
+    assert.ok(
+      !promoButtonIds.includes('recipes'),
+      'current_promo_none must not offer its "Ndolè recipe" backdoor into the recipes flow in production either'
+    );
+  } finally {
+    if (previousConfigEnv === undefined) {
+      delete process.env.CONFIG_ENV;
+    } else {
+      process.env.CONFIG_ENV = previousConfigEnv;
+    }
+  }
+});
+
+test('AfroMarket: Get recipe ideas stays visible and reachable outside production (default test/dev env)', async () => {
+  const step = createStepper();
+  const { outboundIntents } = await step('hi');
+  const rowIds = outboundIntents[0].sections.flatMap((section) => section.rows.map((row) => row.id));
+  assert.ok(rowIds.includes('recipes'), 'main menu must still show Get recipe ideas outside production');
+
+  const result = await step('recipes');
+  assert.equal(result.outboundIntents[0].type, 'list');
+  assert.match(result.outboundIntents[0].body, /Recipe Ideas/);
 });
 
 test('AfroMarket: Afro Restaurant fires its real approved carousel template with quick-reply buttons and per-card body text', async () => {
