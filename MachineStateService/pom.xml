@@ -19,7 +19,7 @@
 
     <properties>
         <java.version>25</java.version>
-        <lombok.version>1.18.46</lombok.version>
+        <lombok.version>1.18.48</lombok.version>
     </properties>
 
     <repositories>
@@ -170,7 +170,7 @@
         <dependency>
             <groupId>io.sentry</groupId>
             <artifactId>sentry-spring-boot-starter-jakarta</artifactId>
-            <version>8.16.0</version>
+            <version>8.55.0</version>
         </dependency>
 
         <!-- Loki log shipping (P7 — push logs to Grafana Cloud Loki) -->
