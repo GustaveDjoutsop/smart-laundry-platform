@@ -28,12 +28,12 @@
 
     <properties>
         <java.version>25</java.version>
-        <lombok.version>1.18.46</lombok.version>
-        <maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
+        <lombok.version>1.18.48</lombok.version>
+        <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <mustache.version>0.9.14</mustache.version>
-        <testcontainers.version>1.20.4</testcontainers.version>
+        <testcontainers.version>1.21.4</testcontainers.version>
     </properties>
 
     <repositories>
@@ -156,7 +156,7 @@
                 <plugin>
                     <groupId>org.sonarsource.scanner.maven</groupId>
                     <artifactId>sonar-maven-plugin</artifactId>
-                    <version>5.7.0.6970</version>
+                    <version>5.8.0.7211</version>
                 </plugin>
             </plugins>
         </pluginManagement>
