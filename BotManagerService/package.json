@@ -11,7 +11,7 @@
     "lint": "node -e \"console.log('lint not configured yet')\""
   },
   "dependencies": {
-    "dotenv": "^17.4.2",
+    "dotenv": "^18.0.5",
     "express": "^5.2.1",
     "helmet": "^8.3.0",
     "js-yaml": "^5.4.0",
