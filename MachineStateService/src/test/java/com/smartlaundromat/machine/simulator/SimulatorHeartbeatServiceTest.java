@@ -210,7 +210,9 @@ class SimulatorHeartbeatServiceTest {
                 "jdbc:postgresql://host.docker.internal:5435/machinedb",
                 "jdbc:postgresql://machine_user:pass@localhost:5435/machinedb",
                 "jdbc:postgresql://localhost:5435/machinedb?sslmode=disable",
-                "JDBC:POSTGRESQL://LOCALHOST:5435/machinedb"
+                "JDBC:POSTGRESQL://LOCALHOST:5435/machinedb",
+                // an all-loopback failover list is still local
+                "jdbc:postgresql://localhost:5435,127.0.0.1:5436/machinedb"
         })
         void shouldRecogniseLocalDatabaseWhenHostIsLoopback(String url) {
             // when
@@ -229,7 +231,13 @@ class SimulatorHeartbeatServiceTest {
                 // and a loopback token appearing only in the database name or query string
                 "jdbc:postgresql://localhost.evil.example.com:5432/machinedb",
                 "jdbc:postgresql://db.example.com:5432/localhost",
-                "jdbc:postgresql://db.example.com:5432/machinedb?options=-csearch_path=localhost"
+                "jdbc:postgresql://db.example.com:5432/machinedb?options=-csearch_path=localhost",
+                // failover lists: the driver connects to a later host when an earlier one is down,
+                // so one remote entry anywhere makes the whole URL remote
+                "jdbc:postgresql://localhost:5435,db.example.com:5432/machinedb",
+                "jdbc:postgresql://db.example.com:5432,localhost:5435/machinedb",
+                "jdbc:postgresql://[::1]:5435,[2001:db8::1]:5432/machinedb",
+                "jdbc:postgresql://localhost:5435,/machinedb"
         })
         void shouldRejectDatabaseWhenHostIsRemote(String url) {
             // when

@@ -19,6 +19,7 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
@@ -69,6 +70,7 @@ public class SimulatorHeartbeatService {
 
     private static final String JDBC_AUTHORITY_SEPARATOR = "//";
     private static final String CREDENTIALS_SEPARATOR = "@";
+    private static final String HOST_SEPARATOR = ",";
 
     private final MachineService machineService;
     private final MachineRepository machineRepository;
@@ -176,24 +178,33 @@ public class SimulatorHeartbeatService {
     }
 
     /**
-     * Whether the JDBC URL names a loopback host. Matches the extracted host exactly rather than
-     * searching the whole URL, so neither a database name nor a hostname such as
-     * {@code localhost.example.com} can masquerade as local.
+     * Whether the JDBC URL names loopback hosts, and only loopback hosts. Matches each extracted
+     * host exactly rather than searching the whole URL, so neither a database name nor a hostname
+     * such as {@code localhost.example.com} can masquerade as local, and a failover list is local
+     * only if every one of its hosts is — one remote entry is enough for the driver to reach a
+     * shared database when the local one is down.
      */
     static boolean isLocalDatabase(String url) {
-        String host = extractHost(url);
+        List<String> hosts = extractHosts(url);
 
-        return host != null && LOCAL_DATABASE_HOSTS.contains(host);
+        return !hosts.isEmpty() && LOCAL_DATABASE_HOSTS.containsAll(hosts);
     }
 
-    private static String extractHost(String url) {
+    /**
+     * Every host in the authority, lowercased and without ports. The PostgreSQL driver accepts a
+     * comma-separated failover list — {@code //localhost:5435,db.example.com:5432/machinedb} — and
+     * will connect to a later host when an earlier one is down, so all of them have to clear the
+     * loopback check before the simulator may tick. Returns empty for anything unparseable, which
+     * {@link #isLocalDatabase(String)} treats as not local.
+     */
+    private static List<String> extractHosts(String url) {
         if (!StringUtils.hasText(url)) {
-            return null;
+            return List.of();
         }
 
         int authorityStart = url.indexOf(JDBC_AUTHORITY_SEPARATOR);
         if (authorityStart < 0) {
-            return null;
+            return List.of();
         }
 
         String authority = url.substring(authorityStart + JDBC_AUTHORITY_SEPARATOR.length());
@@ -207,7 +218,15 @@ public class SimulatorHeartbeatService {
             authority = authority.substring(credentialsEnd + CREDENTIALS_SEPARATOR.length());
         }
 
-        return stripPort(authority).toLowerCase(Locale.ROOT);
+        if (!StringUtils.hasText(authority)) {
+            return List.of();
+        }
+
+        // Bracketed IPv6 literals carry no bare commas, so splitting the authority is safe.
+        return Arrays.stream(authority.split(HOST_SEPARATOR, -1))
+                .map(SimulatorHeartbeatService::stripPort)
+                .map(host -> host.toLowerCase(Locale.ROOT))
+                .toList();
     }
 
     /**
