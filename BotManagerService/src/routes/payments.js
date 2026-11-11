@@ -222,6 +222,21 @@ function paymentsRouter() {
           return res.status(200).json({ ok: true });
         }
 
+        // Guard: if the payment timed out before the buyer completed checkout
+        // (PaymentStatusWorker marked it FAILED with failureReason=TIMEOUT),
+        // do not capture. The PayPal order remains open on PayPal's side until
+        // it expires naturally (~3 h), so without this check a buyer who
+        // approves after the timeout window would still trigger a successful
+        // capture and produce an order confirmation for a "timed out" payment.
+        const existingPayment = await store.getPayment({ botId, transactionId: orderId });
+        if (existingPayment && existingPayment.status === 'FAILED') {
+          logger.warn('PayPal CHECKOUT.ORDER.APPROVED received for already-failed payment; skipping capture', {
+            orderId,
+            failureReason: existingPayment.failureReason || 'unknown'
+          });
+          return res.status(200).json({ ok: true, skipped: 'payment_already_failed' });
+        }
+
         const captured = await provider.captureOrder(orderId);
         if (!captured.ok) {
           // Not retried here - checkStatus's self-heal path (paypalProvider.js)

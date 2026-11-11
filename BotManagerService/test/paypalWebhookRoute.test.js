@@ -466,3 +466,48 @@ test('shouldNotDoubleProcessWhenWebhookAndReturnFireForSameTransaction', async (
     server.close();
   }
 });
+
+test('CHECKOUT.ORDER.APPROVED is skipped without capturing when payment is already FAILED (e.g. timeout)', async () => {
+  const { store } = getPaymentService();
+
+  // Pre-seed a payment that timed out (PaymentStatusWorker wrote FAILED before
+  // the buyer finished approving the PayPal order).
+  await store.upsertPayment({
+    botId: 'afromarket',
+    transactionId: 'ORDER-TIMEOUT-1',
+    provider: 'paypal',
+    status: 'FAILED',
+    failureReason: 'TIMEOUT',
+    metadata: { service: 'afromarket_order' }
+  });
+
+  // verifySuccessFetch with an empty list: captureOrder must NOT be called
+  // at all - any unexpected fetch call (e.g. /v2/checkout/orders/.../capture)
+  // will throw and fail the test.
+  currentFetchImpl = verifySuccessFetch([]);
+
+  const server = await startServer();
+  try {
+    const res = await post(
+      server,
+      '/payments/webhooks/paypal/afromarket',
+      { id: 'WH-EVT-TIMEOUT-1', event_type: 'CHECKOUT.ORDER.APPROVED', resource: { id: 'ORDER-TIMEOUT-1' } },
+      {
+        'paypal-transmission-id': 't-timeout',
+        'paypal-transmission-time': '2026-01-01T00:00:00Z',
+        'paypal-cert-url': 'https://api.paypal.com/cert',
+        'paypal-auth-algo': 'SHA256withRSA',
+        'paypal-transmission-sig': 'sig'
+      }
+    );
+    assert.equal(res.status, 200);
+    assert.equal(res.body && res.body.skipped, 'payment_already_failed');
+
+    // Payment must remain FAILED, not transition to any other state.
+    const payment = await store.getPayment({ botId: 'afromarket', transactionId: 'ORDER-TIMEOUT-1' });
+    assert.equal(payment.status, 'FAILED');
+    assert.equal(payment.failureReason, 'TIMEOUT');
+  } finally {
+    server.close();
+  }
+});
