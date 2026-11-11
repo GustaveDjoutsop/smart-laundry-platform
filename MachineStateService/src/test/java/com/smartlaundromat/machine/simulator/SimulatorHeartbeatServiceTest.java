@@ -123,63 +123,82 @@ class SimulatorHeartbeatServiceTest {
         }
     }
 
-    // ── rejectNonLocalDatabase ─────────────────────────────────────────────────
+    // ── suspendAgainstNonLocalDatabase ─────────────────────────────────────────
 
     @Nested
-    class RejectNonLocalDatabase {
+    class SuspendAgainstNonLocalDatabase {
+
+        private static final String REMOTE_URL =
+                "jdbc:postgresql://aws-0-eu-central-1.pooler.supabase.com:6543/postgres";
+        private static final String LOCAL_URL = "jdbc:postgresql://localhost:5435/machinedb";
 
         @Test
-        void shouldStartWhenDatabaseIsLocal() {
+        void shouldKeepTickingWhenDatabaseIsLocal() {
             // given
-            ReflectionTestUtils.setField(service, "datasourceUrl",
-                    "jdbc:postgresql://localhost:5435/machinedb");
+            ReflectionTestUtils.setField(service, "datasourceUrl", LOCAL_URL);
+            service.suspendAgainstNonLocalDatabase();
 
             // when
-            Throwable thrown = catchThrowable(() -> service.rejectNonLocalDatabase());
+            service.sendHeartbeats();
 
             // then
-            assertThat(thrown).isNull();
+            verify(machineRepository).markSimulatedMachinesIdle(
+                    any(), any(), anyCollection(), any(LocalDateTime.class));
         }
 
         @Test
-        void shouldFailFastWhenDatabaseIsRemote() {
+        void shouldWriteNothingWhenDatabaseIsRemote() {
             // given
-            ReflectionTestUtils.setField(service, "datasourceUrl",
-                    "jdbc:postgresql://aws-0-eu-central-1.pooler.supabase.com:6543/postgres");
+            ReflectionTestUtils.setField(service, "datasourceUrl", REMOTE_URL);
+            service.suspendAgainstNonLocalDatabase();
 
-            // when
-            Throwable thrown = catchThrowable(() -> service.rejectNonLocalDatabase());
+            // when: both ticks fire as the scheduler would
+            service.sendHeartbeats();
+            service.updateRunningMachines();
 
-            // then
-            assertThat(thrown)
-                    .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("SIMULATOR_ENABLED=false");
+            // then: the service still runs, but the simulator touches the database not at all
+            verifyNoInteractions(machineRepository, machineService);
         }
 
         @Test
-        void shouldFailFastWhenDatasourceUrlIsMissing() {
+        void shouldWriteNothingWhenDatasourceUrlIsMissing() {
             // given
             ReflectionTestUtils.setField(service, "datasourceUrl", "");
+            service.suspendAgainstNonLocalDatabase();
 
             // when
-            Throwable thrown = catchThrowable(() -> service.rejectNonLocalDatabase());
+            service.sendHeartbeats();
 
             // then
-            assertThat(thrown).isInstanceOf(IllegalStateException.class);
+            verifyNoInteractions(machineRepository);
         }
 
         @Test
-        void shouldStartAgainstRemoteDatabaseWhenExplicitlyAllowed() {
-            // given
-            ReflectionTestUtils.setField(service, "datasourceUrl",
-                    "jdbc:postgresql://aws-0-eu-central-1.pooler.supabase.com:6543/postgres");
-            ReflectionTestUtils.setField(service, "allowNonLocalDatabase", true);
+        void shouldNotAbortStartupWhenDatabaseIsRemote() {
+            // given: a Railway PR-preview environment inherits SIMULATOR_ENABLED=true and a managed
+            // datasource; the service must still boot and serve the preview
+            ReflectionTestUtils.setField(service, "datasourceUrl", REMOTE_URL);
 
             // when
-            Throwable thrown = catchThrowable(() -> service.rejectNonLocalDatabase());
+            Throwable thrown = catchThrowable(() -> service.suspendAgainstNonLocalDatabase());
 
             // then
             assertThat(thrown).isNull();
+        }
+
+        @Test
+        void shouldKeepTickingAgainstRemoteDatabaseWhenExplicitlyAllowed() {
+            // given
+            ReflectionTestUtils.setField(service, "datasourceUrl", REMOTE_URL);
+            ReflectionTestUtils.setField(service, "allowNonLocalDatabase", true);
+            service.suspendAgainstNonLocalDatabase();
+
+            // when
+            service.sendHeartbeats();
+
+            // then
+            verify(machineRepository).markSimulatedMachinesIdle(
+                    any(), any(), anyCollection(), any(LocalDateTime.class));
         }
 
         @ParameterizedTest

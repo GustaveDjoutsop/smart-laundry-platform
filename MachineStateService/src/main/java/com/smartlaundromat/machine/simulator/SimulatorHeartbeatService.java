@@ -80,36 +80,46 @@ public class SimulatorHeartbeatService {
     @Value("${simulator.allow-non-local-database:false}")
     private boolean allowNonLocalDatabase;
 
+    /** Set once at startup by {@link #suspendAgainstNonLocalDatabase()}; stops both ticks dead. */
+    private boolean simulatorSuspended;
+
     /**
-     * Refuses to start against anything but a local database. The simulator writes to every
-     * configured machine every 30 seconds forever; pointed at a shared or managed project it is
-     * indistinguishable from production write load and bills like it. Fail-closed rather than
-     * warn, matching the M2M-auth guards elsewhere in the platform — set
-     * {@code simulator.allow-non-local-database=true} to override deliberately. Note that this
-     * aborts startup of the whole service, not just the simulator: a deployment that wants the
-     * service without the simulator sets {@code SIMULATOR_ENABLED=false}, which is the
-     * configuration this guard exists to force people into.
+     * Suspends the simulator when it is pointed at anything but a local database. The simulator
+     * writes to every configured machine every 30 seconds forever; against a shared or managed
+     * project that is production-shaped write load nobody is watching, and it was the bulk of this
+     * project's Supabase egress. Set {@code simulator.allow-non-local-database=true} to override
+     * deliberately.
+     * <p>
+     * Suspending rather than throwing is deliberate. Railway builds a preview environment per pull
+     * request from a template that has {@code SIMULATOR_ENABLED=true}, and no per-PR step sets it
+     * otherwise, so failing the context would brick every preview deploy of this service rather
+     * than fix anything. The egress outcome is identical — the ticks below do not run — and the
+     * misconfiguration is logged at ERROR on every startup instead of being silently expensive.
      * <p>
      * This inspects the configured URL only, so it cannot see through a local port-forward or an
      * SSH/Supavisor tunnel: {@code jdbc:postgresql://127.0.0.1:6543/postgres} pointed at a managed
-     * project reads as local and passes. The guard raises the floor; it is not airtight.
+     * project reads as local and keeps ticking. The guard raises the floor; it is not airtight.
      */
     @PostConstruct
-    public void rejectNonLocalDatabase() {
-        if (allowNonLocalDatabase || isLocalDatabase(datasourceUrl)) {
-            return;
-        }
+    public void suspendAgainstNonLocalDatabase() {
+        simulatorSuspended = !allowNonLocalDatabase && !isLocalDatabase(datasourceUrl);
 
-        throw new IllegalStateException(
-                "simulator.enabled=true but spring.datasource.url is not a local database. "
-                        + "The simulator writes to every machine on every tick and must never run "
-                        + "against a shared or managed project. Disable it with SIMULATOR_ENABLED=false, "
-                        + "or set simulator.allow-non-local-database=true if this is intentional.");
+        if (simulatorSuspended) {
+            log.error("[SIMULATOR] Suspended: simulator.enabled=true but spring.datasource.url is not "
+                    + "a local database. The simulator writes to every machine on every tick and must "
+                    + "never run against a shared or managed project, so no simulated telemetry will be "
+                    + "produced. Set SIMULATOR_ENABLED=false for this environment, or "
+                    + "simulator.allow-non-local-database=true if this is intentional.");
+        }
     }
 
     @Scheduled(fixedDelayString = "${simulator.heartbeat-interval-ms:30000}")
     @Transactional
     public void sendHeartbeats() {
+        if (simulatorSuspended) {
+            return;
+        }
+
         LocalDateTime heartbeatAt = LocalDateTime.now();
         List<String> machineIds = machineConfig.getAvailableIds();
 
@@ -123,7 +133,11 @@ public class SimulatorHeartbeatService {
     }
 
     @Scheduled(fixedDelayString = "${simulator.telemetry-update-interval-ms:30000}")
-    void updateRunningMachines() {
+    public void updateRunningMachines() {
+        if (simulatorSuspended) {
+            return;
+        }
+
         List<Machine> running = machineRepository.findByMachineIdInAndStatus(
                 machineConfig.getAvailableIds(), MachineStatus.RUNNING);
         for (Machine machine : running) {
