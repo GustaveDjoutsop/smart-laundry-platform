@@ -17,6 +17,7 @@ import com.smartlaundromat.machine.mqtt.MqttService;
 import com.smartlaundromat.machine.repository.MachineCycleRepository;
 import com.smartlaundromat.machine.repository.MachineEventRepository;
 import com.smartlaundromat.machine.repository.MachineRepository;
+import com.smartlaundromat.machine.repository.projection.MachineStatusRow;
 import com.smartlaundromat.machine.simulator.MachineCommandDispatcher;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -658,32 +659,42 @@ class MachineServiceTest {
     @Test
     void shouldReturnAllMachinesSummary() {
         // given
-        Machine running = Machine.builder()
-                .machineId("washer_02")
-                .type(MachineType.WASHER)
-                .status(MachineStatus.RUNNING)
-                .isOnline(true)
-                .doorLocked(false)
-                .position(2)
-                .build();
-        Machine offline = Machine.builder()
-                .machineId("dryer_01")
-                .type(MachineType.DRYER)
-                .status(MachineStatus.IDLE)
-                .isOnline(false)
-                .doorLocked(false)
-                .position(1)
-                .build();
-        when(machineRepository.findAll()).thenReturn(List.of(idleMachine, running, offline));
+        MachineStatusRow idle = statusRow("washer_01", MachineType.WASHER, MachineStatus.IDLE, true, false);
+        MachineStatusRow running = statusRow("washer_02", MachineType.WASHER, MachineStatus.RUNNING, true, false);
+        MachineStatusRow offline = statusRow("dryer_01", MachineType.DRYER, MachineStatus.IDLE, false, false);
+        when(machineRepository.findAllStatusRows()).thenReturn(List.of(idle, running, offline));
 
         // when
         MachineSummaryResponse summary = machineService.getAllMachines();
 
         // then
         assertThat(summary.getTotal()).isEqualTo(3);
-        assertThat(summary.getAvailable()).isEqualTo(1); // only idleMachine
+        assertThat(summary.getAvailable()).isEqualTo(1); // only the idle, online, unlocked washer
         assertThat(summary.getInUse()).isEqualTo(1);
         assertThat(summary.getOffline()).isEqualTo(1);
+        assertThat(summary.getMachines())
+                .extracting(MachineStatusResponse::getDisplayName)
+                .containsExactly("Washer 01", "Washer 02", "Dryer 01");
+    }
+
+    @Test
+    void shouldReadNarrowProjectionRatherThanWholeEntitiesWhenListingMachines() {
+        // given
+        when(machineRepository.findAllStatusRows()).thenReturn(List.of());
+
+        // when
+        machineService.getAllMachines();
+
+        // then: the machine list is the hottest read in the service, so it must never pull
+        // the full 30-column entity
+        verify(machineRepository).findAllStatusRows();
+        verify(machineRepository, never()).findAll();
+    }
+
+    private static MachineStatusRow statusRow(String machineId, MachineType type, MachineStatus status,
+                                              boolean online, boolean doorLocked) {
+        return new MachineStatusRow(machineId, type, status, online, doorLocked,
+                CycleType.NONE, null, null, 0, null, null, null, LocalDateTime.now());
     }
 
     // ── getMachineEvents / getMachineCycles ─────────────────────────────────────

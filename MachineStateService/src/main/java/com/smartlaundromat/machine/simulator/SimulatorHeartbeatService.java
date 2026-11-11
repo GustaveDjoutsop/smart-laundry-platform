@@ -7,15 +7,22 @@ import com.smartlaundromat.machine.model.enums.MachineStatus;
 import com.smartlaundromat.machine.model.enums.MachineType;
 import com.smartlaundromat.machine.repository.MachineRepository;
 import com.smartlaundromat.machine.service.MachineService;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Drives simulated machine state in dev when {@code simulator.enabled=true}.
@@ -23,8 +30,15 @@ import java.util.List;
  * Two scheduled tasks:
  * <ol>
  *   <li><b>Heartbeat</b> (every {@code heartbeatIntervalMs}) — marks every non-RUNNING machine
- *       ONLINE by calling {@code processTelemetry()} with a minimal idle payload. This makes all
- *       machines show as AVAILABLE to the bot and dashboard within seconds of startup.</li>
+ *       ONLINE with two set-based UPDATEs. This makes all machines show as AVAILABLE to the bot
+ *       and dashboard within seconds of startup. It deliberately does <em>not</em> go through
+ *       {@code processTelemetry()} per machine: that read-then-write loop cost a full 30-column
+ *       SELECT plus a whole-entity save per machine per tick, which on 16 machines at a 30s
+ *       interval was ~92k reads and ~92k writes a day against the managed database — the bulk of
+ *       its egress — purely to restate values that had not changed. The idle payload's simulated
+ *       temperature, humidity and power-consumption jitter is no longer persisted; idle machines
+ *       keep whatever those columns last held. Status, door lock, spin speed, online flag and
+ *       heartbeat — everything the bot and dashboard actually read — are still maintained.</li>
  *   <li><b>Progress update</b> (every {@code telemetryUpdateIntervalMs}) — for each RUNNING
  *       machine, computes the elapsed-time-based progress and sends a realistic telemetry
  *       payload (temperature, spin speed, door locked). The actual RUNNING → FINISHED
@@ -37,27 +51,95 @@ import java.util.List;
 @ConditionalOnProperty(name = "simulator.enabled", havingValue = "true")
 public class SimulatorHeartbeatService {
 
+    /**
+     * Statuses the heartbeat must not overwrite: RUNNING belongs to a live cycle, FINISHED is
+     * cleared by {@code CycleMonitorService} once its grace period elapses, and ERROR and
+     * MAINTENANCE mean something real is wrong with the machine. Everything else — IDLE, OFFLINE,
+     * PAUSED — is reset to IDLE, which is what brings machines online at startup.
+     */
+    private static final Collection<MachineStatus> PRESERVED_STATUSES = List.of(
+            MachineStatus.RUNNING, MachineStatus.FINISHED,
+            MachineStatus.ERROR, MachineStatus.MAINTENANCE);
+
+    /** Statuses kept as-is while still taking the heartbeat: {@link #PRESERVED_STATUSES} minus RUNNING. */
+    private static final Collection<MachineStatus> HEARTBEAT_ONLY_STATUSES = List.of(
+            MachineStatus.FINISHED, MachineStatus.ERROR, MachineStatus.MAINTENANCE);
+
+    private static final Collection<String> LOCAL_DATABASE_HOSTS =
+            List.of("localhost", "127.0.0.1", "0.0.0.0", "::1", "0:0:0:0:0:0:0:1", "host.docker.internal");
+
+    private static final String JDBC_AUTHORITY_SEPARATOR = "//";
+    private static final String CREDENTIALS_SEPARATOR = "@";
+    private static final String HOST_SEPARATOR = ",";
+
     private final MachineService machineService;
     private final MachineRepository machineRepository;
     private final MachineConfig machineConfig;
 
-    @Scheduled(fixedDelayString = "${simulator.heartbeat-interval-ms:30000}")
-    void sendHeartbeats() {
-        // Single batched lookup instead of one findByMachineId() per configured machine —
-        // processTelemetry() below already re-fetches by id to mutate+save, so a per-machine
-        // lookup here just doubled read volume for no benefit (each was a full 30-column row).
-        // Filtering by availableIds in the query itself (rather than in memory) keeps the SELECT
-        // from ever widening if the DB ends up with machine rows outside the configured set.
-        List<Machine> idle = machineRepository.findByMachineIdInAndStatusNot(
-                machineConfig.getAvailableIds(), MachineStatus.RUNNING);
-        for (Machine machine : idle) {
-            machineService.processTelemetry(buildIdleTelemetry(machine));
+    @Value("${spring.datasource.url:}")
+    private String datasourceUrl;
+
+    @Value("${simulator.allow-non-local-database:false}")
+    private boolean allowNonLocalDatabase;
+
+    /** Set once at startup by {@link #suspendAgainstNonLocalDatabase()}; stops both ticks dead. */
+    private boolean simulatorSuspended;
+
+    /**
+     * Suspends the simulator when it is pointed at anything but a local database. The simulator
+     * writes to every configured machine every 30 seconds forever; against a shared or managed
+     * project that is production-shaped write load nobody is watching, and it was the bulk of this
+     * project's Supabase egress. Set {@code simulator.allow-non-local-database=true} to override
+     * deliberately.
+     * <p>
+     * Suspending rather than throwing is deliberate. Railway builds a preview environment per pull
+     * request from a template that has {@code SIMULATOR_ENABLED=true}, and no per-PR step sets it
+     * otherwise, so failing the context would brick every preview deploy of this service rather
+     * than fix anything. The egress outcome is identical — the ticks below do not run — and the
+     * misconfiguration is logged at ERROR on every startup instead of being silently expensive.
+     * <p>
+     * This inspects the configured URL only, so it cannot see through a local port-forward or an
+     * SSH/Supavisor tunnel: {@code jdbc:postgresql://127.0.0.1:6543/postgres} pointed at a managed
+     * project reads as local and keeps ticking. The guard raises the floor; it is not airtight.
+     */
+    @PostConstruct
+    public void suspendAgainstNonLocalDatabase() {
+        simulatorSuspended = !allowNonLocalDatabase && !isLocalDatabase(datasourceUrl);
+
+        if (simulatorSuspended) {
+            log.error("[SIMULATOR] Suspended: simulator.enabled=true but spring.datasource.url is not "
+                    + "a local database. The simulator writes to every machine on every tick and must "
+                    + "never run against a shared or managed project, so no simulated telemetry will be "
+                    + "produced. Set SIMULATOR_ENABLED=false for this environment, or "
+                    + "simulator.allow-non-local-database=true if this is intentional.");
         }
-        log.debug("[SIMULATOR] Heartbeat sent to {} machines", idle.size());
+    }
+
+    @Scheduled(fixedDelayString = "${simulator.heartbeat-interval-ms:30000}")
+    @Transactional
+    public void sendHeartbeats() {
+        if (simulatorSuspended) {
+            return;
+        }
+
+        LocalDateTime heartbeatAt = LocalDateTime.now();
+        List<String> machineIds = machineConfig.getAvailableIds();
+
+        int idled = machineRepository.markSimulatedMachinesIdle(
+                machineIds, MachineStatus.IDLE, PRESERVED_STATUSES, heartbeatAt);
+        int preserved = machineRepository.markHeartbeatOnly(
+                machineIds, HEARTBEAT_ONLY_STATUSES, heartbeatAt);
+
+        log.debug("[SIMULATOR] Heartbeat applied to {} idle and {} status-preserved machines",
+                idled, preserved);
     }
 
     @Scheduled(fixedDelayString = "${simulator.telemetry-update-interval-ms:30000}")
-    void updateRunningMachines() {
+    public void updateRunningMachines() {
+        if (simulatorSuspended) {
+            return;
+        }
+
         List<Machine> running = machineRepository.findByMachineIdInAndStatus(
                 machineConfig.getAvailableIds(), MachineStatus.RUNNING);
         for (Machine machine : running) {
@@ -66,19 +148,6 @@ public class SimulatorHeartbeatService {
         if (!running.isEmpty()) {
             log.debug("[SIMULATOR] Progress update sent to {} running machines", running.size());
         }
-    }
-
-    TelemetryPayload buildIdleTelemetry(Machine machine) {
-        TelemetryPayload t = new TelemetryPayload();
-        t.setMachineId(machine.getMachineId());
-        // Preserve FINISHED status so CycleMonitorService can reset it; everything else → IDLE
-        t.setStatus(machine.getStatus() == MachineStatus.FINISHED ? "FINISHED" : "IDLE");
-        t.setDoorLocked(false);
-        t.setTemperature(idleTemperature(machine));
-        t.setHumidity(50.0 + Math.random() * 10);
-        t.setSpinSpeed(0);
-        t.setPowerConsumption(machine.getType() == MachineType.DRYER ? 50.0 : 20.0);
-        return t;
     }
 
     TelemetryPayload buildRunningTelemetry(Machine machine) {
@@ -108,10 +177,86 @@ public class SimulatorHeartbeatService {
         return (int) Math.min(99, Math.max(0, (elapsedSeconds * 100) / totalSeconds));
     }
 
-    private double idleTemperature(Machine machine) {
-        return machine.getType() == MachineType.DRYER
-                ? 25.0 + Math.random() * 5
-                : 22.0 + Math.random() * 2;
+    /**
+     * Whether the JDBC URL names loopback hosts, and only loopback hosts. Matches each extracted
+     * host exactly rather than searching the whole URL, so neither a database name nor a hostname
+     * such as {@code localhost.example.com} can masquerade as local, and a failover list is local
+     * only if every one of its hosts is — one remote entry is enough for the driver to reach a
+     * shared database when the local one is down.
+     */
+    static boolean isLocalDatabase(String url) {
+        List<String> hosts = extractHosts(url);
+
+        return !hosts.isEmpty() && LOCAL_DATABASE_HOSTS.containsAll(hosts);
+    }
+
+    /**
+     * Every host in the authority, lowercased and without ports. The PostgreSQL driver accepts a
+     * comma-separated failover list — {@code //localhost:5435,db.example.com:5432/machinedb} — and
+     * will connect to a later host when an earlier one is down, so all of them have to clear the
+     * loopback check before the simulator may tick. Returns empty for anything unparseable, which
+     * {@link #isLocalDatabase(String)} treats as not local.
+     */
+    private static List<String> extractHosts(String url) {
+        if (!StringUtils.hasText(url)) {
+            return List.of();
+        }
+
+        int authorityStart = url.indexOf(JDBC_AUTHORITY_SEPARATOR);
+        if (authorityStart < 0) {
+            return List.of();
+        }
+
+        String authority = url.substring(authorityStart + JDBC_AUTHORITY_SEPARATOR.length());
+        int pathStart = indexOfFirst(authority, '/', '?');
+        if (pathStart >= 0) {
+            authority = authority.substring(0, pathStart);
+        }
+
+        int credentialsEnd = authority.lastIndexOf(CREDENTIALS_SEPARATOR);
+        if (credentialsEnd >= 0) {
+            authority = authority.substring(credentialsEnd + CREDENTIALS_SEPARATOR.length());
+        }
+
+        if (!StringUtils.hasText(authority)) {
+            return List.of();
+        }
+
+        // Bracketed IPv6 literals carry no bare commas, so splitting the authority is safe.
+        return Arrays.stream(authority.split(HOST_SEPARATOR, -1))
+                .map(SimulatorHeartbeatService::stripPort)
+                .map(host -> host.toLowerCase(Locale.ROOT))
+                .toList();
+    }
+
+    /**
+     * Drops the {@code :port} suffix, leaving bracketed IPv6 literals intact before unwrapping
+     * them — {@code [::1]:5432} must not be split on its first colon.
+     */
+    private static String stripPort(String authority) {
+        if (authority.startsWith("[")) {
+            int bracketEnd = authority.indexOf(']');
+
+            return bracketEnd > 0 ? authority.substring(1, bracketEnd) : authority;
+        }
+
+        int portStart = authority.indexOf(':');
+
+        return portStart >= 0 ? authority.substring(0, portStart) : authority;
+    }
+
+    private static int indexOfFirst(String value, char first, char second) {
+        int firstIndex = value.indexOf(first);
+        int secondIndex = value.indexOf(second);
+
+        if (firstIndex < 0) {
+            return secondIndex;
+        }
+        if (secondIndex < 0) {
+            return firstIndex;
+        }
+
+        return Math.min(firstIndex, secondIndex);
     }
 
     private double runningTemperature(Machine machine, int progress) {

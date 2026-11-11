@@ -18,6 +18,7 @@ import com.smartlaundromat.machine.mqtt.MqttService;
 import com.smartlaundromat.machine.repository.MachineCycleRepository;
 import com.smartlaundromat.machine.repository.MachineEventRepository;
 import com.smartlaundromat.machine.repository.MachineRepository;
+import com.smartlaundromat.machine.repository.projection.MachineStatusRow;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -122,8 +123,11 @@ public class MachineService {
         }
 
         // Guards a race, possible only when the simulator is active, where a generic idle-heartbeat
-        // snapshot was built by the batched heartbeat before a concurrent startCycle() committed
-        // RUNNING for this machine. Gated behind simulatorEnabled so real hardware telemetry (no
+        // snapshot was built before a concurrent startCycle() committed RUNNING for this machine.
+        // The simulator's heartbeat no longer reaches this method at all — it applies a set-based
+        // UPDATE that excludes RUNNING in the statement itself — so this is now defence in depth
+        // for any other bare-IDLE source in a simulator-enabled environment, not the primary
+        // protection. Gated behind simulatorEnabled so real hardware telemetry (no
         // simulator running, so this race can't occur) is never affected - a real device reporting
         // bare IDLE while the DB says RUNNING must still be applied. Scoped narrowly to that exact
         // bare-IDLE shape (no cycleType/cycleProgress/errorCode/errorMessage), which is the only
@@ -353,17 +357,21 @@ public class MachineService {
         return toStatusResponse(machine);
     }
 
+    /**
+     * Reads the narrow {@link MachineStatusRow} projection rather than whole entities: this runs on
+     * every dashboard and bot poll, and the response needs 13 of the machine's 30 columns.
+     */
     public MachineSummaryResponse getAllMachines() {
-        List<Machine> machines = machineRepository.findAll();
+        List<MachineStatusRow> machines = machineRepository.findAllStatusRows();
         List<MachineStatusResponse> responses = machines.stream()
                 .map(this::toStatusResponse)
                 .collect(Collectors.toList());
 
-        int available    = (int) machines.stream().filter(Machine::isAvailable).count();
-        int inUse        = (int) machines.stream().filter(m -> m.getStatus() == MachineStatus.RUNNING).count();
-        int offline      = (int) machines.stream().filter(m -> !m.getIsOnline()).count();
-        int error        = (int) machines.stream().filter(m -> m.getStatus() == MachineStatus.ERROR).count();
-        int maintenance  = (int) machines.stream().filter(m -> m.getStatus() == MachineStatus.MAINTENANCE).count();
+        int available    = (int) machines.stream().filter(MachineStatusRow::available).count();
+        int inUse        = (int) machines.stream().filter(m -> m.status() == MachineStatus.RUNNING).count();
+        int offline      = (int) machines.stream().filter(m -> !Boolean.TRUE.equals(m.isOnline())).count();
+        int error        = (int) machines.stream().filter(m -> m.status() == MachineStatus.ERROR).count();
+        int maintenance  = (int) machines.stream().filter(m -> m.status() == MachineStatus.MAINTENANCE).count();
 
         return MachineSummaryResponse.builder()
                 .machines(responses)
@@ -399,31 +407,52 @@ public class MachineService {
 
     // ── Mapping ───────────────────────────────────────────────────────────────
 
-    private MachineStatusResponse toStatusResponse(Machine machine) {
+    private MachineStatusResponse toStatusResponse(MachineStatusRow machine) {
         Integer remainingMinutes = null;
-        if (machine.getCycleEndsAt() != null && machine.getStatus() == MachineStatus.RUNNING) {
-            long remaining = ChronoUnit.MINUTES.between(LocalDateTime.now(), machine.getCycleEndsAt());
+        if (machine.cycleEndsAt() != null && machine.status() == MachineStatus.RUNNING) {
+            long remaining = ChronoUnit.MINUTES.between(LocalDateTime.now(), machine.cycleEndsAt());
             remainingMinutes = (int) Math.max(0, remaining);
         }
 
         return MachineStatusResponse.builder()
-                .machineId(machine.getMachineId())
-                .displayName(machine.getDisplayName())
-                .type(machine.getType())
-                .status(machine.getStatus())
-                .online(machine.getIsOnline())
-                .available(machine.isAvailable())
-                .currentCycleType(machine.getCurrentCycleType())
-                .cycleStartedAt(machine.getCycleStartedAt())
-                .cycleEndsAt(machine.getCycleEndsAt())
-                .cycleProgress(machine.getCycleProgress())
+                .machineId(machine.machineId())
+                .displayName(machine.displayName())
+                .type(machine.type())
+                .status(machine.status())
+                .online(machine.isOnline())
+                .available(machine.available())
+                .currentCycleType(machine.currentCycleType())
+                .cycleStartedAt(machine.cycleStartedAt())
+                .cycleEndsAt(machine.cycleEndsAt())
+                .cycleProgress(machine.cycleProgress())
                 .remainingMinutes(remainingMinutes)
-                .doorLocked(machine.getDoorLocked())
-                .temperature(machine.getTemperature())
-                .errorCode(machine.getErrorCode())
-                .errorMessage(machine.getErrorMessage())
-                .lastHeartbeat(machine.getLastHeartbeat())
+                .doorLocked(machine.doorLocked())
+                .temperature(machine.temperature())
+                .errorCode(machine.errorCode())
+                .errorMessage(machine.errorMessage())
+                .lastHeartbeat(machine.lastHeartbeat())
                 .build();
+    }
+
+    /**
+     * Narrows the entity to the same projection the list endpoint reads, so both paths share one
+     * mapping and cannot drift apart.
+     */
+    private MachineStatusResponse toStatusResponse(Machine machine) {
+        return toStatusResponse(new MachineStatusRow(
+                machine.getMachineId(),
+                machine.getType(),
+                machine.getStatus(),
+                machine.getIsOnline(),
+                machine.getDoorLocked(),
+                machine.getCurrentCycleType(),
+                machine.getCycleStartedAt(),
+                machine.getCycleEndsAt(),
+                machine.getCycleProgress(),
+                machine.getTemperature(),
+                machine.getErrorCode(),
+                machine.getErrorMessage(),
+                machine.getLastHeartbeat()));
     }
 
     private void recordEvent(String machineId, String eventType, String previousStatus,
