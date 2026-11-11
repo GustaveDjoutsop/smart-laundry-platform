@@ -176,6 +176,27 @@ class PaymentStatusWorker {
     const payment = await this.store.getPayment({ botId, transactionId });
     if (!payment) return;
 
+    // Belt-and-suspenders: a COMPLETED event that arrives after the payment
+    // timed out must not reopen it. PaymentGateway.checkStatus blocks this
+    // for the poll/self-heal path; this guard covers the narrow webhook race
+    // where captureOrder completed before _handleTimeout() wrote FAILED but
+    // the resulting payment.status event reaches _onStatus afterwards.
+    // Timeout is irreversible — once failureReason is TIMEOUT, no subsequent
+    // COMPLETED is legitimate regardless of where it originated.
+    if (
+      status === PaymentStatus.COMPLETED &&
+      payment.status === PaymentStatus.FAILED &&
+      payment.failureReason === 'TIMEOUT'
+    ) {
+      this.logger && this.logger.warn &&
+        this.logger.warn(
+          'PaymentStatusWorker._onStatus: ignoring COMPLETED event for timed-out payment',
+          { botId, provider, transactionId }
+        );
+
+      return;
+    }
+
     // The webhook route / poll path already wrote `status` into the store
     // (via appendEvent/upsertPayment) before emitting this event - reading
     // payment.status here would return the *new* status, not the previous

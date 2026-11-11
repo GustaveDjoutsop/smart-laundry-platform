@@ -224,3 +224,53 @@ test('regression: payment.completed fires through the real PaymentGateway.checkS
 
   worker.stop();
 });
+
+// Regression: a COMPLETED payment.status event arriving after a timeout must
+// not reopen the payment. This covers two scenarios:
+// 1. The PaymentGateway.checkStatus guard is bypassed (belt-and-suspenders).
+// 2. A webhook whose captureOrder raced past the timeout window emits
+//    payment.status=COMPLETED after _handleTimeout() wrote FAILED/TIMEOUT.
+test('_onStatus ignores COMPLETED when the stored payment is already FAILED with failureReason=TIMEOUT', async () => {
+  const events = new EventEmitter();
+  const store = new PaymentStore({ ttlSeconds: 60 });
+  const warnings = [];
+  const fakeLogger = { warn: (...args) => warnings.push(args) };
+
+  const worker = new PaymentStatusWorker({
+    gateway: { checkStatus: async () => ({ status: 'PENDING', raw: {} }) },
+    store,
+    events,
+    botRegistry: { getBotByName: () => null },
+    logger: fakeLogger,
+    pollIntervalMs: 50000,
+    timeoutMs: 50000
+  });
+
+  await store.appendEvent({
+    botId: 'afromarket',
+    transactionId: 'tx-onStatus-timeout-race',
+    provider: 'paypal',
+    eventType: 'payment_timed_out',
+    status: PaymentStatus.FAILED,
+    failureReason: 'TIMEOUT',
+    source: 'timeout'
+  });
+
+  let completedCount = 0;
+  events.on('payment.completed', () => { completedCount++; });
+
+  await worker._onStatus({
+    botId: 'afromarket',
+    provider: 'paypal',
+    transactionId: 'tx-onStatus-timeout-race',
+    status: PaymentStatus.COMPLETED,
+    previousStatus: PaymentStatus.PENDING
+  });
+
+  assert.equal(completedCount, 0, 'payment.completed must NOT be emitted for a timed-out payment');
+  assert.ok(warnings.length > 0, 'a warning must be logged');
+
+  const stored = await store.getPayment({ botId: 'afromarket', transactionId: 'tx-onStatus-timeout-race' });
+  assert.equal(stored.status, PaymentStatus.FAILED, 'store must remain FAILED after the ignored COMPLETED');
+  assert.equal(stored.failureReason, 'TIMEOUT');
+});
