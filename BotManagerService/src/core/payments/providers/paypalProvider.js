@@ -297,9 +297,19 @@ class PayPalProvider {
   // route awaits this explicitly rather than going through the generic
   // synchronous provider.verifyWebhook(...) call sites the other routes use.
   async verifyWebhook(rawBody, headers) {
-    if (!this.webhookId) return false;
+    if (!this.webhookId) {
+      this.logger && this.logger.warn && this.logger.warn(
+        'PayPal webhook verification skipped: SANDBOX_PAYPAL_WEBHOOK_ID is not configured'
+      );
+      return false;
+    }
+
     const { transmissionId, transmissionTime, certUrl, authAlgo, transmissionSig } = headers || {};
     if (!transmissionId || !transmissionTime || !certUrl || !authAlgo || !transmissionSig || !rawBody) {
+      this.logger && this.logger.warn && this.logger.warn(
+        'PayPal webhook verification skipped: missing required headers or body',
+        { hasTransmissionId: !!transmissionId, hasTransmissionTime: !!transmissionTime, hasCertUrl: !!certUrl, hasAuthAlgo: !!authAlgo, hasTransmissionSig: !!transmissionSig, hasRawBody: !!rawBody }
+      );
       return false;
     }
 
@@ -311,7 +321,7 @@ class PayPalProvider {
     }
 
     try {
-      const { ok, data } = await this._authorizedFetch('/v1/notifications/verify-webhook-signature', {
+      const { ok, status, data } = await this._authorizedFetch('/v1/notifications/verify-webhook-signature', {
         method: 'POST',
         body: {
           transmission_id: transmissionId,
@@ -328,7 +338,16 @@ class PayPalProvider {
           webhook_event: webhookEvent
         }
       });
-      return ok && data.verification_status === 'SUCCESS';
+
+      if (!ok || data.verification_status !== 'SUCCESS') {
+        this.logger && this.logger.warn && this.logger.warn(
+          'PayPal webhook verification returned non-SUCCESS',
+          { httpStatus: status, verificationStatus: data && data.verification_status, baseUrl: this.baseUrl }
+        );
+        return false;
+      }
+
+      return true;
     } catch (err) {
       this.logger && this.logger.warn && this.logger.warn('PayPal webhook verification request failed', err && err.message ? err.message : String(err));
       return false;

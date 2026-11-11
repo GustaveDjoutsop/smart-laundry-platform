@@ -177,6 +177,45 @@ test('checkStatus does not touch metadata at all when the provider returns no pa
   assert.deepEqual(stored.metadata, { orderNumber: 'AM-2' }, 'pre-existing metadata must be untouched, not wiped to null');
 });
 
+// Regression: an in-flight poll that self-heals a PayPal APPROVED order after
+// _handleTimeout() wrote FAILED/TIMEOUT must not overwrite the stored FAILED
+// status or return COMPLETED to the caller (which would let _pollOnce emit
+// payment.status=COMPLETED and reopen the timed-out payment).
+test('checkStatus returns FAILED and skips the COMPLETED write when the stored payment is already FAILED/TIMEOUT', async () => {
+  let captureCallCount = 0;
+  const provider = fakeProvider({
+    checkStatus: async () => {
+      captureCallCount += 1;
+      return { status: 'COMPLETED', raw: {} };
+    }
+  });
+  const store = new PaymentStore({ ttlSeconds: 60 });
+  const warnings = [];
+  const fakeLogger = { warn: (...args) => warnings.push(args) };
+  const gateway = new PaymentGateway({ providers: { paypal: provider }, store, logger: fakeLogger });
+
+  // Seed the store as if _handleTimeout() already fired
+  await store.appendEvent({
+    botId: 'afromarket-timeout-race',
+    transactionId: 'tx-timeout-race',
+    provider: 'paypal',
+    eventType: 'payment_timed_out',
+    status: 'FAILED',
+    failureReason: 'TIMEOUT',
+    source: 'timeout'
+  });
+
+  const result = await gateway.checkStatus({ botId: 'afromarket-timeout-race', provider: 'paypal', transactionId: 'tx-timeout-race' });
+
+  assert.equal(result.status, 'FAILED', 'checkStatus must return FAILED, not COMPLETED');
+  assert.equal(captureCallCount, 1, 'provider.checkStatus was still called (the capture itself is not preventable)');
+  assert.ok(warnings.length > 0, 'a warning must be logged');
+
+  const stored = await store.getPayment({ botId: 'afromarket-timeout-race', transactionId: 'tx-timeout-race' });
+  assert.equal(stored.status, 'FAILED', 'store must still show FAILED after the blocked poll');
+  assert.equal(stored.failureReason, 'TIMEOUT');
+});
+
 test('handleWebhook propagates the provider-parsed eventId for downstream dedup', () => {
   const provider = fakeProvider({
     parseWebhook: () => ({ transactionId: 'tx1', status: 'COMPLETED', amount: 10, externalRef: 'AM-1', eventId: 'evt_123', raw: {} })

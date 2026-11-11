@@ -1,4 +1,4 @@
-const { normalizeStatus } = require('./paymentTypes');
+const { normalizeStatus, PaymentStatus } = require('./paymentTypes');
 
 class PaymentGateway {
   constructor({ providers, logger, store, events } = {}) {
@@ -140,13 +140,45 @@ class PaymentGateway {
     // write, not a fresh object - appendEvent's metadata field replaces
     // wholesale, and this must not drop the cart/name/address/etc. captured
     // at initiatePayment time.
+    // Always fetch the stored record once — used for both the timeout guard
+    // below and (conditionally) the metadata merge, avoiding a second round-trip.
+    const existing = this.store && this.store.getPayment
+      ? await this.store.getPayment({ botId, transactionId })
+      : null;
+
+    // An in-flight poll can reach here with a COMPLETED result (via
+    // PayPalProvider.checkStatus's self-heal captureOrder) even after
+    // _handleTimeout() has already written FAILED/TIMEOUT — cancelling the
+    // poll timer does not stop an async checkStatus call already in flight.
+    // Block the COMPLETED write so the payment is not silently reopened; the
+    // actual capture on PayPal's side is an accepted edge-case loss (the race
+    // window is at most one poll cycle, ~10 s, within a 10-minute timeout).
+    if (
+      existing &&
+      existing.status === 'FAILED' &&
+      existing.failureReason === 'TIMEOUT' &&
+      normalizeStatus(res.status) === 'COMPLETED'
+    ) {
+      this.logger && this.logger.warn && this.logger.warn(
+        'PaymentGateway.checkStatus: ignoring COMPLETED from in-flight poll for timed-out payment',
+        { botId, transactionId }
+      );
+
+      return {
+        botId,
+        provider: providerName,
+        transactionId,
+        status: PaymentStatus.FAILED,
+        previousStatus: PaymentStatus.FAILED,
+        checkedAt: new Date().toISOString(),
+        raw: res.raw || null
+      };
+    }
+
     let metadata;
     if (
-      (res.payerName !== undefined || res.shippingAddress !== undefined || res.payerContact !== undefined) &&
-      this.store &&
-      this.store.getPayment
+      (res.payerName !== undefined || res.shippingAddress !== undefined || res.payerContact !== undefined)
     ) {
-      const existing = await this.store.getPayment({ botId, transactionId });
       const existingMetadata = (existing && existing.metadata) || {};
       metadata = {
         ...existingMetadata,
