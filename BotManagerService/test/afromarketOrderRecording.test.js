@@ -26,8 +26,19 @@ function createBot(t) {
     sendText: async (args) => sent.push({ type: 'text', ...args })
   };
 
+  // Returns a row shaped like the real InvoiceRecordStore.insert's
+  // RETURNING clause, because _recordOrder keys the orders write on the
+  // invoice_number it gets back rather than recomputing it.
   const invoiceCalls = [];
-  bot.invoiceRecordStore = { insert: async (args) => invoiceCalls.push(args) };
+  bot.invoiceRecordStore = {
+    insert: async (args) => {
+      invoiceCalls.push(args);
+      return { id: 'invoice-uuid', invoice_number: `${String(args.botId).toUpperCase()}-${args.transactionId}` };
+    }
+  };
+
+  const ordersCalls = [];
+  bot.orderStatusStore = { insertConfirmed: async (args) => ordersCalls.push(args) };
 
   const profileCalls = [];
   bot.customerProfileStore = { upsert: async (args) => profileCalls.push(args) };
@@ -36,7 +47,7 @@ function createBot(t) {
   // in these tests - see afromarket-identity-linkage-design.md.
   bot.identityResolver = { resolve: async () => 'canonical-test-customer-id' };
 
-  return { bot, sent, invoiceCalls, profileCalls };
+  return { bot, sent, invoiceCalls, profileCalls, ordersCalls };
 }
 
 function completedPaymentEvent(overrides = {}) {
@@ -445,4 +456,73 @@ test('AfroMarket order recording: a redelivered post-payment-address-captured ev
 
   assert.equal(invoiceCalls.length, 1, 'a redelivered/duplicate address-captured event must not write the invoice twice');
   assert.equal(sent.length, 1, 'and must not send the confirmation twice');
+});
+
+// --- afromarket-delivery-notifications-todo.md (orders status table) -------
+
+test('shouldOpenConfirmedOrdersRowWhenPaymentCompletes', async (t) => {
+  const { bot, invoiceCalls, ordersCalls, sent } = createBot(t);
+
+  await bot._onPaymentCompleted(completedPaymentEvent({ transactionId: 'tx_orders_1' }));
+
+  assert.equal(invoiceCalls.length, 1);
+  // Keyed on invoice_record.invoice_number - the orders FK target - not on
+  // metadata.orderNumber ('A-1001' in this fixture), which is a
+  // display-only value with no uniqueness guarantee behind it.
+  assert.deepEqual(ordersCalls, [{ orderNumber: 'AFROMARKET-tx_orders_1' }]);
+  assert.equal(sent.length, 1);
+});
+
+test('shouldOpenConfirmedOrdersRowWhenAddressArrivesAfterPayment', async (t) => {
+  const { bot, invoiceCalls, ordersCalls, sent } = createBot(t);
+
+  await bot._onPostPaymentAddressCaptured({
+    botId: 'afromarket',
+    transactionId: 'tx_orders_deferred',
+    customerPhone: '+491701234572',
+    address: '99 Other St, Hamburg',
+    payment: { provider: 'paypal', amount: 27.4, currency: 'EUR', externalRef: 'ORDER-orders-2' },
+    metadata: {
+      service: 'afromarket_order',
+      orderNumber: 'AM-orders-2',
+      cart: [{ productId: 'rice_1kg', qty: 2 }],
+      phone: '+491701234572',
+      paypalPayerName: 'Alex Doe'
+    }
+  });
+
+  assert.equal(invoiceCalls.length, 1);
+  assert.deepEqual(ordersCalls, [{ orderNumber: 'AFROMARKET-tx_orders_deferred' }]);
+  assert.equal(sent.length, 1);
+});
+
+test('shouldStillConfirmOrderWhenOrdersInsertFails', async (t) => {
+  const { bot, invoiceCalls, profileCalls, sent } = createBot(t);
+  bot.orderStatusStore = {
+    insertConfirmed: async () => {
+      throw new Error('relation "orders" does not exist');
+    }
+  };
+
+  await bot._onPaymentCompleted(completedPaymentEvent({ transactionId: 'tx_orders_fail' }));
+
+  assert.equal(invoiceCalls.length, 1, 'the invoice is the legally required write and must still happen');
+  assert.equal(profileCalls.length, 1, 'the profile upsert runs after the orders write and must not be skipped');
+  assert.equal(sent.length, 1, 'the customer must still get their order confirmation');
+});
+
+test('shouldSkipOrdersRowWhenInvoiceWriteFailed', async (t) => {
+  const { bot, ordersCalls, sent } = createBot(t);
+  bot.invoiceRecordStore = {
+    insert: async () => {
+      throw new Error('db unreachable');
+    }
+  };
+
+  await bot._onPaymentCompleted(completedPaymentEvent({ transactionId: 'tx_orders_no_invoice' }));
+
+  // orders.order_number is an FK onto invoice_record.invoice_number, so with
+  // no invoice row this insert could only fail - it must not even be tried.
+  assert.equal(ordersCalls.length, 0);
+  assert.equal(sent.length, 1, 'the customer must still get their order confirmation');
 });

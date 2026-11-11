@@ -1,9 +1,12 @@
 # AfroMarket: Delivery Notifications
 
-**Status: TODO — not yet approved for implementation.** This document exists
-to capture the options, trade-offs, and answers to the open technical
-questions needed before this gets built. No code, migrations, or config
-changes have been made for this feature yet.
+**Status: partially implemented.** The persistent `orders` table and the
+`CONFIRMED` write inside `_recordOrder` are built
+(`migrations/005_orders_table.sql`, `src/core/orders/orderStatusStore.js`).
+Everything else below — the admin `shipped`/`delivered` intercept, the
+customer notification, and the 24h-window/template handling — is still TODO
+and unapproved. Until the intercept exists, status is changed by hand in the
+Supabase Table Editor.
 
 ## Related observation found during research (corrected after review)
 
@@ -197,8 +200,11 @@ get right now than to retrofit after real customers depend on this.
 
 6. **DB migration convention:** `migrations/001_data_retention_erasure.sql`,
    `002_enable_rls.sql` — numbered, `CREATE TABLE IF NOT EXISTS`, no formal
-   tool (Flyway etc.), applied by hand against Supabase. A new
-   `003_orders_table.sql` would follow the same shape.
+   tool (Flyway etc.), applied by hand against Supabase. The orders table
+   therefore landed as `005_orders_table.sql`, **not `003`** as this doc
+   originally said: `003_add_customer_profile_email.sql` and
+   `004_add_customer_identity_link.sql` were both written and applied in
+   between.
 
 7. **On the "ADR-003" reference:** `architecture/ADR-003-state-management.md`
    exists and does discuss Redis volatility, but its actual wording is
@@ -212,24 +218,86 @@ get right now than to retrofit after real customers depend on this.
    still fully applies and is already how this codebase operates in
    practice — just not written into the ADR that specifically.
 
-## Proposed data model (sketch — subject to change)
+## Data model (as built — `migrations/005_orders_table.sql`)
 
 ```sql
-orders
-  order_number   text primary key   -- e.g. AM-00123
-  customer_phone text
-  status         text               -- CONFIRMED | SHIPPED | DELIVERED
-  confirmed_at   timestamptz
-  shipped_at     timestamptz
-  delivered_at   timestamptz
+create table if not exists orders (
+  order_number  text primary key
+                references invoice_record (invoice_number) on delete cascade,
+  status        text not null default 'CONFIRMED'
+                check (status in ('CONFIRMED','SHIPPED','DELIVERED')),
+  confirmed_at  timestamptz not null default now(),
+  shipped_at    timestamptz,
+  delivered_at  timestamptz
+);
+alter table orders enable row level security;
 ```
+
+Three deliberate differences from the sketch this doc originally carried:
+
+- **No `customer_phone` column.** Under ADR-008, personal data lives in
+  `customer_profile`, which the erasure flow can delete. A phone number
+  copied in here would be touched by neither the erasure service (it only
+  knows `customer_profile`) nor the retention worker (it only knows
+  `invoice_record`) — a GDPR gap with no owner. The customer's phone is
+  reachable by joining `invoice_record` on `invoice_number`.
+- **`order_number` is an FK onto `invoice_record.invoice_number`, with
+  `on delete cascade`.** The cascade is load-bearing: the retention worker's
+  10-year invoice delete would otherwise be blocked by the reference.
+- **Two CHECKs tie each status to its timestamp** (`SHIPPED` requires
+  `shipped_at`, `DELIVERED` requires `delivered_at`). A hand edit in the
+  Supabase Table Editor must therefore set both fields in the same row edit
+  or it is rejected — deliberate, since a `DELIVERED` row with a null
+  `delivered_at` would quietly break any later "delivered in the last N
+  days" query. Verified against the live schema: the constraint does reject
+  a status-only edit.
+- **RLS on with zero policies**, the same deliberate shape as migration 002 —
+  the bot connects as `postgres` (bypasses RLS) and the public Supabase API
+  path is unused.
+
+Note on the order number the admin will actually type: `invoice_number` is
+``<BOT_ID>-<transactionId>``, e.g. `AFROMARKET-32V17699T05397320`, not the
+`AM-00123` this doc assumed. `metadata.orderNumber` (the `AM-…` value) is
+display-only, is not unique and is not persisted as a key, so it can't be the
+lookup identifier. The intercept will need either a short-code column added
+to `orders` or a prefix/suffix match — decide before building step 3 of the
+flow sketch below.
 
 Forward-compatible with Option C: adding a `tracking_number` column later is
 a small migration, not a redesign.
 
+### The board must read `invoice_record`, not `orders`
+
+The `orders` write is best-effort by design (it must never cost a customer
+their order confirmation), so three realistic paths leave an invoice with no
+status row: migration 005 not applied in that environment, a transient error
+hitting only the second insert, or the process dying between the two
+un-transacted inserts. Whatever renders the fulfilment board — Table Editor
+view, later dashboard — must therefore be a `LEFT JOIN` from
+`invoice_record` with `coalesce(orders.status, 'CONFIRMED')`, so a missing
+row degrades to "confirmed, not yet shipped" instead of "this order does not
+exist" (an order invisible on the board is an order that never ships).
+Re-running migration 005's backfill is the repair path; it is
+`ON CONFLICT DO NOTHING`, so it is safe to re-run at any time.
+
+### Accepted gap
+
+A PayPal payment that returns no shipping address defers the whole
+`_recordOrder` call until the customer replies with one, so such an order has
+no `orders` row — and appears on no fulfilment board — until then. This is
+not new behaviour: the invoice is deferred for exactly the same reason
+(`invoice_record` is append-only, so an incomplete invoice must not be
+written). Accepted as-is.
+
 ## Proposed flow sketch (not final — for discussion)
 
-1. `_recordOrder` gains a third write (status = `CONFIRMED`).
+1. ~~`_recordOrder` gains a third write (status = `CONFIRMED`).~~ **Done**
+   — `OrderStatusStore.insertConfirmed`, keyed on the `invoice_number`
+   returned by the invoice insert, in its own try/catch so a failure can
+   never block the payment confirmation, and skipped entirely when the
+   invoice write failed (the FK would reject it anyway).
+   `ON CONFLICT DO NOTHING`, not an upsert, so a redelivered webhook cannot
+   reset an already-`SHIPPED` order to `CONFIRMED`.
 2. New admin intercept runs ahead of normal dispatch (mirroring where
    `_handleErasureIntercept` runs), gated by a sender check against
    `AFROMARKET_ADMIN_NUMBER` — unlike the erasure intercept, this one is
@@ -272,7 +340,13 @@ a small migration, not a redesign.
 
 ## Verification plan for when this is eventually implemented
 
-Unit tests for: the new `orders` write inside `_recordOrder`, the admin
+The `orders` write inside `_recordOrder` is covered in
+`test/afromarketOrderRecording.test.js` (normal path, post-payment-address
+path, a failing `orders` insert not breaking the payment flow, and no
+`orders` row when the invoice write failed), and the store itself in
+`test/orderStatusStore.test.js` (emitted SQL/params, the
+`ON CONFLICT DO NOTHING` idempotency, the 42P01 migration hint, pass-through
+of unrelated errors). Still needed: unit tests for the admin
 intercept's sender restriction, the order-not-found branch, the
 status-regression branch, the idempotency branch, and the 24h-window
 fallback-to-template branch — following the existing test style already used

@@ -4,6 +4,7 @@ const { redisManager } = require('../../core/redisManager');
 const { paymentEvents } = require('../../core/payments/paymentEvents');
 const { CustomerProfileStore } = require('../../core/customers/customerProfileStore');
 const { InvoiceRecordStore } = require('../../core/invoices/invoiceRecordStore');
+const { OrderStatusStore } = require('../../core/orders/orderStatusStore');
 const { DeletionRequestLogStore } = require('../../core/customers/deletionRequestLogStore');
 const { DeletionRequestService } = require('../../core/customers/deletionRequestService');
 const { CustomerIdentityLinkStore } = require('../../core/customers/customerIdentityLinkStore');
@@ -65,6 +66,7 @@ class AfroMarketBot extends ConfigBot {
 
     this.customerProfileStore = customerProfileStore;
     this.invoiceRecordStore = new InvoiceRecordStore();
+    this.orderStatusStore = new OrderStatusStore();
     this.customerIdentityLinkStore = new CustomerIdentityLinkStore();
     this.identityResolver = new IdentityResolver({ customerIdentityLinkStore: this.customerIdentityLinkStore });
     this.deletionRequestService = new DeletionRequestService({
@@ -517,8 +519,9 @@ class AfroMarketBot extends ConfigBot {
     });
   }
 
-  // Snapshots the order into invoice_record (append-only, 10y retention) and
-  // upserts customer_profile. Best-effort: a bookkeeping/profile write
+  // Snapshots the order into invoice_record (append-only, 10y retention),
+  // opens its fulfilment-status row in `orders`, and upserts
+  // customer_profile. Best-effort: a bookkeeping/profile write
   // failure must not block the customer's order confirmation from sending.
   //
   // buyerName/buyerAddress are resolved by the caller (_onPaymentCompleted
@@ -527,8 +530,9 @@ class AfroMarketBot extends ConfigBot {
   // metadata.paypalShippingAddress/metadata.address at all, so a single
   // COALESCE here couldn't express both callers' logic correctly.
   async _recordOrder({ botId, transactionId, payment, metadata, customerPhone, buyerName, buyerAddress }) {
+    let invoiceRow = null;
     try {
-      await withRetries(() =>
+      invoiceRow = await withRetries(() =>
         this.invoiceRecordStore.insert({
           botId,
           transactionId,
@@ -551,6 +555,31 @@ class AfroMarketBot extends ConfigBot {
         `PERMANENT invoice-write failure for AfroMarket order (botId=${botId}, transactionId=${transactionId})`,
         err && err.message ? err.message : String(err)
       );
+    }
+
+    // Opens the order's fulfilment-status row (CONFIRMED). Keyed on the
+    // invoice number the insert above actually returned, not on a locally
+    // recomputed one, and skipped when there is no invoice row - orders
+    // has an FK to invoice_record.invoice_number, so without the invoice
+    // this insert could only fail. A redelivered webhook is covered by
+    // OrderStatusStore's ON CONFLICT DO NOTHING, so an already-SHIPPED
+    // order is never reset to CONFIRMED.
+    //
+    // Best-effort like every other write here: status tracking is an
+    // operations convenience, and losing it must never cost the customer
+    // their order confirmation. The order is still fully recoverable from
+    // invoice_record, and migration 005's backfill query is the manual
+    // repair path.
+    const orderNumber = invoiceRow && invoiceRow.invoice_number;
+    if (orderNumber) {
+      try {
+        await this.orderStatusStore.insertConfirmed({ orderNumber });
+      } catch (err) {
+        logger.error(
+          `Failed to open orders status row for AfroMarket order (orderNumber=${orderNumber})`,
+          err && err.message ? err.message : String(err)
+        );
+      }
     }
 
     // Best-effort, and deliberately outside the upsert's try/catch below: a
