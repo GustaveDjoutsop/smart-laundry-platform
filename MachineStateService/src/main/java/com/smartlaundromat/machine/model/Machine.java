@@ -6,9 +6,17 @@ import com.smartlaundromat.machine.model.enums.MachineStatus;
 import com.smartlaundromat.machine.model.enums.MachineType;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.DynamicUpdate;
+
 import java.time.LocalDateTime;
 
+/**
+ * {@code @DynamicUpdate} keeps a save to only the columns that actually changed. The heartbeat
+ * path touches two of them, and without this every telemetry update rewrote all 23 updatable
+ * columns.
+ */
 @Entity
+@DynamicUpdate
 @Table(name = "machines")
 @Getter
 @Setter
@@ -139,12 +147,10 @@ public class Machine {
     }
 
     public boolean isAvailable() {
-        return this.status == MachineStatus.IDLE && this.isOnline && !this.doorLocked;
+        return MachineDisplay.isAvailable(this.status, this.isOnline, this.doorLocked);
     }
 
     public String getDisplayName() {
-        String typeLabel = this.type == MachineType.WASHER ? "Washer" : "Dryer";
-        String number = this.machineId.replaceAll("\\D+", "");
-        return typeLabel + " " + number;
+        return MachineDisplay.displayName(this.type, this.machineId);
     }
 }

@@ -117,6 +117,11 @@ simulator:
   enabled: ${SIMULATOR_ENABLED:false}
   heartbeat-interval-ms: ${SIMULATOR_HEARTBEAT_MS:30000}
   telemetry-update-interval-ms: ${SIMULATOR_TELEMETRY_MS:30000}
+  # The simulator writes to every configured machine on every tick, forever. Against a shared or
+  # managed database that is production-shaped write load that nobody is watching — it was the
+  # bulk of this project's Supabase egress. Startup fails unless the datasource is local; set this
+  # to true only to override that deliberately.
+  allow-non-local-database: ${SIMULATOR_ALLOW_NON_LOCAL_DB:false}
 
 # ── Feature flags ─────────────────────────────────────────────────────────────
 # Both default DISABLED. The wash-flow flag is enforced in the bot (spring-bot-manager);
