@@ -588,3 +588,53 @@ test('PAYMENT.CAPTURE.COMPLETED after a timeout must not complete the payment', 
     server.close();
   }
 });
+
+// 2026-11-12: the PayPal webhook was registered against two URLs on different
+// deployments. The instance that created the order had timed it out and
+// refused to capture (payment_already_failed, 46-byte response); the other had
+// no record of the payment at all, so every terminal guard passed vacuously -
+// it captured EUR 35.95 and EUR 43.94 and then reported the capture back as
+// payment_already_completed (49-byte response). Capturing is the step that
+// moves real money, so "I have never heard of this payment" must fail closed.
+test('CHECKOUT.ORDER.APPROVED for a payment this instance has no record of must not capture', async () => {
+  const { store, events, gateway } = getPaymentService();
+  const worker = new PaymentStatusWorker({ gateway, store, events, botRegistry: { getBotByName: () => null } });
+  worker.start();
+
+  let completedCount = 0;
+  const onCompleted = () => {
+    completedCount += 1;
+  };
+  events.on('payment.completed', onCompleted);
+
+  // No upsertPayment and no terminal marker: this instance never saw the order.
+  // verifySuccessFetch with an empty list - any call to captureOrder throws.
+  currentFetchImpl = verifySuccessFetch([]);
+
+  const server = await startServer();
+  try {
+    const res = await post(
+      server,
+      '/payments/webhooks/paypal/afromarket',
+      { id: 'WH-EVT-FOREIGN-1', event_type: 'CHECKOUT.ORDER.APPROVED', resource: { id: 'ORDER-FOREIGN-1' } },
+      {
+        'paypal-transmission-id': 't-foreign',
+        'paypal-transmission-time': '2026-11-12T18:46:24Z',
+        'paypal-cert-url': 'https://api.paypal.com/cert',
+        'paypal-auth-algo': 'SHA256withRSA',
+        'paypal-transmission-sig': 'sig'
+      }
+    );
+
+    assert.equal(res.status, 200, 'PayPal must still get a 200 so it stops retrying');
+    assert.equal(res.body && res.body.skipped, 'payment_unknown_to_this_instance');
+    assert.equal(completedCount, 0);
+
+    const payment = await store.getPayment({ botId: 'afromarket', transactionId: 'ORDER-FOREIGN-1' });
+    assert.equal(payment, null, 'an unknown payment must not be conjured into existence by a webhook');
+  } finally {
+    events.off('payment.completed', onCompleted);
+    worker.stop();
+    server.close();
+  }
+});

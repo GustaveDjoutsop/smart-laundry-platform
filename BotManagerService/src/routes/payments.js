@@ -350,6 +350,31 @@ function paymentsRouter({ adminAuthMiddleware, adminRateLimiter } = {}) {
           return res.status(200).json({ ok: true, skipped: 'payment_already_terminal' });
         }
 
+        // Fail closed on a payment this deployment has never seen. Capturing is
+        // the step that moves real money, and an instance with no record of the
+        // order cannot know whether it is still live - every guard above is
+        // keyed on state it does not have, so they all silently pass.
+        //
+        // This is not hypothetical: on 2026-11-12 the PayPal webhook was
+        // registered against two URLs on different deployments. The one that
+        // created the order had already timed it out and refused
+        // (payment_already_failed); the other had no record, captured €35.95
+        // and €43.94, and then reported the capture back as
+        // payment_already_completed. The customer was never told - but the
+        // money moved. See docs/bugfixes/afromarket-paypal-terminal-state-bugfix.md.
+        //
+        // A legitimate approval always has a record: it is written at
+        // initiatePayment with a 24h TTL, and a PayPal order expires in about
+        // three hours. So "no record" means a foreign or long-dead order, and
+        // declining to capture is the only safe reading of it.
+        if (!existingPayment && !markedTerminal) {
+          logger.error('PayPal CHECKOUT.ORDER.APPROVED for an unknown payment; refusing to capture', {
+            botId,
+            orderId
+          });
+          return res.status(200).json({ ok: true, skipped: 'payment_unknown_to_this_instance' });
+        }
+
         const captured = await provider.captureOrder(orderId);
         if (!captured.ok) {
           // Not retried here - checkStatus's self-heal path (paypalProvider.js)
