@@ -1,11 +1,33 @@
 const { normalizeStatus, isTerminalStatus, PaymentStatus } = require('./paymentTypes');
 
 class PaymentGateway {
-  constructor({ providers, logger, store, events } = {}) {
+  constructor({ providers, logger, store, events, paymentLinkBaseUrl } = {}) {
     this.providers = providers || {};
     this.logger = logger;
     this.store = store;
     this.events = events;
+    // When set, the customer is sent a link on our own domain instead of the
+    // provider's checkout URL, so a payment that has since died can be stopped
+    // at click time - see routes/paymentLink.js. Unset means the provider URL
+    // goes out unchanged, which is the previous behaviour.
+    this.paymentLinkBaseUrl = paymentLinkBaseUrl || null;
+  }
+
+  buildPaymentLinkUrl({ botId, transactionId }) {
+    if (!this.paymentLinkBaseUrl || !botId || !transactionId) return null;
+
+    // Built from the origin, not by trimming the configured string: a base URL
+    // carrying a path, query or fragment would otherwise produce a link that
+    // never reaches the /pay mount, and the customer would get a dead link
+    // with no error anywhere.
+    let origin;
+    try {
+      origin = new URL(this.paymentLinkBaseUrl).origin;
+    } catch (_err) {
+      return null;
+    }
+
+    return `${origin}/pay/${encodeURIComponent(botId)}/${encodeURIComponent(transactionId)}`;
   }
 
   selectProvider({ preferredProvider } = {}) {
@@ -82,7 +104,22 @@ class PaymentGateway {
       amount,
       currency,
       status: normalizeStatus(result.status),
-      checkoutUrl: result.checkoutUrl || null,
+      // checkoutUrl is what gets sent to the customer; providerCheckoutUrl is
+      // the real provider URL the proxy redirects to. Falls back to the
+      // provider URL when no base URL is configured, so an environment that
+      // has not set one behaves exactly as before.
+      //
+      // Only ever proxies a URL that exists. A provider can return a 2xx with
+      // no redirect link (PayPal changing its links[].rel naming, Stripe
+      // omitting data.url), and afromarketFlowPlugin's `!payment.checkoutUrl`
+      // check is what turns that into a loud failure that PRESERVES the
+      // customer's cart. Handing it a proxy URL unconditionally would silence
+      // that check, clear the cart, and leave the customer clicking a link
+      // that can only ever say "no longer valid".
+      checkoutUrl: result.checkoutUrl
+        ? this.buildPaymentLinkUrl({ botId, transactionId: result.transactionId }) || result.checkoutUrl
+        : null,
+      providerCheckoutUrl: result.checkoutUrl || null,
       idempotencyKey: idempotencyKey || null,
       metadata: metadata && typeof metadata === 'object' ? metadata : null,
       createdAt: new Date().toISOString(),

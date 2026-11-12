@@ -8,6 +8,7 @@ const { paymentsRouter } = require('./routes/payments');
 const { billingRouter } = require('./routes/billing');
 const { whatsappRouter } = require('./routes/whatsappWebhook');
 const { createRateLimiter } = require('./middleware/rateLimit');
+const { paymentLinkRouter } = require('./routes/paymentLink');
 const { requireAdminToken } = require('./middleware/adminAuth');
 const { logger } = require('./utils/logger');
 
@@ -55,6 +56,16 @@ function createApp({ redisManager, mqttManager } = {}) {
   });
 
   const billingAdminAuth = requireAdminToken({ token: process.env.BILLING_ADMIN_TOKEN, logger });
+
+  // Public: the customer clicks this from WhatsApp. Limited because it is
+  // unauthenticated by nature and does a store read per hit.
+  const paymentLinkRateLimiter = createRateLimiter({
+    windowMs: Number(process.env.RATE_LIMIT_PAYMENT_LINK_WINDOW_MS || 60_000),
+    maxRequests: Number(process.env.RATE_LIMIT_PAYMENT_LINK_MAX || 60),
+    keyPrefix: 'rl:payment-link'
+  });
+
+  app.use('/pay', paymentLinkRateLimiter, paymentLinkRouter());
 
   app.use('/api/health', healthRouter({ redisManager, mqttManager }));
   app.use('/api/machines', machinesRouter());

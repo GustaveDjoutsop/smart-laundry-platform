@@ -305,7 +305,92 @@ That is a separate decision, not a bugfix.
   no cap; retention is per-key and sliding, so one unresolved entry is deleted
   together with the whole key when the key finally expires.
 
-## How the money moved, and the duplicate webhook registration
+## Confirmed 2026-11-12: the duplicate webhook registration IS how the money moves
+
+The guard shipped and was exercised the same evening, twice
+(`977492012G475341S` €35.95 / order `AM-B1VA013V5`, and `6M6353120A058410B`
+€43.94). It behaved correctly both times: `CHECKOUT.ORDER.APPROVED` was
+refused, no order was confirmed, no "Payment received" reached the customer,
+and both landed in the manual-review queue:
+
+```
+18:46:25 [WARN]  PayPal CHECKOUT.ORDER.APPROVED received for already-terminal payment;
+                 skipping capture {"orderId":"977492012G475341S","status":"FAILED","failureReason":"TIMEOUT"}
+18:46:45 [ERROR] Webhook reported a completed payment that had already failed; queued for
+                 manual review {"transactionId":"977492012G475341S","terminalStatus":"FAILED","amount":35.95}
+```
+
+**And the money still moved.** PayPal captured €35.95 (capture
+`28D9845161149043F`, `create_time` 18:46:24Z) although this service demonstrably
+never called capture.
+
+The webhook event's own `transmissions` block settles why, and it is not
+PayPal auto-capturing. Both registered URLs returned HTTP 200, with
+**different response bodies**:
+
+| Endpoint | `Content-Length` | Body |
+|---|---|---|
+| `bot.botmanagementservice.eu` | 46 | `{"ok":true,"blocked":"payment_already_failed"}` |
+| `botmanagerservice-dev-7fcf.up.railway.app` | 49 | `{"ok":true,"blocked":"payment_already_completed"}` |
+
+The two deployments disagreed about the same payment. For the second to call it
+*already completed*, it must already have recorded a completion.
+
+That alone would only be an inference — recording a completion is not the same
+as sending the capture request. The **dev deployment's own runtime logs**
+close the gap:
+
+```
+18:46:32  POST /api/payments/webhooks/paypal/afromarket 200 11 - 3276.098 ms
+18:46:32  [INFO] Payment completed but no machineId in payment metadata
+                 {"botId":"afromarket","transactionId":"977492012G475341S"}
+18:46:37  [INFO] Ignoring a repeat completion signal for an already-paid payment
+                 {"transactionId":"977492012G475341S"}
+18:46:37  POST /api/payments/webhooks/paypal/afromarket 200 49 - 1164.607 ms
+```
+
+Three things there are decisive, and the same pattern repeats exactly for
+`6M6353120A058410B` at 18:49:59:
+
+1. **3276 ms** on the `CHECKOUT.ORDER.APPROVED` delivery, against **667 ms**
+   for the same event on production, where the guard fired and returned
+   without calling PayPal. The extra ~2.6 s is the outbound capture call.
+2. The 11-byte `{"ok":true}` is the branch that runs **after**
+   `recordPaypalCapture` succeeds. Neither the terminal-skip (48 bytes) nor
+   the blocked (46/49 bytes) branch can produce it.
+3. `payment.completed` fired on dev, which only happens from a capture
+   response it recorded itself.
+
+So: **the dev deployment performed the capture**, confirmed from its own logs
+rather than inferred from the other instance's recorded state.
+
+It could, because it had no record of the payment at all. The order was created
+by the other instance, so every terminal guard on the capturing instance was
+keyed on state it did not have: `existingPayment` null, marker null, so
+`terminalStatus` null, and the code fell straight through to `captureOrder`.
+A guard that reads "is this payment terminal?" cannot stop an instance that has
+never heard of the payment.
+
+This also retrospectively explains 2026-11-11, where a capture appeared ten
+seconds after a skip that our own logs prove did not capture. It was never
+PayPal auto-capturing a CAPTURE-intent order; the comment in
+`routes/payments.js` asserting PayPal never does so stands.
+
+### Fix: capture fails closed on an unknown payment
+
+`CHECKOUT.ORDER.APPROVED` now refuses to capture when the instance has neither
+a payment record nor a terminal marker, returning
+`skipped: 'payment_unknown_to_this_instance'`. A legitimate approval always has
+a record — it is written at `initiatePayment` with a 24h TTL and a PayPal order
+expires in about three hours — so "no record" means a foreign or long-dead
+order, and capturing it is never right.
+
+This makes the duplicate registration harmless rather than merely undesirable.
+**Removing the duplicate URL is still the first thing to do**, because it is a
+two-minute dashboard change that removes the whole class, and because a
+deployment running older code would still capture.
+
+## The original 2026-11-11 analysis, superseded by the above
 
 The 2026-11-11 logs left this genuinely unexplained: the approval handler
 **skipped** the capture call (the WARN proves it), and the poller had stopped
@@ -352,22 +437,86 @@ Still outstanding, by hand: the three payments already captured
 (`AM-E0XSRIE6A` €39.94, `AM-EZ1QNKF5D` €37.94, `AM-0BYOCLH44` €63.92) predate
 this fix and are not in the review queue. Each needs refunding or shipping.
 
+## The proxy payment link
+
+PayPal gives us no way to kill the order. We do control the link we send, and
+that turns out to be the only place a dead payment can be stopped *before* the
+money moves rather than refused afterwards.
+
+The bot now sends `https://<PAYMENT_LINK_BASE_URL>/pay/{botId}/{transactionId}`
+in WhatsApp instead of the PayPal checkout URL. `routes/paymentLink.js` looks
+the payment up when the customer clicks:
+
+| State at click time | Response |
+|---|---|
+| Live (not terminal) | `302` to the stored `providerCheckoutUrl` |
+| Timed out / cancelled | `410`, "Payment expired — type **menu** to begin" |
+| Already paid | `410`, "Already paid" |
+| Unknown id, or no stored provider URL | `404`, "Link not valid" |
+
+`PaymentGateway.initiatePayment` returns the proxy URL as `checkoutUrl` (what
+the customer is sent) and keeps the real one as `providerCheckoutUrl`. With
+`PAYMENT_LINK_BASE_URL` unset it returns the provider URL unchanged, so an
+environment that has not configured one behaves exactly as before.
+
+`no-store` is set on every response including the 302 — a cached redirect would
+send the next click straight to PayPal without the check running at all, which
+would defeat the endpoint entirely.
+
+Three things came out of review and are worth recording, because each one
+would have shipped quietly:
+
+- **The proxy must not paper over a provider that returned no checkout URL.**
+  The first draft built a proxy link from the transaction id alone, so
+  `checkoutUrl` was always truthy. That silenced `afromarketFlowPlugin`'s
+  `!payment.checkoutUrl` throw — the check that turns a broken provider
+  response into a loud failure which *preserves the customer's cart*. The cart
+  would have been cleared and the customer handed a link that could only ever
+  say "no longer valid".
+- **Unset config must be loud.** `parseTrimmedUrl` treats "not set" as valid,
+  so an unset `PAYMENT_LINK_BASE_URL` logged nothing at all: the protection
+  would be absent and the logs identical to a working deployment. It now logs
+  at error when a redirect-based provider is registered without it, matching
+  the `returnUrlMissing` / `stripeSuccessUrlMissing` pattern already in that
+  file. The value itself must be a bare https origin — `postgres://`,
+  `javascript:`, plaintext http and a base URL carrying a path all parse fine
+  and all produce a dead or unclickable link.
+- **The redirect target is validated, not trusted.** `providerCheckoutUrl`
+  comes from the provider's own API over TLS and is not attacker-reachable —
+  every writer was traced. But this endpoint deliberately teaches customers
+  that `https://<our domain>/pay/...` is where they go to pay, which makes an
+  open redirect on that path a high-value phishing primitive, one careless
+  field spread away. The target must now be https and on a host belonging to
+  the payment's own provider.
+
+Not addressed here, and worth knowing: `app.set('trust proxy', true)` means
+every rate limiter in this service keys on a client-supplied
+`X-Forwarded-For`, so the limit on this new public endpoint is bypassable.
+Pre-existing and touches every route, so it belongs in its own change.
+
+**What this does not cover, stated plainly:** the check happens when the link
+is *clicked*. A customer who opens the PayPal page while the payment is still
+live and completes it twenty minutes later has already been redirected, and
+PayPal will capture. That is exactly the shape of the 2026-11-12 cases
+(`AM-B1VA013V5`: created 19:35, timed out 19:45, approved 19:46). The
+terminal-state guard still refuses to confirm the order and it still lands in
+the manual-review queue — so the proxy narrows the window rather than closing
+it.
+
+Closing it properly means not declaring failure at ten minutes in the first
+place: that timeout is a mobile-money number, while a PayPal order stays
+payable for about three hours. A PayPal-specific timeout would have let both
+2026-11-12 customers simply be confirmed normally, which is what they expected.
+That remains open — see the follow-ups below.
+
 ## Follow-ups not in this change
 
 From Gustave's plan, in his priority order:
 
 1. **Remove the duplicate PayPal webhook URL** (dashboard, ~2 min). Likely the
    actual reason money moved at all on 2026-11-11.
-2. **Proxy the checkout link** — send
-   `https://bot.botmanagementservice.eu/pay/{orderId}` to WhatsApp instead of
-   the raw PayPal URL, and have that endpoint serve a "payment expired" page
-   when the payment is terminal, otherwise redirect to the real PayPal
-   checkout. PayPal gives us no way to void the order, but we control the link
-   we send — **this is the only real way to kill it at source**, and it would
-   prevent the customer ever reaching PayPal rather than refusing the result
-   afterwards. Medium effort: a new endpoint plus storing the real
-   `checkoutUrl` in metadata and returning the proxy URL from
-   `initiatePayment`.
+2. ~~**Proxy the checkout link**~~ — **done, see below.**
+
 3. **Make `/payment-return` dynamic** — it currently says "✅ Payment received"
    unconditionally, including for a payment that just got refused. Cosmetic but
    actively misleading.
@@ -398,7 +547,7 @@ From Gustave's plan, in his priority order:
   for a failed payment (it previously documented "the capture itself is not
   preventable", which is no longer true).
 
-Full suite: 505 passing.
+Full suite: 520 passing.
 
 Two further regression tests exist specifically for the holes review found in
 the first draft of this fix, because neither is reachable through the paths the
