@@ -501,13 +501,90 @@ test('CHECKOUT.ORDER.APPROVED is skipped without capturing when payment is alrea
       }
     );
     assert.equal(res.status, 200);
-    assert.equal(res.body && res.body.skipped, 'payment_already_failed');
+    assert.equal(res.body && res.body.skipped, 'payment_already_terminal');
 
     // Payment must remain FAILED, not transition to any other state.
     const payment = await store.getPayment({ botId: 'afromarket', transactionId: 'ORDER-TIMEOUT-1' });
     assert.equal(payment.status, 'FAILED');
     assert.equal(payment.failureReason, 'TIMEOUT');
   } finally {
+    server.close();
+  }
+});
+
+// The exact 2026-11-11 production leak, end to end. PR #293 guarded
+// CHECKOUT.ORDER.APPROVED, but PAYMENT.CAPTURE.COMPLETED arrives as its own
+// later delivery and had no guard at all - it wrote COMPLETED straight over
+// the FAILED/TIMEOUT record, which also neutered PaymentStatusWorker's own
+// belt-and-suspenders check (that read the status back *after* the write).
+// Result: "❌ Paiement échoué (TIMEOUT)" at 22:58 local, then "✅ Payment
+// received!" at 23:18 for the same order. See
+// docs/bugfixes/afromarket-paypal-terminal-state-bugfix.md.
+test('PAYMENT.CAPTURE.COMPLETED after a timeout must not complete the payment', async () => {
+  const { store, events, gateway } = getPaymentService();
+  const worker = new PaymentStatusWorker({ gateway, store, events, botRegistry: { getBotByName: () => null } });
+  worker.start();
+
+  let completedCount = 0;
+  const onCompleted = () => {
+    completedCount += 1;
+  };
+  events.on('payment.completed', onCompleted);
+
+  await store.upsertPayment({
+    botId: 'afromarket',
+    transactionId: 'ORDER-LATE-CAPTURE-1',
+    provider: 'paypal',
+    status: 'FAILED',
+    failureReason: 'TIMEOUT',
+    amount: 39.94,
+    currency: 'EUR',
+    metadata: { service: 'afromarket_order', orderNumber: 'AM-LATE-CAPTURE-1' }
+  });
+
+  currentFetchImpl = verifySuccessFetch([]);
+
+  const server = await startServer();
+  try {
+    const res = await post(
+      server,
+      '/payments/webhooks/paypal/afromarket',
+      {
+        id: 'WH-EVT-LATE-CAPTURE-1',
+        event_type: 'PAYMENT.CAPTURE.COMPLETED',
+        resource: {
+          id: 'CAPTURE-LATE-1',
+          status: 'COMPLETED',
+          amount: { value: '39.94', currency_code: 'EUR' },
+          supplementary_data: { related_ids: { order_id: 'ORDER-LATE-CAPTURE-1' } }
+        }
+      },
+      {
+        'paypal-transmission-id': 't-late-capture',
+        'paypal-transmission-time': '2026-11-11T22:18:55Z',
+        'paypal-cert-url': 'https://api.paypal.com/cert',
+        'paypal-auth-algo': 'SHA256withRSA',
+        'paypal-transmission-sig': 'sig'
+      }
+    );
+
+    assert.equal(res.status, 200, 'PayPal must still get a 200 so it stops retrying');
+    assert.equal(res.body && res.body.blocked, 'payment_already_failed');
+    assert.equal(completedCount, 0, 'payment.completed must NOT fire - this is what sent "Payment received!" to a dead order');
+
+    const payment = await store.getPayment({ botId: 'afromarket', transactionId: 'ORDER-LATE-CAPTURE-1' });
+    assert.equal(payment.status, 'FAILED', 'the payment must stay FAILED');
+    assert.equal(payment.failureReason, 'TIMEOUT');
+    assert.equal(payment.capturedAfterTerminal, true, 'the captured money must be flagged, not silently dropped');
+
+    const queued = await store.getCapturedAfterTerminal({ botId: 'afromarket' });
+    assert.ok(
+      queued.some((entry) => entry.transactionId === 'ORDER-LATE-CAPTURE-1'),
+      'the payment must land in the manual-review queue'
+    );
+  } finally {
+    events.off('payment.completed', onCompleted);
+    worker.stop();
     server.close();
   }
 });
