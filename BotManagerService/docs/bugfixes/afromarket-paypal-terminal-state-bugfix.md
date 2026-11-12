@@ -334,8 +334,35 @@ PayPal auto-capturing. Both registered URLs returned HTTP 200, with
 | `botmanagerservice-dev-7fcf.up.railway.app` | 49 | `{"ok":true,"blocked":"payment_already_completed"}` |
 
 The two deployments disagreed about the same payment. For the second to call it
-*already completed*, it must already have recorded a completion — which means
-**that deployment performed the capture**.
+*already completed*, it must already have recorded a completion.
+
+That alone would only be an inference — recording a completion is not the same
+as sending the capture request. The **dev deployment's own runtime logs**
+close the gap:
+
+```
+18:46:32  POST /api/payments/webhooks/paypal/afromarket 200 11 - 3276.098 ms
+18:46:32  [INFO] Payment completed but no machineId in payment metadata
+                 {"botId":"afromarket","transactionId":"977492012G475341S"}
+18:46:37  [INFO] Ignoring a repeat completion signal for an already-paid payment
+                 {"transactionId":"977492012G475341S"}
+18:46:37  POST /api/payments/webhooks/paypal/afromarket 200 49 - 1164.607 ms
+```
+
+Three things there are decisive, and the same pattern repeats exactly for
+`6M6353120A058410B` at 18:49:59:
+
+1. **3276 ms** on the `CHECKOUT.ORDER.APPROVED` delivery, against **667 ms**
+   for the same event on production, where the guard fired and returned
+   without calling PayPal. The extra ~2.6 s is the outbound capture call.
+2. The 11-byte `{"ok":true}` is the branch that runs **after**
+   `recordPaypalCapture` succeeds. Neither the terminal-skip (48 bytes) nor
+   the blocked (46/49 bytes) branch can produce it.
+3. `payment.completed` fired on dev, which only happens from a capture
+   response it recorded itself.
+
+So: **the dev deployment performed the capture**, confirmed from its own logs
+rather than inferred from the other instance's recorded state.
 
 It could, because it had no record of the payment at all. The order was created
 by the other instance, so every terminal guard on the capturing instance was
