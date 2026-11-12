@@ -410,22 +410,86 @@ Still outstanding, by hand: the three payments already captured
 (`AM-E0XSRIE6A` €39.94, `AM-EZ1QNKF5D` €37.94, `AM-0BYOCLH44` €63.92) predate
 this fix and are not in the review queue. Each needs refunding or shipping.
 
+## The proxy payment link
+
+PayPal gives us no way to kill the order. We do control the link we send, and
+that turns out to be the only place a dead payment can be stopped *before* the
+money moves rather than refused afterwards.
+
+The bot now sends `https://<PAYMENT_LINK_BASE_URL>/pay/{botId}/{transactionId}`
+in WhatsApp instead of the PayPal checkout URL. `routes/paymentLink.js` looks
+the payment up when the customer clicks:
+
+| State at click time | Response |
+|---|---|
+| Live (not terminal) | `302` to the stored `providerCheckoutUrl` |
+| Timed out / cancelled | `410`, "Payment expired — type **menu** to begin" |
+| Already paid | `410`, "Already paid" |
+| Unknown id, or no stored provider URL | `404`, "Link not valid" |
+
+`PaymentGateway.initiatePayment` returns the proxy URL as `checkoutUrl` (what
+the customer is sent) and keeps the real one as `providerCheckoutUrl`. With
+`PAYMENT_LINK_BASE_URL` unset it returns the provider URL unchanged, so an
+environment that has not configured one behaves exactly as before.
+
+`no-store` is set on every response including the 302 — a cached redirect would
+send the next click straight to PayPal without the check running at all, which
+would defeat the endpoint entirely.
+
+Three things came out of review and are worth recording, because each one
+would have shipped quietly:
+
+- **The proxy must not paper over a provider that returned no checkout URL.**
+  The first draft built a proxy link from the transaction id alone, so
+  `checkoutUrl` was always truthy. That silenced `afromarketFlowPlugin`'s
+  `!payment.checkoutUrl` throw — the check that turns a broken provider
+  response into a loud failure which *preserves the customer's cart*. The cart
+  would have been cleared and the customer handed a link that could only ever
+  say "no longer valid".
+- **Unset config must be loud.** `parseTrimmedUrl` treats "not set" as valid,
+  so an unset `PAYMENT_LINK_BASE_URL` logged nothing at all: the protection
+  would be absent and the logs identical to a working deployment. It now logs
+  at error when a redirect-based provider is registered without it, matching
+  the `returnUrlMissing` / `stripeSuccessUrlMissing` pattern already in that
+  file. The value itself must be a bare https origin — `postgres://`,
+  `javascript:`, plaintext http and a base URL carrying a path all parse fine
+  and all produce a dead or unclickable link.
+- **The redirect target is validated, not trusted.** `providerCheckoutUrl`
+  comes from the provider's own API over TLS and is not attacker-reachable —
+  every writer was traced. But this endpoint deliberately teaches customers
+  that `https://<our domain>/pay/...` is where they go to pay, which makes an
+  open redirect on that path a high-value phishing primitive, one careless
+  field spread away. The target must now be https and on a host belonging to
+  the payment's own provider.
+
+Not addressed here, and worth knowing: `app.set('trust proxy', true)` means
+every rate limiter in this service keys on a client-supplied
+`X-Forwarded-For`, so the limit on this new public endpoint is bypassable.
+Pre-existing and touches every route, so it belongs in its own change.
+
+**What this does not cover, stated plainly:** the check happens when the link
+is *clicked*. A customer who opens the PayPal page while the payment is still
+live and completes it twenty minutes later has already been redirected, and
+PayPal will capture. That is exactly the shape of the 2026-11-12 cases
+(`AM-B1VA013V5`: created 19:35, timed out 19:45, approved 19:46). The
+terminal-state guard still refuses to confirm the order and it still lands in
+the manual-review queue — so the proxy narrows the window rather than closing
+it.
+
+Closing it properly means not declaring failure at ten minutes in the first
+place: that timeout is a mobile-money number, while a PayPal order stays
+payable for about three hours. A PayPal-specific timeout would have let both
+2026-11-12 customers simply be confirmed normally, which is what they expected.
+That remains open — see the follow-ups below.
+
 ## Follow-ups not in this change
 
 From Gustave's plan, in his priority order:
 
 1. **Remove the duplicate PayPal webhook URL** (dashboard, ~2 min). Likely the
    actual reason money moved at all on 2026-11-11.
-2. **Proxy the checkout link** — send
-   `https://bot.botmanagementservice.eu/pay/{orderId}` to WhatsApp instead of
-   the raw PayPal URL, and have that endpoint serve a "payment expired" page
-   when the payment is terminal, otherwise redirect to the real PayPal
-   checkout. PayPal gives us no way to void the order, but we control the link
-   we send — **this is the only real way to kill it at source**, and it would
-   prevent the customer ever reaching PayPal rather than refusing the result
-   afterwards. Medium effort: a new endpoint plus storing the real
-   `checkoutUrl` in metadata and returning the proxy URL from
-   `initiatePayment`.
+2. ~~**Proxy the checkout link**~~ — **done, see below.**
+
 3. **Make `/payment-return` dynamic** — it currently says "✅ Payment received"
    unconditionally, including for a payment that just got refused. Cosmetic but
    actively misleading.
@@ -456,7 +520,7 @@ From Gustave's plan, in his priority order:
   for a failed payment (it previously documented "the capture itself is not
   preventable", which is no longer true).
 
-Full suite: 506 passing.
+Full suite: 520 passing.
 
 Two further regression tests exist specifically for the holes review found in
 the first draft of this fix, because neither is reachable through the paths the

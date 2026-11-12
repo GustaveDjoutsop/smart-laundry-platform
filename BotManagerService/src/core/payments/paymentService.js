@@ -31,6 +31,42 @@ function parseTrimmedUrl(envVarName, rawValue) {
   }
 }
 
+// Stricter than parseTrimmedUrl on purpose - see its call site below.
+// Returns the usable origin, or null (which disables the proxy and falls back
+// to sending the provider's own checkout URL).
+function parseAndValidatePaymentLinkBaseUrl(rawValue) {
+  const trimmed = String(rawValue || '').trim();
+  if (!trimmed) return null;
+
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch (_err) {
+    logger.error(`PAYMENT_LINK_BASE_URL is not a valid URL (got "${trimmed}") - refusing to use it`);
+
+    return null;
+  }
+
+  const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLocalhost)) {
+    logger.error(`PAYMENT_LINK_BASE_URL must be https (got "${parsed.protocol}") - refusing to use it`);
+
+    return null;
+  }
+
+  // Only the origin is used, so a path/query/fragment here is a configuration
+  // mistake that would silently produce links that never match the /pay mount.
+  if ((parsed.pathname && parsed.pathname !== '/') || parsed.search || parsed.hash) {
+    logger.error(
+      `PAYMENT_LINK_BASE_URL must be a bare origin with no path, query or fragment (got "${trimmed}") - refusing to use it`
+    );
+
+    return null;
+  }
+
+  return parsed.origin;
+}
+
 function getPaymentService() {
   if (cached) return cached;
 
@@ -141,7 +177,34 @@ function getPaymentService() {
     ttlSeconds: Number(process.env.PAYMENT_TTL_SECONDS || 60 * 60 * 24)
   });
 
-  const gateway = new PaymentGateway({ providers, logger, store, events: paymentEvents });
+  // The public origin this service is reachable on, used to build the payment
+  // links sent to customers (see routes/paymentLink.js). parseTrimmedUrl alone
+  // is not enough here: it accepts anything the URL constructor parses, so
+  // postgres://, javascript: and a base URL carrying a path all pass it and
+  // then put an unclickable or dead link in front of a paying customer.
+  const paymentLinkBaseUrl = parseAndValidatePaymentLinkBaseUrl(process.env.PAYMENT_LINK_BASE_URL);
+
+  // Same discipline as returnUrlMissing/stripeSuccessUrlMissing above: catch
+  // "the variable is simply missing", not only "it is malformed". Unset is the
+  // most likely way this ships, and it is the one case that otherwise logs
+  // nothing at all while the protection is silently absent - a deployment with
+  // the guard off would look identical to one with it on.
+  const usesRedirectCheckout = !!(providers.paypal || providers.stripe);
+  if (usesRedirectCheckout && !paymentLinkBaseUrl) {
+    logger.error(
+      'PAYMENT_LINK_BASE_URL is not set (or not usable) while a redirect-based checkout provider is registered - ' +
+        'customers receive the provider checkout URL directly, so a timed-out or already-paid payment link CANNOT be ' +
+        'intercepted before the money moves. Set it to this service public origin, e.g. https://bot.example.com'
+    );
+  }
+
+  const gateway = new PaymentGateway({
+    providers,
+    logger,
+    store,
+    events: paymentEvents,
+    paymentLinkBaseUrl
+  });
 
   cached = {
     gateway,
@@ -152,4 +215,4 @@ function getPaymentService() {
   return cached;
 }
 
-module.exports = { getPaymentService, parseTrimmedUrl };
+module.exports = { getPaymentService, parseTrimmedUrl, parseAndValidatePaymentLinkBaseUrl };
