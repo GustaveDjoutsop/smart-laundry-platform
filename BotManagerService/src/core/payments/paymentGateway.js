@@ -136,18 +136,30 @@ class PaymentGateway {
     // - so merely polling a dead payment moves real money on PayPal's side,
     // which the post-hoc guard below can refuse to record but cannot undo.
     // Returning before the call is what actually prevents the capture.
-    if (existing && existing.status === PaymentStatus.FAILED) {
+    // Same reasoning as the CHECKOUT.ORDER.APPROVED guard: the durable marker
+    // outlives the snapshot, and this check is what prevents a capture rather
+    // than merely refusing to record one.
+    const markedTerminal =
+      this.store && this.store.getTerminalRecord ? await this.store.getTerminalRecord({ botId, transactionId }) : null;
+    const failedStatus =
+      existing && existing.status === PaymentStatus.FAILED
+        ? existing.status
+        : markedTerminal && markedTerminal.status === PaymentStatus.FAILED
+          ? markedTerminal.status
+          : null;
+
+    if (failedStatus) {
       this.logger && this.logger.warn && this.logger.warn(
         'PaymentGateway.checkStatus: skipping provider check for an already-failed payment',
-        { botId, transactionId, failureReason: existing.failureReason || null }
+        { botId, transactionId, failureReason: (existing && existing.failureReason) || null }
       );
 
       return {
         botId,
         provider: providerName,
         transactionId,
-        status: existing.status,
-        previousStatus: existing.status,
+        status: failedStatus,
+        previousStatus: failedStatus,
         checkedAt: new Date().toISOString(),
         raw: null
       };
@@ -268,6 +280,7 @@ class PaymentGateway {
       externalRef: parsed.externalRef || null,
       eventId: parsed.eventId || null,
       amount: parsed.amount,
+      currency: parsed.currency,
       status: normalizeStatus(parsed.status),
       updatedAt: new Date().toISOString(),
       raw: parsed.raw || payload

@@ -603,3 +603,182 @@ test('appendEvent and the worker drop path cannot both file the same incident', 
   assert.equal(stored.capturedAfterTerminalAmount, 39.94);
   assert.equal(stored.capturedAfterTerminalCurrency, 'USD');
 });
+
+// Review finding: a payment that was already terminal before this guard
+// shipped has no marker, so a reversal demoting its snapshot would let a later
+// completion through during exactly the deploy window this fix lands in.
+test('a terminal payment with no marker yet is backfilled from its snapshot', async () => {
+  const store = newStore();
+
+  // As written by the old code path: terminal snapshot, no marker.
+  await store.upsertPayment({
+    botId: 'afromarket',
+    transactionId: 'tx-backfill',
+    provider: 'paypal',
+    status: PaymentStatus.COMPLETED,
+    amount: 18,
+    currency: 'EUR'
+  });
+  assert.equal(await store.getTerminalStatus({ botId: 'afromarket', transactionId: 'tx-backfill' }), null);
+
+  // A reversal demotes the snapshot to PENDING...
+  await store.appendEvent({
+    botId: 'afromarket',
+    transactionId: 'tx-backfill',
+    provider: 'paypal',
+    eventId: 'backfill-reversed',
+    eventType: 'payment_status_updated',
+    status: PaymentStatus.PENDING,
+    source: 'webhook'
+  });
+
+  // ...but the marker was backfilled on the way, so the payment is still terminal.
+  assert.equal(await store.getTerminalStatus({ botId: 'afromarket', transactionId: 'tx-backfill' }), PaymentStatus.COMPLETED);
+
+  const late = await store.appendEvent({
+    botId: 'afromarket',
+    transactionId: 'tx-backfill',
+    provider: 'paypal',
+    eventId: 'backfill-late-completed',
+    eventType: 'payment_completed',
+    status: PaymentStatus.COMPLETED,
+    amount: 18,
+    currency: 'EUR',
+    source: 'webhook'
+  });
+
+  assert.equal(late.blocked, true);
+});
+
+// Review finding: reading the marker and then writing the snapshot is
+// check-then-act across processes. A completion can read "not terminal",
+// pause, and overwrite a timeout that wrote FAILED and notified the customer
+// in the gap. The setnx claim is what closes it - this forces that exact
+// interleaving by hiding the marker from the first read only.
+test('a completion that loses the terminal claim is refused, not written', async () => {
+  const store = newStore();
+
+  await store.upsertPayment({
+    botId: 'afromarket',
+    transactionId: 'tx-claim-race',
+    provider: 'paypal',
+    status: PaymentStatus.PENDING,
+    amount: 50,
+    currency: 'EUR'
+  });
+
+  // The timeout wins the claim in the gap between this call's read and write.
+  const realGetTerminalRecord = store.getTerminalRecord.bind(store);
+  let firstRead = true;
+  store.getTerminalRecord = async (args) => {
+    if (firstRead) {
+      firstRead = false;
+      await store.markTerminal({
+        botId: 'afromarket',
+        transactionId: 'tx-claim-race',
+        status: PaymentStatus.FAILED,
+        amount: 50,
+        currency: 'EUR'
+      });
+
+      return null;
+    }
+
+    return realGetTerminalRecord(args);
+  };
+
+  const result = await store.appendEvent({
+    botId: 'afromarket',
+    transactionId: 'tx-claim-race',
+    provider: 'paypal',
+    eventId: 'claim-race-capture',
+    eventType: 'payment_completed',
+    status: PaymentStatus.COMPLETED,
+    amount: 50,
+    currency: 'EUR',
+    source: 'webhook'
+  });
+
+  store.getTerminalRecord = realGetTerminalRecord;
+
+  assert.equal(result.blocked, true, 'losing the setnx claim must refuse the completion');
+  assert.equal(result.capturedAfterDeath, true, 'it lost to a FAILED, so money moved for a dead payment');
+
+  const stored = await store.getPayment({ botId: 'afromarket', transactionId: 'tx-claim-race' });
+  assert.notEqual(stored.status, PaymentStatus.COMPLETED, 'the losing completion must not have been written');
+});
+
+// Review finding: the AfroMarket cart total can carry more decimals than
+// PayPal's two-decimal capture amount, so a strict float comparison reported
+// every ordinary repeat as a second capture and filled the worklist with
+// false incidents.
+test('a repeat whose amount differs only by float noise is not an incident', async () => {
+  const store = newStore();
+
+  await store.appendEvent({
+    botId: 'afromarket',
+    transactionId: 'tx-float-noise',
+    provider: 'paypal',
+    eventId: 'float-noise-first',
+    eventType: 'payment_completed',
+    status: PaymentStatus.COMPLETED,
+    amount: 39.939999999,
+    currency: 'EUR',
+    source: 'capture-response'
+  });
+
+  const repeat = await store.appendEvent({
+    botId: 'afromarket',
+    transactionId: 'tx-float-noise',
+    provider: 'paypal',
+    eventId: 'float-noise-repeat',
+    eventType: 'payment_completed',
+    status: PaymentStatus.COMPLETED,
+    amount: 39.94,
+    currency: 'EUR',
+    source: 'webhook'
+  });
+
+  assert.equal(repeat.blocked, true);
+  assert.equal(repeat.capturedAfterDeath, false, 'the same payment reported twice must not look like a second capture');
+
+  const queued = await store.getCapturedAfterTerminal({ botId: 'afromarket' });
+  assert.equal(queued.filter((entry) => entry.transactionId === 'tx-float-noise').length, 0);
+});
+
+// Review finding: the amount comparison needs a baseline that outlives the
+// payment snapshot, or a second capture arriving on day two is filed as a
+// harmless repeat.
+test('a second capture for a different amount is still an incident after the snapshot expires', async () => {
+  const store = newStore();
+  const { redisManager } = require('../src/core/redisManager');
+
+  await store.appendEvent({
+    botId: 'afromarket',
+    transactionId: 'tx-expired-mismatch',
+    provider: 'paypal',
+    eventId: 'expired-mismatch-first',
+    eventType: 'payment_completed',
+    status: PaymentStatus.COMPLETED,
+    amount: 20,
+    currency: 'EUR',
+    source: 'capture-response'
+  });
+
+  await redisManager.del('payment:afromarket:tx-expired-mismatch');
+
+  const second = await store.appendEvent({
+    botId: 'afromarket',
+    transactionId: 'tx-expired-mismatch',
+    provider: 'paypal',
+    eventId: 'expired-mismatch-second',
+    eventType: 'payment_completed',
+    status: PaymentStatus.COMPLETED,
+    amount: 99,
+    currency: 'EUR',
+    source: 'webhook'
+  });
+
+  assert.equal(second.blocked, true);
+  assert.equal(second.capturedAfterDeath, true, 'the marker must keep the amount baseline after the record is gone');
+});

@@ -45,6 +45,12 @@ function terminalMarkerKey({ botId, transactionId }) {
   return `payment_terminal:${botId}:${transactionId}`;
 }
 
+// Money is compared in minor units, never as raw floats: an order total of
+// 39.939999 and PayPal's capture of 39.94 are the same payment.
+function toMinorUnits(value) {
+  return Math.round(Number(value) * 100);
+}
+
 // Atomic, so a capture webhook and the status worker racing on the same
 // transaction file exactly one manual-review entry between them.
 function capturedAfterTerminalClaimKey({ botId, transactionId }) {
@@ -116,15 +122,48 @@ class PaymentStore {
 
     // The durable marker, not the snapshot, is what the rule is keyed on -
     // see terminalMarkerKey above for the two ways the snapshot lies.
-    const markedTerminalStatus = await this.getTerminalStatus({ botId, transactionId });
-    const effectiveTerminalStatus = isTerminalStatus(previousStatus) ? previousStatus : markedTerminalStatus;
+    let terminalRecord = await this.getTerminalRecord({ botId, transactionId });
+
+    // Backfill: a payment that was already terminal before this guard existed
+    // has no marker, so a reversal demoting its snapshot would let a later
+    // completion through during exactly the deploy window this fix ships in.
+    // Observing a terminal snapshot is enough to write the marker.
+    if (!terminalRecord && isTerminalStatus(previousStatus)) {
+      await this.markTerminal({
+        botId,
+        transactionId,
+        status: previousStatus,
+        amount: existing.amount,
+        currency: existing.currency
+      });
+      terminalRecord = await this.getTerminalRecord({ botId, transactionId });
+    }
 
     // Once terminal, a payment can never become successful again, whatever
     // the source. Deliberately one-directional: COMPLETED -> FAILED is still
     // allowed through, because PAYMENT.CAPTURE.DENIED / reversals /
     // chargebacks legitimately travel that way and blocking them would hide
     // a real loss of funds.
-    const blocked = status === PaymentStatus.COMPLETED && isTerminalStatus(effectiveTerminalStatus);
+    let blocked = status === PaymentStatus.COMPLETED && !!terminalRecord && isTerminalStatus(terminalRecord.status);
+
+    // Claim the terminal state atomically. Reading the marker and then writing
+    // the snapshot is check-then-act across processes: a completion can read
+    // "not terminal", pause, and overwrite a timeout that wrote FAILED and
+    // notified the customer in the gap. setnx has no such gap - whoever wins
+    // it owns the payment's terminal status, and a COMPLETED that loses to a
+    // terminal marker is refused here rather than silently winning the write.
+    if (!blocked && isTerminalStatus(status)) {
+      const wonTerminalClaim = await this.markTerminal({ botId, transactionId, status, amount, currency });
+      if (!wonTerminalClaim) {
+        const claimedBy = await this.getTerminalRecord({ botId, transactionId });
+        if (status === PaymentStatus.COMPLETED && claimedBy && isTerminalStatus(claimedBy.status)) {
+          blocked = true;
+          terminalRecord = claimedBy;
+        }
+      }
+    }
+
+    const effectiveTerminalStatus = terminalRecord ? terminalRecord.status : null;
 
     // Two very different things land in `blocked`, and conflating them was
     // itself a bug (caught in review before this shipped):
@@ -142,8 +181,16 @@ class PaymentStore {
     // already-COMPLETED payment: an idempotent repeat of the same completion
     // carries the same amount, so a different one is a second capture, not a
     // second signal about the first.
-    const amountDiffers =
-      amount != null && existing && existing.amount != null && Number(amount) !== Number(existing.amount);
+    // Compared against the marker's amount as well as the snapshot's, since
+    // the snapshot is gone after 24h while the marker lives 30 days - without
+    // that, a second capture for a different amount arriving on day two would
+    // be filed away as a harmless repeat. Rounded to minor units first: the
+    // AfroMarket cart total can carry more decimals than PayPal's own
+    // two-decimal capture amount, and a strict comparison would then report
+    // every ordinary repeat as a second capture.
+    const baselineAmount =
+      existing && existing.amount != null ? existing.amount : terminalRecord ? terminalRecord.amount : null;
+    const amountDiffers = amount != null && baselineAmount != null && toMinorUnits(amount) !== toMinorUnits(baselineAmount);
     const capturedAfterDeath = blocked && (effectiveTerminalStatus === PaymentStatus.FAILED || amountDiffers);
 
     const event = {
@@ -218,12 +265,6 @@ class PaymentStore {
     }
 
     await this.upsertPayment(snapshot);
-
-    // Record the terminal status durably once it is actually reached, so the
-    // guard above still works after the snapshot's own 24h TTL expires.
-    if (!blocked && isTerminalStatus(status)) {
-      await this.markTerminal({ botId, transactionId, status });
-    }
 
     if (capturedAfterDeath && (await this.claimCapturedAfterTerminal({ botId, transactionId }))) {
       await this.queueCapturedAfterTerminal({
@@ -310,16 +351,42 @@ class PaymentStore {
   }
 
   // setnx, not setex: the FIRST terminal status a payment reaches is the one
-  // that sticks. A later FAILED after a COMPLETED (a denial or reversal)
-  // must not turn a paid payment back into one that can be completed again.
-  async markTerminal({ botId, transactionId, status }) {
+  // that sticks, and winning this call is what claims the terminal state
+  // against a concurrent writer. A later FAILED after a COMPLETED (a denial
+  // or reversal) must not turn a paid payment back into one that can be
+  // completed again. Carries the amount/currency too, so the "is this a
+  // second capture or the same one reported twice" comparison still works
+  // after the payment snapshot's own 24h TTL has expired.
+  async markTerminal({ botId, transactionId, status, amount, currency }) {
     if (!isTerminalStatus(status)) return false;
-    return redisManager.setnx(terminalMarkerKey({ botId, transactionId }), status, EVENT_SEEN_TTL_SECONDS);
+
+    const marker = JSON.stringify({
+      status,
+      amount: amount != null ? amount : null,
+      currency: currency || null,
+      markedAt: new Date().toISOString()
+    });
+
+    return redisManager.setnx(terminalMarkerKey({ botId, transactionId }), marker, EVENT_SEEN_TTL_SECONDS);
+  }
+
+  async getTerminalRecord({ botId, transactionId }) {
+    const marked = await redisManager.get(terminalMarkerKey({ botId, transactionId }));
+    if (!marked) return null;
+
+    try {
+      const parsed = JSON.parse(marked);
+      return parsed && parsed.status ? parsed : null;
+    } catch (_err) {
+      // Markers written before they carried amount/currency were a bare
+      // status string - still authoritative for the terminal rule itself.
+      return { status: marked, amount: null, currency: null };
+    }
   }
 
   async getTerminalStatus({ botId, transactionId }) {
-    const marked = await redisManager.get(terminalMarkerKey({ botId, transactionId }));
-    return marked || null;
+    const record = await this.getTerminalRecord({ botId, transactionId });
+    return record ? record.status : null;
   }
 
   async queueCapturedAfterTerminal(entry) {

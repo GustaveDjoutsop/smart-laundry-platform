@@ -379,9 +379,12 @@ class PayPalProvider {
     // failure just because it isn't literally ".COMPLETED".
     const status = mapCaptureStatus(resource && resource.status);
     const amount = resource && resource.amount && resource.amount.value != null ? Number(resource.amount.value) : undefined;
+    // Without this the reconciliation entry for a capture-after-death has an
+    // amount and no currency - PayPal sends it, nothing was reading it.
+    const currency = (resource && resource.amount && resource.amount.currency_code) || undefined;
     const externalRef = (resource && resource.custom_id) || null;
 
-    return { transactionId, status, amount, externalRef, eventId, raw: payload };
+    return { transactionId, status, amount, currency, externalRef, eventId, raw: payload };
   }
 }
 

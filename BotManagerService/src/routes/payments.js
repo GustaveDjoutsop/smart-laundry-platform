@@ -153,6 +153,10 @@ function paymentsRouter({ adminAuthMiddleware, adminRateLimiter } = {}) {
           normalized.status === 'COMPLETED' ? 'payment_completed' : normalized.status === 'FAILED' ? 'payment_failed' : 'payment_status_updated',
         status: normalized.status,
         amount: normalized.amount,
+        // Carried through so a reconciliation entry states which currency the
+        // money moved in - PayPal's capture resource has it, and an entry an
+        // operator has to act on must not say "39.94" of nothing.
+        currency: normalized.currency,
         externalRef: normalized.externalRef,
         raw: normalized.raw,
         source: 'webhook'
@@ -170,7 +174,8 @@ function paymentsRouter({ adminAuthMiddleware, adminRateLimiter } = {}) {
             provider: normalized.provider,
             transactionId: normalized.transactionId,
             terminalStatus: previousStatus,
-            amount: normalized.amount
+            amount: normalized.amount,
+            currency: normalized.currency
           });
         } else {
           // The ordinary second completion signal for an already-paid order.
@@ -320,12 +325,27 @@ function paymentsRouter({ adminAuthMiddleware, adminRateLimiter } = {}) {
         // expires by itself; refusing here is the only control we have.
         // PaymentStore.appendEvent is the second line, covering the paths
         // that reach a COMPLETED status without passing through here.
+        // Consults the durable terminal marker as well as the snapshot: the
+        // snapshot is gone after 24h while PayPal keeps the order approvable,
+        // and a reversal can demote it out of terminal. Blocking here is what
+        // stops the capture happening at all, so it must not be the weaker
+        // of the two checks.
         const existingPayment = await store.getPayment({ botId, transactionId: orderId });
-        if (existingPayment && isTerminalStatus(existingPayment.status)) {
+        const markedTerminal = store.getTerminalRecord
+          ? await store.getTerminalRecord({ botId, transactionId: orderId })
+          : null;
+        const terminalStatus =
+          existingPayment && isTerminalStatus(existingPayment.status)
+            ? existingPayment.status
+            : markedTerminal && isTerminalStatus(markedTerminal.status)
+              ? markedTerminal.status
+              : null;
+
+        if (terminalStatus) {
           logger.warn('PayPal CHECKOUT.ORDER.APPROVED received for already-terminal payment; skipping capture', {
             orderId,
-            status: existingPayment.status,
-            failureReason: existingPayment.failureReason || 'unknown'
+            status: terminalStatus,
+            failureReason: (existingPayment && existingPayment.failureReason) || 'unknown'
           });
           return res.status(200).json({ ok: true, skipped: 'payment_already_terminal' });
         }

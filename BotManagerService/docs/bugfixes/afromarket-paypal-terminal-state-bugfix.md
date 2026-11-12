@@ -134,6 +134,27 @@ regardless of which path reports it.
   `FAILED` arriving after a `COMPLETED` (a denial or reversal) does not make a
   paid payment completable again.
 
+  Winning that `setnx` is also how the terminal state is claimed. Reading the
+  marker and then writing the snapshot is check-then-act across processes: a
+  completion could read "not terminal", pause, and overwrite a timeout that
+  had written FAILED and already messaged the customer. `setnx` has no such
+  gap, so a completion that loses the claim is refused rather than silently
+  winning the write. A payment that was already terminal before this shipped
+  has its marker backfilled from the snapshot on the next event, which closes
+  the deploy window.
+
+  The marker carries the amount and currency as well as the status, so the
+  "second capture or the same one reported twice" comparison still works after
+  the snapshot's 24h TTL. Amounts are compared in minor units, never as raw
+  floats — the AfroMarket cart total can carry more decimals than PayPal's
+  two-decimal capture amount, and a strict comparison reported every ordinary
+  repeat as a second capture.
+
+  Both pre-capture guards (`CHECKOUT.ORDER.APPROVED` and
+  `PaymentGateway.checkStatus`) consult the marker too, not just the snapshot.
+  Those two are what stop a capture *happening*, rather than merely refusing
+  to record one, so they must not be the weaker check.
+
   The refusal is one-directional on purpose: `COMPLETED → FAILED` still passes,
   because `PAYMENT.CAPTURE.DENIED`, reversals and chargebacks travel that way
   and blocking them would hide a real loss of funds. A refused write touches
@@ -377,7 +398,7 @@ From Gustave's plan, in his priority order:
   for a failed payment (it previously documented "the capture itself is not
   preventable", which is no longer true).
 
-Full suite: 501 passing.
+Full suite: 505 passing.
 
 Two further regression tests exist specifically for the holes review found in
 the first draft of this fix, because neither is reachable through the paths the
