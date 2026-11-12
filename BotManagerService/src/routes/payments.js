@@ -3,6 +3,7 @@ const express = require('express');
 const { getPaymentService } = require('../core/payments/paymentService');
 const { verifyHmacSha256Hex } = require('../core/payments/webhookSignature');
 const { formatShippingAddress, formatPayerName, formatPayerContact, mapCaptureStatus } = require('../core/payments/providers/paypalProvider');
+const { isTerminalStatus } = require('../core/payments/paymentTypes');
 const { logger } = require('../utils/logger');
 
 function getSignatureHeader(req) {
@@ -40,7 +41,7 @@ async function recordPaypalCapture({ botId, store, events, orderId, capture }) {
   // afromarket-dual-completion-trigger-and-contact-field.md).
   const payerContact = formatPayerContact(capture.payer);
 
-  const { duplicate, previousStatus } = await store.appendEvent({
+  const { duplicate, blocked, capturedAfterDeath, previousStatus } = await store.appendEvent({
     botId,
     transactionId: orderId,
     provider: 'paypal',
@@ -57,12 +58,34 @@ async function recordPaypalCapture({ botId, store, events, orderId, capture }) {
     currency,
     externalRef: (capture.purchase_units && capture.purchase_units[0] && capture.purchase_units[0].reference_id) || null,
     // Recorded regardless of status - still useful once/if a later webhook
-    // does resolve a PENDING capture to COMPLETED.
+    // does resolve a PENDING capture to COMPLETED. On a refused (blocked)
+    // write the store keeps these only where the record does not already
+    // have them, so they can never overwrite the order's own metadata.
     metadata: { ...existingMetadata, paypalPayerName: payerName, paypalShippingAddress: shippingAddress, paypalPayerContact: payerContact },
     raw: capture,
     source: 'capture-response'
   });
-  if (duplicate) return;
+  if (duplicate) return { blocked: false };
+
+  // PaymentStore refused the transition because the payment was already
+  // terminal. Logged at error level, not warn: the capture response in hand
+  // means PayPal moved money for a payment this service considers dead, which
+  // is a human's problem to settle (refund or honour), not a routine skip.
+  if (blocked) {
+    if (capturedAfterDeath) {
+      logger.error('PayPal capture recorded for a payment that had already failed; order NOT confirmed, queued for manual review', {
+        botId,
+        orderId,
+        terminalStatus: previousStatus,
+        amount,
+        currency
+      });
+    } else {
+      logger.info('Ignoring a repeat PayPal capture response for an already-paid payment', { botId, orderId });
+    }
+
+    return { blocked: true, capturedAfterDeath };
+  }
 
   events.emit('payment.status', {
     botId,
@@ -71,10 +94,20 @@ async function recordPaypalCapture({ botId, store, events, orderId, capture }) {
     status,
     previousStatus
   });
+
+  return { blocked: false };
 }
 
-function paymentsRouter() {
+// adminAuthMiddleware/adminRateLimiter guard the non-webhook routes below.
+// Both are optional only so existing callers/tests can build a webhook-only
+// router; when they are absent the guarded routes fail closed rather than
+// serving payment records to anyone who can reach the service.
+function paymentsRouter({ adminAuthMiddleware, adminRateLimiter } = {}) {
   const router = express.Router();
+
+  const failClosed = (_req, res) => res.status(503).json({ error: 'Admin authentication is not configured' });
+  const adminAuth = adminAuthMiddleware || failClosed;
+  const adminLimiter = adminRateLimiter || ((_req, _res, next) => next());
 
   // Provider webhook (per-bot to preserve tenant isolation)
   router.post('/webhooks/campay/:botId', async (req, res, next) => {
@@ -111,7 +144,7 @@ function paymentsRouter() {
       // verification above is CamPay's pre-existing, opt-in behavior (only
       // enforced when CAMPAY_WEBHOOK_SECRET is set, unlike Stripe's
       // fail-closed verifyWebhook below) - unchanged by this diff.
-      const { duplicate, previousStatus } = await store.appendEvent({
+      const { duplicate, blocked, capturedAfterDeath, previousStatus } = await store.appendEvent({
         botId,
         transactionId: normalized.transactionId,
         provider: 'campay',
@@ -120,11 +153,44 @@ function paymentsRouter() {
           normalized.status === 'COMPLETED' ? 'payment_completed' : normalized.status === 'FAILED' ? 'payment_failed' : 'payment_status_updated',
         status: normalized.status,
         amount: normalized.amount,
+        // Carried through so a reconciliation entry states which currency the
+        // money moved in - PayPal's capture resource has it, and an entry an
+        // operator has to act on must not say "39.94" of nothing.
+        currency: normalized.currency,
         externalRef: normalized.externalRef,
         raw: normalized.raw,
         source: 'webhook'
       });
       if (duplicate) return res.status(200).json({ ok: true, duplicate: true });
+
+      // The payment was already terminal, so PaymentStore refused to mark it
+      // successful. Nothing is emitted either way: no order confirmation, no
+      // "payment received" message.
+      if (blocked) {
+        if (capturedAfterDeath) {
+          // Money moved for a payment the customer was told had failed.
+          logger.error('Webhook reported a completed payment that had already failed; queued for manual review', {
+            botId,
+            provider: normalized.provider,
+            transactionId: normalized.transactionId,
+            terminalStatus: previousStatus,
+            amount: normalized.amount,
+            currency: normalized.currency
+          });
+        } else {
+          // The ordinary second completion signal for an already-paid order.
+          logger.info('Ignoring a repeat completion signal for an already-paid payment', {
+            botId,
+            provider: normalized.provider,
+            transactionId: normalized.transactionId
+          });
+        }
+
+        return res.status(200).json({
+          ok: true,
+          blocked: capturedAfterDeath ? 'payment_already_failed' : 'payment_already_completed'
+        });
+      }
 
       events.emit('payment.status', { ...normalized, previousStatus });
 
@@ -159,7 +225,7 @@ function paymentsRouter() {
         return res.status(200).json({ ok: true });
       }
 
-      const { duplicate, previousStatus } = await store.appendEvent({
+      const { duplicate, blocked, capturedAfterDeath, previousStatus } = await store.appendEvent({
         botId,
         transactionId: normalized.transactionId,
         provider: 'stripe',
@@ -173,6 +239,34 @@ function paymentsRouter() {
         source: 'webhook'
       });
       if (duplicate) return res.status(200).json({ ok: true, duplicate: true });
+
+      // The payment was already terminal, so PaymentStore refused to mark it
+      // successful. Nothing is emitted either way: no order confirmation, no
+      // "payment received" message.
+      if (blocked) {
+        if (capturedAfterDeath) {
+          // Money moved for a payment the customer was told had failed.
+          logger.error('Webhook reported a completed payment that had already failed; queued for manual review', {
+            botId,
+            provider: normalized.provider,
+            transactionId: normalized.transactionId,
+            terminalStatus: previousStatus,
+            amount: normalized.amount
+          });
+        } else {
+          // The ordinary second completion signal for an already-paid order.
+          logger.info('Ignoring a repeat completion signal for an already-paid payment', {
+            botId,
+            provider: normalized.provider,
+            transactionId: normalized.transactionId
+          });
+        }
+
+        return res.status(200).json({
+          ok: true,
+          blocked: capturedAfterDeath ? 'payment_already_failed' : 'payment_already_completed'
+        });
+      }
 
       events.emit('payment.status', { ...normalized, previousStatus });
 
@@ -222,19 +316,38 @@ function paymentsRouter() {
           return res.status(200).json({ ok: true });
         }
 
-        // Guard: if the payment timed out before the buyer completed checkout
-        // (PaymentStatusWorker marked it FAILED with failureReason=TIMEOUT),
-        // do not capture. The PayPal order remains open on PayPal's side until
-        // it expires naturally (~3 h), so without this check a buyer who
-        // approves after the timeout window would still trigger a successful
-        // capture and produce an order confirmation for a "timed out" payment.
+        // First line of defence: don't call PayPal's capture endpoint at all
+        // for a payment that is already terminal - whether it timed out
+        // (FAILED/TIMEOUT, so the customer was told it failed) or has already
+        // been paid (COMPLETED, so capturing again risks a second charge and
+        // a duplicate order). PayPal Orders v2 has no cancel/void endpoint,
+        // so the approval link stays live on PayPal's side until the order
+        // expires by itself; refusing here is the only control we have.
+        // PaymentStore.appendEvent is the second line, covering the paths
+        // that reach a COMPLETED status without passing through here.
+        // Consults the durable terminal marker as well as the snapshot: the
+        // snapshot is gone after 24h while PayPal keeps the order approvable,
+        // and a reversal can demote it out of terminal. Blocking here is what
+        // stops the capture happening at all, so it must not be the weaker
+        // of the two checks.
         const existingPayment = await store.getPayment({ botId, transactionId: orderId });
-        if (existingPayment && existingPayment.status === 'FAILED') {
-          logger.warn('PayPal CHECKOUT.ORDER.APPROVED received for already-failed payment; skipping capture', {
+        const markedTerminal = store.getTerminalRecord
+          ? await store.getTerminalRecord({ botId, transactionId: orderId })
+          : null;
+        const terminalStatus =
+          existingPayment && isTerminalStatus(existingPayment.status)
+            ? existingPayment.status
+            : markedTerminal && isTerminalStatus(markedTerminal.status)
+              ? markedTerminal.status
+              : null;
+
+        if (terminalStatus) {
+          logger.warn('PayPal CHECKOUT.ORDER.APPROVED received for already-terminal payment; skipping capture', {
             orderId,
-            failureReason: existingPayment.failureReason || 'unknown'
+            status: terminalStatus,
+            failureReason: (existingPayment && existingPayment.failureReason) || 'unknown'
           });
-          return res.status(200).json({ ok: true, skipped: 'payment_already_failed' });
+          return res.status(200).json({ ok: true, skipped: 'payment_already_terminal' });
         }
 
         const captured = await provider.captureOrder(orderId);
@@ -245,7 +358,14 @@ function paymentsRouter() {
           return res.status(200).json({ ok: true });
         }
 
-        await recordPaypalCapture({ botId, store, events, orderId, capture: captured.data });
+        const recorded = await recordPaypalCapture({ botId, store, events, orderId, capture: captured.data });
+        if (recorded && recorded.blocked) {
+          return res.status(200).json({
+            ok: true,
+            blocked: recorded.capturedAfterDeath ? 'payment_already_failed' : 'payment_already_completed'
+          });
+        }
+
         return res.status(200).json({ ok: true });
       }
 
@@ -260,7 +380,7 @@ function paymentsRouter() {
         return res.status(200).json({ ok: true });
       }
 
-      const { duplicate, previousStatus } = await store.appendEvent({
+      const { duplicate, blocked, capturedAfterDeath, previousStatus } = await store.appendEvent({
         botId,
         transactionId: normalized.transactionId,
         provider: 'paypal',
@@ -275,6 +395,34 @@ function paymentsRouter() {
       });
       if (duplicate) return res.status(200).json({ ok: true, duplicate: true });
 
+      // The payment was already terminal, so PaymentStore refused to mark it
+      // successful. Nothing is emitted either way: no order confirmation, no
+      // "payment received" message.
+      if (blocked) {
+        if (capturedAfterDeath) {
+          // Money moved for a payment the customer was told had failed.
+          logger.error('Webhook reported a completed payment that had already failed; queued for manual review', {
+            botId,
+            provider: normalized.provider,
+            transactionId: normalized.transactionId,
+            terminalStatus: previousStatus,
+            amount: normalized.amount
+          });
+        } else {
+          // The ordinary second completion signal for an already-paid order.
+          logger.info('Ignoring a repeat completion signal for an already-paid payment', {
+            botId,
+            provider: normalized.provider,
+            transactionId: normalized.transactionId
+          });
+        }
+
+        return res.status(200).json({
+          ok: true,
+          blocked: capturedAfterDeath ? 'payment_already_failed' : 'payment_already_completed'
+        });
+      }
+
       events.emit('payment.status', { ...normalized, previousStatus });
 
       return res.status(200).json({ ok: true });
@@ -283,8 +431,29 @@ function paymentsRouter() {
     }
   });
 
-  // Debug helpers (safe: no PII)
-  router.get('/:botId/transactions/:transactionId', async (req, res, next) => {
+  // Ops: payments a provider captured after this service had already declared
+  // them terminal. Each entry is money that moved for an order the bot never
+  // confirmed - the queue a human works through to refund or honour it.
+  // Admin-authenticated: it is a list of live transaction ids, which is also
+  // the only thing protecting the per-transaction route below.
+  router.get('/:botId/captured-after-terminal', adminLimiter, adminAuth, async (req, res, next) => {
+    try {
+      const { botId } = req.params;
+      const { store } = getPaymentService();
+      const entries = await store.getCapturedAfterTerminal({ botId });
+      return res.json({ ok: true, count: entries.length, entries });
+    } catch (err) {
+      return next(err);
+    }
+  });
+
+  // Operator lookups. These return the raw payment record, which DOES carry
+  // PII (customerPhone, and for PayPal metadata.paypalPayerName /
+  // paypalPayerContact / paypalShippingAddress) - an earlier comment here
+  // claimed otherwise. Until now they were protected only by transaction-id
+  // unguessability; admin auth replaces that, since the route above hands out
+  // exactly those ids.
+  router.get('/:botId/transactions/:transactionId', adminLimiter, adminAuth, async (req, res, next) => {
     try {
       const { botId, transactionId } = req.params;
       const { store } = getPaymentService();
@@ -295,7 +464,7 @@ function paymentsRouter() {
     }
   });
 
-  router.get('/:botId/external/:externalRef', async (req, res, next) => {
+  router.get('/:botId/external/:externalRef', adminLimiter, adminAuth, async (req, res, next) => {
     try {
       const { botId, externalRef } = req.params;
       const { store } = getPaymentService();

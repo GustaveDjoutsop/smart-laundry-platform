@@ -176,23 +176,64 @@ class PaymentStatusWorker {
     const payment = await this.store.getPayment({ botId, transactionId });
     if (!payment) return;
 
-    // Belt-and-suspenders: a COMPLETED event that arrives after the payment
-    // timed out must not reopen it. PaymentGateway.checkStatus blocks this
-    // for the poll/self-heal path; this guard covers the narrow webhook race
-    // where captureOrder completed before _handleTimeout() wrote FAILED but
-    // the resulting payment.status event reaches _onStatus afterwards.
-    // Timeout is irreversible — once failureReason is TIMEOUT, no subsequent
-    // COMPLETED is legitimate regardless of where it originated.
-    if (
-      status === PaymentStatus.COMPLETED &&
-      payment.status === PaymentStatus.FAILED &&
-      payment.failureReason === 'TIMEOUT'
-    ) {
+    // Belt-and-suspenders only. PaymentStore.appendEvent is what actually
+    // enforces the terminal-state rule now, because it owns the write; this
+    // guard previously sat here alone and silently stopped working, since
+    // every emitter calls appendEvent (which used to overwrite the stored
+    // status with COMPLETED) before emitting, so `payment.status` read back
+    // as COMPLETED rather than the terminal status it was meant to catch.
+    // That is the 2026-11-11 leak — see
+    // docs/bugfixes/afromarket-paypal-terminal-state-bugfix.md. Kept as a
+    // second line of defence for any future emitter that writes through some
+    // other path, and widened from "timed out" to any terminal status so an
+    // already-paid payment cannot be completed twice either.
+    //
+    // previousStatus is used in preference to the stored status for exactly
+    // the reason above: it is the status before the emitter's own write.
+    // Two independent reads, because each one covers a case the other misses:
+    //  - statusBeforeEmit is the emitter's own pre-write status, the only
+    //    thing that catches "appendEvent already stamped COMPLETED onto the
+    //    record"; the stored status is useless there.
+    //  - payment.status === FAILED catches an emitter that passes a stale or
+    //    wrong previousStatus (PENDING) while the record says FAILED.
+    // A stored COMPLETED is deliberately NOT treated as terminal on its own:
+    // on the legitimate first completion the emitter has already written it,
+    // so that test would block the very payment it is meant to let through.
+    // previousStatus distinguishes the two.
+    const statusBeforeEmit = evt.previousStatus !== undefined ? evt.previousStatus : payment.status;
+    // Deliberately NOT keyed on payment.capturedAfterTerminal: that flag can
+    // be stamped on by a concurrent blocked delivery while the legitimate
+    // first completion's own _onStatus is still awaiting its store read,
+    // which would suppress the very completion it should let through.
+    const alreadyTerminal = isTerminal(statusBeforeEmit) || payment.status === PaymentStatus.FAILED;
+    if (status === PaymentStatus.COMPLETED && alreadyTerminal) {
+      const terminalStatus = isTerminal(statusBeforeEmit) ? statusBeforeEmit : payment.status;
+
       this.logger && this.logger.warn &&
         this.logger.warn(
-          'PaymentStatusWorker._onStatus: ignoring COMPLETED event for timed-out payment',
-          { botId, provider, transactionId }
+          'PaymentStatusWorker._onStatus: ignoring COMPLETED event for already-terminal payment',
+          { botId, provider, transactionId, terminalStatus, failureReason: payment.failureReason || null }
         );
+
+      // Dropping a COMPLETED against a FAILED record means money may well have
+      // moved. appendEvent queues that case itself, but it cannot see this
+      // one: _handleTimeout's read-then-write is not atomic, so a capture that
+      // legitimately wrote COMPLETED (previous status PENDING, nothing for
+      // appendEvent to block) can be overwritten by a timeout that read PENDING
+      // a moment earlier. Without this the customer pays, is told it failed,
+      // and nothing ever surfaces to an operator.
+      // Delegated to the store so this and appendEvent cannot both file the
+      // same incident, and so this path cannot clobber the capture details
+      // appendEvent recorded - `payment` here was read several awaits ago.
+      if (terminalStatus === PaymentStatus.FAILED && this.store.flagCapturedAfterTerminal) {
+        await this.store.flagCapturedAfterTerminal({
+          botId,
+          transactionId,
+          provider,
+          terminalStatus,
+          source: 'status-event-dropped'
+        });
+      }
 
       return;
     }
@@ -203,7 +244,7 @@ class PaymentStatusWorker {
     // one, making every real transition look like "no change" and silently
     // suppressing payment.completed/payment.failed. The emitter is required
     // to carry the true pre-write status explicitly instead.
-    const previousStatus = evt.previousStatus !== undefined ? evt.previousStatus : payment.status;
+    const previousStatus = statusBeforeEmit;
     const previousFailureReason = payment.failureReason;
 
     // Ignore repeated status events (prevents customer spam during polling)

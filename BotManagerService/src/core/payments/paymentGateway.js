@@ -1,4 +1,4 @@
-const { normalizeStatus, PaymentStatus } = require('./paymentTypes');
+const { normalizeStatus, isTerminalStatus, PaymentStatus } = require('./paymentTypes');
 
 class PaymentGateway {
   constructor({ providers, logger, store, events } = {}) {
@@ -123,6 +123,48 @@ class PaymentGateway {
   async checkStatus({ botId, provider: providerName, transactionId } = {}) {
     const provider = this.getProvider(providerName);
     if (!provider) throw new Error(`Unknown provider: ${providerName}`);
+
+    // Always fetch the stored record once - used for the terminal-state
+    // guards and (conditionally) the metadata merge, avoiding a second
+    // round-trip.
+    const existing = this.store && this.store.getPayment
+      ? await this.store.getPayment({ botId, transactionId })
+      : null;
+
+    // Do not even ask the provider about a payment that already failed.
+    // PayPalProvider.checkStatus self-heals an APPROVED order by CAPTURING it
+    // - so merely polling a dead payment moves real money on PayPal's side,
+    // which the post-hoc guard below can refuse to record but cannot undo.
+    // Returning before the call is what actually prevents the capture.
+    // Same reasoning as the CHECKOUT.ORDER.APPROVED guard: the durable marker
+    // outlives the snapshot, and this check is what prevents a capture rather
+    // than merely refusing to record one.
+    const markedTerminal =
+      this.store && this.store.getTerminalRecord ? await this.store.getTerminalRecord({ botId, transactionId }) : null;
+    const failedStatus =
+      existing && existing.status === PaymentStatus.FAILED
+        ? existing.status
+        : markedTerminal && markedTerminal.status === PaymentStatus.FAILED
+          ? markedTerminal.status
+          : null;
+
+    if (failedStatus) {
+      this.logger && this.logger.warn && this.logger.warn(
+        'PaymentGateway.checkStatus: skipping provider check for an already-failed payment',
+        { botId, transactionId, failureReason: (existing && existing.failureReason) || null }
+      );
+
+      return {
+        botId,
+        provider: providerName,
+        transactionId,
+        status: failedStatus,
+        previousStatus: failedStatus,
+        checkedAt: new Date().toISOString(),
+        raw: null
+      };
+    }
+
     const res = await provider.checkStatus(transactionId);
 
     // PayPal's checkStatus self-heals an order stuck at APPROVED by capturing
@@ -140,36 +182,27 @@ class PaymentGateway {
     // write, not a fresh object - appendEvent's metadata field replaces
     // wholesale, and this must not drop the cart/name/address/etc. captured
     // at initiatePayment time.
-    // Always fetch the stored record once — used for both the timeout guard
-    // below and (conditionally) the metadata merge, avoiding a second round-trip.
-    const existing = this.store && this.store.getPayment
-      ? await this.store.getPayment({ botId, transactionId })
-      : null;
-
     // An in-flight poll can reach here with a COMPLETED result (via
-    // PayPalProvider.checkStatus's self-heal captureOrder) even after
-    // _handleTimeout() has already written FAILED/TIMEOUT — cancelling the
-    // poll timer does not stop an async checkStatus call already in flight.
-    // Block the COMPLETED write so the payment is not silently reopened; the
-    // actual capture on PayPal's side is an accepted edge-case loss (the race
-    // window is at most one poll cycle, ~10 s, within a 10-minute timeout).
-    if (
-      existing &&
-      existing.status === 'FAILED' &&
-      existing.failureReason === 'TIMEOUT' &&
-      normalizeStatus(res.status) === 'COMPLETED'
-    ) {
+    // PayPalProvider.checkStatus's self-heal captureOrder) even after the
+    // payment has already reached a terminal state — cancelling the poll
+    // timer does not stop an async checkStatus call already in flight.
+    // Returning early here keeps the poll from reporting success upward;
+    // PaymentStore.appendEvent would refuse the write anyway, but this also
+    // avoids a pointless ledger entry and keeps the returned status honest.
+    // Any money PayPal did capture in that window is recorded and queued by
+    // appendEvent on whichever path does reach it (the capture webhook).
+    if (existing && isTerminalStatus(existing.status) && normalizeStatus(res.status) === 'COMPLETED') {
       this.logger && this.logger.warn && this.logger.warn(
-        'PaymentGateway.checkStatus: ignoring COMPLETED from in-flight poll for timed-out payment',
-        { botId, transactionId }
+        'PaymentGateway.checkStatus: ignoring COMPLETED from in-flight poll for already-terminal payment',
+        { botId, transactionId, terminalStatus: existing.status, failureReason: existing.failureReason || null }
       );
 
       return {
         botId,
         provider: providerName,
         transactionId,
-        status: PaymentStatus.FAILED,
-        previousStatus: PaymentStatus.FAILED,
+        status: existing.status,
+        previousStatus: existing.status,
         checkedAt: new Date().toISOString(),
         raw: res.raw || null
       };
@@ -207,6 +240,24 @@ class PaymentGateway {
           source: 'poll'
         });
         previousStatus = appended ? appended.previousStatus : null;
+
+        // The early return above reads the record before the provider call,
+        // so a terminal write landing in between still reaches here. Report
+        // the status the store actually kept, not the one it refused, or
+        // _pollOnce would emit a payment.status=COMPLETED the store rejected.
+        if (appended && appended.blocked) {
+          // metadata is deliberately dropped: the store refused to persist it,
+          // so handing it back would describe state that exists nowhere.
+          return {
+            botId,
+            provider: providerName,
+            transactionId,
+            status: appended.terminalStatus,
+            previousStatus: appended.terminalStatus,
+            checkedAt: updated.checkedAt,
+            raw: updated.raw
+          };
+        }
       } else {
         const existing = await this.store.getPayment({ botId, transactionId });
         previousStatus = existing ? existing.status : null;
@@ -229,6 +280,7 @@ class PaymentGateway {
       externalRef: parsed.externalRef || null,
       eventId: parsed.eventId || null,
       amount: parsed.amount,
+      currency: parsed.currency,
       status: normalizeStatus(parsed.status),
       updatedAt: new Date().toISOString(),
       raw: parsed.raw || payload

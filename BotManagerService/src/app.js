@@ -59,7 +59,10 @@ function createApp({ redisManager, mqttManager } = {}) {
   app.use('/api/health', healthRouter({ redisManager, mqttManager }));
   app.use('/api/machines', machinesRouter());
   app.use('/api/payments/webhooks', paymentsWebhookRateLimiter);
-  app.use('/api/payments', paymentsRouter());
+  // Same admin token/limiter as the billing admin routes: the payment
+  // operator routes return raw payment records (PII) and the list of
+  // transaction ids that index them.
+  app.use('/api/payments', paymentsRouter({ adminAuthMiddleware: billingAdminAuth, adminRateLimiter: billingAdminRateLimiter }));
   app.use('/api/billing/webhooks', billingWebhookRateLimiter);
   // Rate limiter/auth for admin routes is applied inside billingRouter() to
   // the specific non-webhook routes only - wrapping the whole /api/billing

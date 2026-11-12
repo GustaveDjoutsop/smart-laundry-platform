@@ -208,7 +208,13 @@ test('checkStatus returns FAILED and skips the COMPLETED write when the stored p
   const result = await gateway.checkStatus({ botId: 'afromarket-timeout-race', provider: 'paypal', transactionId: 'tx-timeout-race' });
 
   assert.equal(result.status, 'FAILED', 'checkStatus must return FAILED, not COMPLETED');
-  assert.equal(captureCallCount, 1, 'provider.checkStatus was still called (the capture itself is not preventable)');
+  // Changed deliberately: the gateway now returns BEFORE calling the
+  // provider for an already-failed payment. PayPalProvider.checkStatus
+  // self-heals an APPROVED order by capturing it, so polling a dead payment
+  // used to move real money that the post-hoc guard could refuse to record
+  // but could not undo. Not calling the provider is what actually prevents
+  // the capture.
+  assert.equal(captureCallCount, 0, 'the provider must not be polled at all for an already-failed payment');
   assert.ok(warnings.length > 0, 'a warning must be logged');
 
   const stored = await store.getPayment({ botId: 'afromarket-timeout-race', transactionId: 'tx-timeout-race' });
