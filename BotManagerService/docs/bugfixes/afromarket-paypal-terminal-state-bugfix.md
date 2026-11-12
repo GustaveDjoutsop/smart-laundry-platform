@@ -305,7 +305,65 @@ That is a separate decision, not a bugfix.
   no cap; retention is per-key and sliding, so one unresolved entry is deleted
   together with the whole key when the key finally expires.
 
-## How the money moved, and the duplicate webhook registration
+## Confirmed 2026-11-12: the duplicate webhook registration IS how the money moves
+
+The guard shipped and was exercised the same evening, twice
+(`977492012G475341S` €35.95 / order `AM-B1VA013V5`, and `6M6353120A058410B`
+€43.94). It behaved correctly both times: `CHECKOUT.ORDER.APPROVED` was
+refused, no order was confirmed, no "Payment received" reached the customer,
+and both landed in the manual-review queue:
+
+```
+18:46:25 [WARN]  PayPal CHECKOUT.ORDER.APPROVED received for already-terminal payment;
+                 skipping capture {"orderId":"977492012G475341S","status":"FAILED","failureReason":"TIMEOUT"}
+18:46:45 [ERROR] Webhook reported a completed payment that had already failed; queued for
+                 manual review {"transactionId":"977492012G475341S","terminalStatus":"FAILED","amount":35.95}
+```
+
+**And the money still moved.** PayPal captured €35.95 (capture
+`28D9845161149043F`, `create_time` 18:46:24Z) although this service demonstrably
+never called capture.
+
+The webhook event's own `transmissions` block settles why, and it is not
+PayPal auto-capturing. Both registered URLs returned HTTP 200, with
+**different response bodies**:
+
+| Endpoint | `Content-Length` | Body |
+|---|---|---|
+| `bot.botmanagementservice.eu` | 46 | `{"ok":true,"blocked":"payment_already_failed"}` |
+| `botmanagerservice-dev-7fcf.up.railway.app` | 49 | `{"ok":true,"blocked":"payment_already_completed"}` |
+
+The two deployments disagreed about the same payment. For the second to call it
+*already completed*, it must already have recorded a completion — which means
+**that deployment performed the capture**.
+
+It could, because it had no record of the payment at all. The order was created
+by the other instance, so every terminal guard on the capturing instance was
+keyed on state it did not have: `existingPayment` null, marker null, so
+`terminalStatus` null, and the code fell straight through to `captureOrder`.
+A guard that reads "is this payment terminal?" cannot stop an instance that has
+never heard of the payment.
+
+This also retrospectively explains 2026-11-11, where a capture appeared ten
+seconds after a skip that our own logs prove did not capture. It was never
+PayPal auto-capturing a CAPTURE-intent order; the comment in
+`routes/payments.js` asserting PayPal never does so stands.
+
+### Fix: capture fails closed on an unknown payment
+
+`CHECKOUT.ORDER.APPROVED` now refuses to capture when the instance has neither
+a payment record nor a terminal marker, returning
+`skipped: 'payment_unknown_to_this_instance'`. A legitimate approval always has
+a record — it is written at `initiatePayment` with a 24h TTL and a PayPal order
+expires in about three hours — so "no record" means a foreign or long-dead
+order, and capturing it is never right.
+
+This makes the duplicate registration harmless rather than merely undesirable.
+**Removing the duplicate URL is still the first thing to do**, because it is a
+two-minute dashboard change that removes the whole class, and because a
+deployment running older code would still capture.
+
+## The original 2026-11-11 analysis, superseded by the above
 
 The 2026-11-11 logs left this genuinely unexplained: the approval handler
 **skipped** the capture call (the WARN proves it), and the poller had stopped
@@ -398,7 +456,7 @@ From Gustave's plan, in his priority order:
   for a failed payment (it previously documented "the capture itself is not
   preventable", which is no longer true).
 
-Full suite: 505 passing.
+Full suite: 506 passing.
 
 Two further regression tests exist specifically for the holes review found in
 the first draft of this fix, because neither is reachable through the paths the
