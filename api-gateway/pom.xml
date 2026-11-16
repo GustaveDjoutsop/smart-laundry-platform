@@ -20,8 +20,8 @@
 
     <properties>
         <java.version>25</java.version>
-        <spring-cloud.version>2025.0.0</spring-cloud.version>
-        <lombok.version>1.18.46</lombok.version>
+        <spring-cloud.version>2025.1.4</spring-cloud.version>
+        <lombok.version>1.18.48</lombok.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     </properties>
@@ -108,7 +108,7 @@
         <dependency>
             <groupId>org.wiremock</groupId>
             <artifactId>wiremock-standalone</artifactId>
-            <version>3.13.0</version>
+            <version>3.13.2</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -146,7 +146,7 @@
                      an aspirational number nobody can meet. -->
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.15</version>
+                <version>0.8.16</version>
                 <executions>
                     <execution>
                         <id>prepare-agent</id>
